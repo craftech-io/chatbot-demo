@@ -25,6 +25,14 @@ PORT = 8080
 logger = logging.getLogger(__name__)
 
 
+class _EchoLLM:
+    """LLM de smoke: repite el mensaje. Solo se usa con FAKE_LLM=1."""
+
+    async def astream(self, message: str, history: list[dict]):
+        for palabra in f"eco: {message}".split(" "):
+            yield palabra + " "
+
+
 def build_app(llm_factory=None, env=None) -> Starlette:
     # `env` se inyecta en los tests; en el contenedor es os.environ.
     env = os.environ if env is None else env
@@ -32,6 +40,9 @@ def build_app(llm_factory=None, env=None) -> Starlette:
     # obligatorio es preferible no arrancar (la misma razón de config.py).
     cfg = load_config(env)
     # El factory se inyecta en los tests para no pegarle a Bedrock.
+    # FAKE_LLM permite el smoke del contenedor sin credenciales de Bedrock.
+    if llm_factory is None and env.get("FAKE_LLM"):
+        llm_factory = lambda cfg: _EchoLLM()  # noqa: E731
     llm_factory = llm_factory or BedrockAdapter
 
     async def ping(_: Request) -> JSONResponse:

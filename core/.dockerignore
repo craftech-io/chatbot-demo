@@ -1,0 +1,3 @@
+core/tests/
+**/__pycache__/
+.venv/
