@@ -43,24 +43,44 @@ function jwks(url: string) {
   return set;
 }
 
+// Algoritmos permitidos por tipo de emisor. Allowlist explícita: en una frontera
+// de confianza no se deja que el token elija el algoritmo.
+const HMAC_ALGS = ["HS256"];
+const JWKS_ALGS = ["RS256", "ES256", "PS256", "EdDSA"];
+
 export async function verifyUserToken(
   token: string,
   v: Verifier,
 ): Promise<Principal> {
   let payload: JWTPayload;
   try {
-    const key =
-      v.kind === "hmac" ? new TextEncoder().encode(v.secret) : jwks(v.url);
-    ({ payload } = await jwtVerify(token, key as never));
+    // Sin cast: cada tipo de clave va con su allowlist en su propia rama.
+    ({ payload } =
+      v.kind === "hmac"
+        ? await jwtVerify(token, new TextEncoder().encode(v.secret), {
+            algorithms: HMAC_ALGS,
+          })
+        : await jwtVerify(token, jwks(v.url), { algorithms: JWKS_ALGS }));
   } catch (e) {
-    const expirado = (e as Error).name === "JWTExpired";
+    // jose marca sus errores con .code (estable ante minificación, a diferencia
+    // de .name). Lo que no venga de jose (red, DNS, URL malformada) se loguea
+    // antes de fallar cerrado: una caída del JWKS no debe quedar indistinguible
+    // de un token adulterado en los logs.
+    const code = (e as { code?: string }).code ?? "";
+    if (!code.startsWith("ERR_")) {
+      console.error("verifyUserToken: error no-JWT verificando el token", e);
+    }
+    const expirado = code === "ERR_JWT_EXPIRED";
     throw new AuthError(
       expirado ? "el token venció" : "token inválido",
       expirado ? "expired_token" : "invalid_token",
     );
   }
 
-  if (!payload.sub) {
+  // `sub` es la identidad misma: se exige string no vacío, no solo truthy —
+  // un emisor mal configurado que mande un sub numérico no puede colarse
+  // como userId en el contrato que todo lo demás considera cierto.
+  if (typeof payload.sub !== "string" || !payload.sub) {
     throw new AuthError("el token no trae 'sub'", "invalid_token");
   }
 

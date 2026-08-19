@@ -45,4 +45,10 @@ describe("verifyUserToken", () => {
       code: "invalid_token",
     });
   });
+
+  it("rechaza un token HMAC presentado a un verifier JWKS", async () => {
+    const token = await firmar({ sub: "4821" });
+    const jwksVerifier = { kind: "jwks", url: "https://example.invalid/jwks.json" } as const;
+    await expect(verifyUserToken(token, jwksVerifier)).rejects.toBeInstanceOf(AuthError);
+  });
 });
