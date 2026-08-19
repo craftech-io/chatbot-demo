@@ -63,3 +63,16 @@ async def test_manda_el_historial_antes_del_mensaje_nuevo():
 
     roles = [(m.role, m.content) for m in adapter.client.recibido]
     assert roles == [("user", "previo"), ("assistant", "ok"), ("user", "nuevo")]
+
+
+def test_no_manda_claves_de_guardrail_si_no_hay_guardrail_configurado():
+    env_sin_guardrail = {
+        "MODEL_ID": "us.anthropic.claude-sonnet-4-6",
+        "AWS_REGION": "us-east-1",
+    }
+    BedrockAdapter(load_config(env_sin_guardrail), client_factory=FakeConverse)
+    assert FakeConverse.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
+    assert FakeConverse.kwargs["region_name"] == "us-east-1"
+    assert "guardrail_identifier" not in FakeConverse.kwargs
+    assert "guardrail_version" not in FakeConverse.kwargs
+    assert "guardrail_stream_processing_mode" not in FakeConverse.kwargs
