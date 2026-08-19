@@ -111,6 +111,25 @@ describe("handleChat", () => {
     expect(r.status).toBe(400);
   });
 
+  it("si el stream muere a mitad de la respuesta, emite un frame de error", async () => {
+    const r = await handleChat(
+      { token: await token(), message: "hola", sessionId: "s1" },
+      {
+        cfg,
+        invoke: async () =>
+          (async function* () {
+            yield enc.encode('{"type":"delta","text":"Hola"}\n');
+            throw new Error("microVM caída");
+          })(),
+      },
+    );
+    expect(r.status).toBe(200);
+    expect(await frames(r.frames)).toEqual([
+      'data: {"type":"delta","text":"Hola"}\n\n',
+      'data: {"type":"error","code":"agent_unavailable"}\n\n',
+    ]);
+  });
+
   it("si el runtime falla, emite un evento de error en vez de tirar", async () => {
     const r = await handleChat(
       { token: await token(), message: "hola", sessionId: "s1" },

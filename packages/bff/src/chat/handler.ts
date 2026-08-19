@@ -80,7 +80,15 @@ export async function handleChat(
   return {
     status: 200,
     frames: (async function* () {
-      for await (const ev of parseNdjson(stream)) yield toSse(ev);
+      // El stream puede morir DESPUÉS de que el invoke resolvió (la microVM se
+      // cae a mitad de la respuesta). También ahí la conversación no se tumba:
+      // se loguea y el widget recibe un frame de error parseable.
+      try {
+        for await (const ev of parseNdjson(stream)) yield toSse(ev);
+      } catch (e) {
+        console.error("stream del runtime cortado a mitad de la respuesta", e);
+        yield toSse({ type: "error", code: "agent_unavailable" });
+      }
     })(),
   };
 }
