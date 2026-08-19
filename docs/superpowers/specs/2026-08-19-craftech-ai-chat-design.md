@@ -1,0 +1,347 @@
+# craftech-ai-chat — Diseño del paquete base de chatbot + agent core
+
+**Ticket:** [AER-3](https://craftech.atlassian.net/browse/AER-3) (Onboarding Aersa) ·
+relacionado: [AER-2](https://craftech.atlassian.net/browse/AER-2) (Propuesta de arquitectura)
+**Fecha:** 2026-08-19
+**Estado:** diseño aprobado, pendiente de plan de implementación
+
+## 1. Objetivo
+
+Construir un **paquete base reusable** (repo template) que entregue a un cliente un
+chatbot que interactúa con su propia aplicación: chat con memoria y streaming,
+respuestas con un LLM, RAG sobre su documentación y tools de lectura contra su API.
+
+El paquete es el producto que Craftech le da a todo cliente que llega buscando
+asesoría de IA. Aersa es su primer consumidor, pero **el diseño no incorpora nada
+específico de Aersa**: su negocio se refleja únicamente en la parametrización
+(`client.config.ts`), no en la arquitectura.
+
+Reusa el stack y los patrones ya probados en `msp-platform` (AgentCore, proxy SSE,
+Gateway MCP, KB sobre S3 Vectors, guardrails), que es la ventaja competitiva real:
+la diferencia entre entregar en semanas o en meses.
+
+## 2. Decisiones tomadas
+
+| Decisión | Elección | Razón |
+|---|---|---|
+| Entregable | Propuesta/spec (fase 1) → template (fase 2) | Validar arquitectura con equipo y cliente antes de escribir código |
+| Superficies | Widget embebible **y** app standalone, mismo backend | El widget es lo vendible; el standalone es demo comercial y entorno de prueba |
+| Runtime del agent core | Python en contenedor BYOC sobre AgentCore Runtime | LlamaIndex Workflows es Python-first: durabilidad, checkpointing, human-in-the-loop y streaming de eventos maduros. El Runtime es un contenedor: el lenguaje es indistinto para la infra |
+| Framework del harness | LlamaIndex Workflows | El loop del agente es un grafo de pasos y eventos explícito, no una caja negra: testeable paso a paso |
+| Alcance v1 | Chat + LLM + memoria + streaming + guardrails + tools de lectura + RAG | Es lo que el cliente de asesoría IA pide primero |
+| IaC | SST v4 como sabor de referencia; Terraform como segundo | Máxima velocidad reusando `msp-platform`; el contrato explícito habilita los otros sabores |
+| Despliegue | En la cuenta AWS del cliente | Él paga su consumo de Bedrock. Es lo que explica por qué el sabor de IaC importa: se le entrega a él |
+| Repos | Template propio (`craftech-ai-chat`) + `aersa` como primer clon | Un repo llamado `aersa` con el producto genérico sería una confusión permanente |
+| Enfoque general | AgentCore completo, con adaptador de LLM y capa de config agnóstica | El lock-in a Memory/Gateway se acepta a conciencia: reemplazarlos después es un módulo, no el producto |
+
+`craftech-ai-chat` es el nombre de trabajo del template; renombrarlo no afecta ninguna
+decisión de este documento.
+
+## 3. Alcance
+
+**Dentro del v1:** conversación con memoria persistente y streaming; guardrails de
+entrada y salida; tools de lectura de dos clases (tenant y usuario); RAG con citas;
+widget embebible; app standalone; topes de uso; observabilidad básica; IaC en SST;
+contrato de infra documentado.
+
+**Fuera del v1**, con punto de extensión definido pero sin implementar: acciones de
+**escritura** sobre la app del cliente con human-in-the-loop; memoria long-term
+(resúmenes y preferencias); el sabor Pulumi; la modalidad de despliegue hosteada en la
+cuenta de Craftech; proveedores de LLM distintos de Bedrock; canales fuera de la web
+(WhatsApp, Slack).
+
+## 4. Arquitectura
+
+Un stack por cliente, en su cuenta AWS. **No hay multitenancy de organizaciones**: el
+aislamiento es la cuenta, lo que simplifica todo respecto de `msp-platform` — no hay
+`orgId` atravesando cada query.
+
+```
+   App del cliente                      Nuestro standalone
+   ┌──────────────┐                     ┌──────────────┐
+   │ widget (SDK) │                     │ web (React)  │
+   └──────┬───────┘                     └──────┬───────┘
+          │  POST /chat  (SSE)                 │
+          └──────────────┬─────────────────────┘
+                         ▼
+              ┌────────────────────────┐
+              │ BFF (Lambda, tRPC)     │  valida el principal, arma el
+              │ + proxy SSE            │  payload confiable, audita
+              └───────────┬────────────┘
+                          │ InvokeAgentRuntime (IAM, streaming)
+                          ▼
+      ┌─────────────────────────────────────────────┐
+      │ AgentCore Runtime — BYOC :8080              │
+      │   /ping · /invocations                      │
+      │   ┌───────────────────────────────────┐     │
+      │   │ LlamaIndex Workflow (el harness)  │     │
+      │   │  eventos: Start→Guard→Agent→Tool  │     │
+      │   │           →Guard→Stream           │     │
+      │   └───────────────────────────────────┘     │
+      └───┬──────────┬───────────┬──────────┬───────┘
+          │          │           │          │
+          ▼          ▼           ▼          ▼
+      Bedrock    AgentCore   AgentCore   Bedrock KB
+      Converse    Memory     Gateway     (S3 Vectors)
+      (+Guardrail)(historial) (MCP)      RAG
+                                 │
+                                 ▼
+                          API del cliente
+```
+
+**Sobre el aislamiento en ejecución:** el contenedor es solo el formato de entrega.
+AgentCore Runtime corre la imagen dentro de una **microVM de Firecracker dedicada por
+sesión**, con kernel, memoria y filesystem propios, que se destruye y sanitiza al
+cerrarse la sesión. La microVM se mantiene **viva entre invocaciones** de la misma
+sesión, ruteada por `runtimeSessionId`.
+
+Eso tiene dos consecuencias de diseño:
+
+- El cold start se paga en el primer mensaje de una conversación, no en cada mensaje.
+- **El `runtimeSessionId` se deriva del principal verificado**
+  (`sha256(userId + ":" + hilo)`), nunca se toma del request. Como la microVM sigue
+  viva y con estado, un id tomado del browser permitiría a un usuario alcanzar la
+  microVM caliente de otro.
+
+## 5. Componentes
+
+| Componente | Responsabilidad | Depende de |
+|---|---|---|
+| `core/` (Python, contenedor) | El harness: workflow de LlamaIndex con un paso por responsabilidad. Es la única pieza que un cliente con otro IaC recibe intacta | Bedrock, AgentCore Memory/Gateway, KB. Config por env/SSM — **nunca `Resource`** |
+| `packages/bff/` (TS, Lambda) | Frontera de confianza: valida el token, resuelve el usuario, aplica topes, audita, invoca el Runtime y hace passthrough del SSE. **Sin lógica de agente** | AgentCore Runtime, Dynamo, guardrail de entrada |
+| `packages/widget/` (TS) | Bundle embebible: un `<script>` + `mount()`. Sin React expuesto, para no chocar con el stack del cliente | BFF, `/chat-token` del cliente |
+| `packages/web/` (React) | Standalone: misma UI de chat con login propio (Cognito). Demo comercial y entorno de prueba | BFF, Cognito |
+| `packages/shared/` (TS) | Contratos y registros centrales compartidos entre BFF, widget y web | — |
+| `infra/sst/` | Sabor de referencia del IaC | Contrato de `infra/CONTRACT.md` |
+
+Cada unidad se entiende sin leer las internas de las otras: el BFF no sabe qué modelo
+usa el core, y el core no sabe qué IaC lo desplegó.
+
+## 6. Identidad y autenticación
+
+No se toca la auth del cliente. Él expone un endpoint propio, `/chat-token`, que para
+el usuario ya logueado en su app emite un JWT corto (5–15 min) con `sub`, `email` y
+los claims de scope que decida, más — cuando quiera tools de usuario — un `actToken`
+para actuar en su nombre contra su API.
+
+**En el caso más común es un solo token.** Si la API del cliente ya se consume con
+JWTs de acceso, el mismo token responde las dos preguntas — quién es el usuario y con
+qué permiso leer sus datos — y `/chat-token` devuelve ese. Los dos tokens separados son
+el caso especial: solo hacen falta si su API usa otro esquema de auth.
+
+El widget pide ese token y lo envía al BFF, que lo valida:
+
+- **Con OIDC:** por firma pública contra el JWKS del cliente (`CLIENT_JWKS_URL`). Es
+  el camino preferido: no hay secreto compartido.
+- **Sin OIDC:** por HMAC con un secreto en Secrets Manager (`CLIENT_HMAC_SECRET_ARN`).
+
+El standalone usa Cognito propio y produce un principal equivalente. El BFF tiene así
+**un solo concepto de principal con dos emisores**.
+
+Implementar `/chat-token` es la única tarea de desarrollo que se le pide al cliente.
+
+## 7. Tools: dos clases y una regla dura
+
+> **Una tool que devuelve datos de un usuario específico no puede pasar por una
+> credencial compartida.**
+
+|  | Tools de tenant | Tools de usuario |
+|---|---|---|
+| Devuelven | lo mismo para todos: docs, catálogo, FAQ, cálculos | datos del usuario final: sus pedidos, su cuenta |
+| Camino | **AgentCore Gateway** (MCP), target OpenAPI o Lambda | el core las llama **directo por HTTP** |
+| Credencial | fija, de nivel gateway | `actToken` del usuario, propagado en el payload confiable |
+
+La razón de no mandar todo al Gateway: su auth outbound es por gateway, no por
+request. Meter ahí datos per-usuario es una fuga entre usuarios esperando a pasar.
+
+Para las tools de tenant basta el OpenAPI del cliente y las tools salen casi gratis;
+el adaptador Lambda queda como escape hatch cuando su API no es REST limpia.
+
+## 8. Flujo de un mensaje
+
+```
+widget → /chat-token (backend del cliente)     → JWT + actToken
+widget → BFF POST /chat (SSE)                  → valida firma, topes, audita
+BFF    → ApplyGuardrail(INPUT)                 → si bloquea, corta acá: no se paga Runtime
+BFF    → InvokeAgentRuntime (IAM, streaming)   → payload confiable
+core   → Memory: list_events(actorId, sessionId)
+core   → Workflow: agente + tools + retrieve(KB)
+core   → ConverseStream(guardrailConfig sync)  → deltas ya filtrados
+core   → SSE: deltas + pasos de tool + citas   → BFF passthrough → widget
+core   → Memory: create_event(turno)
+```
+
+El payload que el BFF arma es **confiable** — lo produce después de validar el
+principal — igual que en el Runtime BYOC de `msp-platform`: la invocación va con IAM,
+no expuesta al browser.
+
+## 9. Guardrails
+
+Repartidos a propósito:
+
+- **Entrada: en el BFF**, con `ApplyGuardrail`. Es barato y corta antes de pagar
+  Runtime y modelo.
+- **Salida: en el core**, con `guardrailConfig` en `ConverseStream` en modo `sync`, de
+  modo que Bedrock evalúe cada chunk **antes** de emitirlo. Aplicarlo a mano sobre
+  texto ya streameado llegaría tarde.
+
+Política de fallo **fail-open**, igual que `msp-platform`: si el guardrail falla, se
+loguea y el chat sigue. Se prefiere disponibilidad a censura dura.
+
+Los mensajes de bloqueo viven en un registro compartido, no como literales.
+
+## 10. Memoria
+
+AgentCore Memory con el par `(actorId, sessionId)` — `actorId` es el usuario,
+`sessionId` el hilo — el mismo modelo que ya usa `msp-platform`. Solo short-term en
+v1; los resúmenes long-term quedan como extensión con su punto de enganche en
+`core/src/agent/memory.py`.
+
+Memory guarda los eventos del turno, pero no da un índice de hilos por usuario. Ese
+índice — título del hilo, timestamps, estado del último turno — vive en
+`SESSIONS_TABLE` (Dynamo) y lo escribe el BFF, que es quien necesita listar las
+conversaciones para la UI. La transcripción nunca se duplica ahí: solo metadata.
+
+## 11. RAG
+
+Bedrock Knowledge Base sobre S3 Vectors. El cliente sube documentos a un bucket y el
+data source sincroniza. Se expone al workflow como tool `buscar_conocimiento` usando
+`retrieve` (no `retrieveAndGenerate`), para que el workflow controle la síntesis y
+pueda devolver **citas al widget**: en asesoría IA una respuesta sin fuente no sirve.
+
+## 12. Límites de costo
+
+El cliente paga su propio Bedrock, así que el paquete trae topes de mensajes por
+usuario y por sesión en Dynamo (`LIMITS_TABLE`), aplicados en el BFF antes de invocar
+el Runtime. Sin eso, la primera factura sorpresa se come la relación.
+
+## 13. Portabilidad: contrato de infra y adaptadores
+
+El multi-sabor no se abstrae con código: **se declara**. `infra/CONTRACT.md` lista los
+recursos que cualquier sabor debe crear y las variables que debe inyectar — al core y
+al BFF, según cuál las consuma. Cambiar de SST a Terraform es reimplementar esa lista,
+nada más:
+
+```
+MODEL_ID · GUARDRAIL_ID/VERSION · MEMORY_ID · GATEWAY_URL
+KB_ID · SESSIONS_TABLE · LIMITS_TABLE · PROMPT_PARAM_PATH (SSM)
+CLIENT_API_BASE_URL · CLIENT_JWKS_URL | CLIENT_HMAC_SECRET_ARN
+```
+
+**Dos adaptadores, y solo dos:**
+
+1. **Config.** El core lee todo por `core/src/agent/config.py` (env + SSM, con cache y
+   TTL) y no conoce SST. El BFF, que en el sabor de referencia sí puede usar
+   `Resource`, lo hace **únicamente** dentro de `packages/bff/src/config/resource.ts`;
+   `env.ts` cubre cualquier otro sabor. Un archivo por sabor, y el resto del código
+   nunca sabe cuál está activo. Así se cumple la regla del workspace (usar `Resource`,
+   no `process.env`) sin acoplar el producto a SST.
+2. **LLM.** `core/src/agent/llm.py`: Bedrock Converse por defecto, con la puerta
+   abierta a la API de Anthropic directa.
+
+## 14. Estructura del repositorio
+
+```
+craftech-ai-chat/
+├── core/                   Python — el agent core (contenedor BYOC)
+│   ├── src/agent/
+│   │   ├── workflow.py     el harness: eventos y pasos del Workflow
+│   │   ├── steps/          guard_in · agent · tools · stream
+│   │   ├── llm.py          adaptador de modelo
+│   │   ├── memory.py       AgentCore Memory (actorId, sessionId)
+│   │   ├── tools/          gateway_mcp · user_http · knowledge
+│   │   └── config.py       env/SSM — única puerta a la config
+│   ├── server.py           /ping + /invocations :8080
+│   ├── Dockerfile
+│   └── tests/
+├── packages/
+│   ├── bff/                tRPC + proxy SSE  (src/config/ = adaptador)
+│   ├── widget/             bundle embebible, sin React expuesto
+│   ├── web/                standalone React
+│   └── shared/             contratos + registros centrales
+├── infra/
+│   ├── sst/                sabor de referencia
+│   └── CONTRACT.md         qué debe producir cualquier sabor
+├── client.config.ts        ← lo único que se toca por cliente
+└── docs/
+```
+
+`client.config.ts` concentra la parametrización del cliente: dominio, modelo, prompt,
+tools declaradas, OpenAPI de su API, JWKS o secreto HMAC, y topes de uso. Todo lo
+demás es el paquete.
+
+## 15. Manejo de errores
+
+El principio: nada tumba la conversación. Cada falla se traduce a algo que el agente
+pueda contarle al usuario.
+
+| Falla | Respuesta |
+|---|---|
+| JWT expirado | 401 con código; el widget renueva contra `/chat-token` y reintenta una vez |
+| Tope de uso excedido | 429 con mensaje al usuario, no error técnico |
+| Guardrail bloquea la entrada | mensaje canónico de política del registro — es una respuesta, no un error |
+| Guardrail interviene la salida | se corta el stream con el mensaje de política; el turno queda registrado |
+| Tool del cliente 5xx / timeout | el workflow **no muere**: devuelve al modelo un resultado de error estructurado para que lo explique al usuario. Timeout duro y tope de reintentos por tool |
+| SSE cortado a mitad | el turno parcial se persiste marcado incompleto; el widget muestra lo recibido y reconecta |
+| Throttling de Bedrock | backoff con jitter; si persiste, mensaje al usuario |
+| Guardrail caído | fail-open: se loguea y el chat sigue |
+
+## 16. Testing
+
+Que el harness sea un Workflow explícito y no un loop opaco es lo que lo hace
+testeable: cada paso se prueba por sus eventos, con LLM y tools falsos.
+
+- **`core/`**: unitarios por paso del workflow (guard_in, agent, tools, stream) con
+  dobles de LLM y de tools.
+- **Contract tests de tools**: cada tool declarada en `client.config.ts` se valida
+  contra el OpenAPI del cliente.
+- **`bff/`**: validación de token en ambos emisores (JWKS y HMAC), aplicación de
+  topes, passthrough SSE.
+- **e2e contra fakes**: "pregunta → responde con cita" y "pregunta → llama tool de
+  usuario", reusando el patrón `dev-local/aws-fakes.ts` de `msp-platform`.
+- **Smoke de deploy**: `/ping` más una invocación real por stage.
+
+## 17. Observabilidad
+
+En asesoría IA la observabilidad es parte del producto, no telemetría interna.
+Traces del workflow por paso, y métricas de latencia, tools invocadas, tokens y costo
+por sesión, e intervenciones de guardrail. El paquete incluye un dashboard mínimo: el
+cliente que paga su propio Bedrock quiere verlo desde el día 1.
+
+## 18. Fases de entrega
+
+- **Fase 1** (AER-3): esta propuesta y este spec.
+- **Fase 2** — el template:
+  - **2a** Esqueleto vertical: widget → BFF → Runtime → LLM → stream. Sin tools ni RAG.
+  - **2b** Memoria, guardrails y topes de uso.
+  - **2c** Tools de tenant vía Gateway y tools de usuario vía HTTP con `actToken`.
+  - **2d** RAG: KB sobre S3 Vectors, con citas.
+  - **2e** Standalone, docs de instalación y `CONTRACT.md`.
+- **Fase 3**: sabor Terraform, que es lo que realmente valida el contrato.
+
+Cada fase de la 2 es desplegable y demostrable por sí sola.
+
+## 19. Riesgos y validaciones pendientes
+
+1. **Cobertura de AgentCore en Terraform.** En `msp-platform`, AgentCore
+   Harness/Memory/Identity y S3 Vectors se crean con el provider `aws-native` (Cloud
+   Control API), no con el classic. El equivalente en Terraform es
+   `hashicorp/awscc`. **Hay que validar esa cobertura antes de prometerle el sabor
+   Terraform a un cliente.** Es la validación de mayor impacto comercial del proyecto.
+2. **Cold start del contenedor.** LlamaIndex y sus dependencias son pesadas. El riesgo
+   es menor de lo que parece: como la microVM de la sesión se mantiene viva entre
+   invocaciones, el arranque se paga solo en el primer mensaje de cada conversación.
+   Medir igual en la fase 2a; mitigación por imagen slim e imports lazy.
+3. **Disponibilidad regional de AgentCore** en la región donde opera el cliente.
+4. **Dependencia de `/chat-token`.** Si el cliente no puede implementarlo, las tools
+   de usuario no existen y el alcance cae a tools de tenant más RAG. Hay que
+   detectarlo en el kickoff, no en la implementación.
+
+## 20. Reglas heredadas del workspace
+
+- **Regla de oro de parametría**: antes de escribir un literal, buscar si ya existe un
+  registro. Duplicar un literal entre archivos significa moverlo a `shared`.
+- Serverless only. Todo por IaC. Región y cuenta se derivan, nunca se hardcodean.
+- Máximo 400 líneas por archivo. Organización feature-based.
+- Producto en español, sin i18n. Locale, timezone y moneda desde un registro.
+- Deploys por CI/CD.
