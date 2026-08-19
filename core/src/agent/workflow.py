@@ -24,4 +24,4 @@ class ChatWorkflow(Workflow):
         async for chunk in self.llm.astream(ev.message, ev.history):
             partes.append(chunk)
             ctx.write_event_to_stream(TextDelta(text=chunk))
-        return ChatDone(result="".join(partes))
+        return ChatDone(texto="".join(partes))

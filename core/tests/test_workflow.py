@@ -25,5 +25,5 @@ async def test_emite_un_delta_por_chunk_y_devuelve_el_texto_completo():
     done = await handler
 
     assert deltas == ["Hola", " ", "mundo"]
-    assert done.result == "Hola mundo"
+    assert done.texto == "Hola mundo"
     assert llm.seen == {"message": "¿hola?", "history": []}
