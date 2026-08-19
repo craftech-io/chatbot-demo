@@ -32,9 +32,17 @@ export function mount(
       body: JSON.stringify({ message: texto, sessionId: sesion() }),
     });
 
+    // Nota: NO se corta por r.ok — el 401 del BFF trae frames SSE parseables
+    // (expired_token viaja ahí). La guarda correcta es "ningún frame llegó".
+    let huboEventos = false;
     for await (const ev of leerSse(r)) {
+      huboEventos = true;
       if (ev.type === "delta") {
         burbuja.textContent += String(ev.text ?? "");
+      } else if (ev.type === "done") {
+        // El texto del done es el autoritativo: reconcilia la burbuja por si
+        // los deltas y el texto final divergieran (renormalización, retries).
+        if (typeof ev.text === "string") burbuja.textContent = ev.text;
       } else if (ev.type === "error") {
         // El token venció mientras el usuario escribía: se renueva y se reintenta
         // UNA vez. Más de una sería un loop ante un token mal emitido.
@@ -46,6 +54,11 @@ export function mount(
         burbuja.textContent =
           ev.code === "agent_unavailable" ? MENSAJES.agenteCaido : MENSAJES.errorGenerico;
       }
+    }
+    if (!huboEventos) {
+      // Una respuesta sin ni un frame SSE (el 5xx de un proxy, un body vacío)
+      // no puede dejar la burbuja vacía para siempre.
+      burbuja.textContent = MENSAJES.errorGenerico;
     }
   }
 

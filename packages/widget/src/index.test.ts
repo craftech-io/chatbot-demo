@@ -58,6 +58,43 @@ describe("mount", () => {
     expect(el.textContent).toContain("listo");
   });
 
+  it("el done reconcilia la burbuja con el texto autoritativo", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : sse(
+              'data: {"type":"delta","text":"Hola mund"}\n\n',
+              'data: {"type":"done","text":"Hola mundo"}\n\n',
+            ),
+      ),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    expect(el.querySelector(".cc-respuesta")?.textContent).toBe("Hola mundo");
+  });
+
+  it("una respuesta sin ningún frame SSE muestra el error genérico", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : new Response("Internal Server Error", { status: 500 }),
+      ),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    expect(el.textContent).toMatch(/problema al responder/i);
+  });
+
   it("ante agent_unavailable muestra un mensaje al usuario, no un stack", async () => {
     vi.stubGlobal(
       "fetch",
