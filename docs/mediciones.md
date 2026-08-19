@@ -7,3 +7,6 @@ que lo cierran o lo escalan.
 |---|---|---|
 | 2026-08-19 | tamaño de la imagen (`docker images craftech-ai-chat-core:dev`) | 471MB (470733004 bytes) |
 | 2026-08-19 | import de `agent.workflow` + `agent.llm` en el contenedor | ~28s (dos corridas: 27.86s y 28.49s), bajo emulación QEMU ARM64 sobre host amd64 |
+
+Nota: los ~28s son bajo QEMU en amd64 y sirven como cota superior — en ARM real
+(CI y AWS) el arranque es mucho menor.

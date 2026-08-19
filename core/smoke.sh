@@ -7,9 +7,11 @@ docker build --platform linux/arm64 -f core/Dockerfile -t craftech-ai-chat-core:
 cid=$(docker run -d -p 8080:8080 -e MODEL_ID=fake -e FAKE_LLM=1 craftech-ai-chat-core:dev)
 trap 'docker rm -f "$cid" >/dev/null' EXIT
 
-for _ in $(seq 1 30); do
+# Presupuesto generoso: bajo QEMU (build multi-arch en x86) el arranque tarda
+# ~30s; en ARM real es mucho menor. 60×2s cubre ambos con margen.
+for _ in $(seq 1 60); do
   if curl -sf localhost:8080/ping >/dev/null; then break; fi
-  sleep 1
+  sleep 2
 done
 
 echo "== /ping =="
