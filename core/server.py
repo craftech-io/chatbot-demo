@@ -7,6 +7,7 @@ BFF después de validar al usuario: es CONFIABLE. No se valida identidad acá.
 """
 
 import json
+import logging
 import os
 
 from starlette.applications import Starlette
@@ -20,6 +21,8 @@ from agent.llm import BedrockAdapter
 from agent.workflow import ChatWorkflow
 
 PORT = 8080
+
+logger = logging.getLogger(__name__)
 
 
 def build_app(llm_factory=None, env=None) -> Starlette:
@@ -44,14 +47,22 @@ def build_app(llm_factory=None, env=None) -> Starlette:
         handler = workflow.run(message=message, history=payload.get("history") or [])
 
         async def eventos():
-            async for ev in handler.stream_events():
-                if isinstance(ev, TextDelta):
-                    yield f"data: {json.dumps({'type': 'delta', 'text': ev.text})}\n\n"
-            # `.texto` explícito: await sobre el handler devuelve el ChatDone, no un
-            # string (el framework no desenvuelve subtipos de StopEvent), y el campo
-            # se llama `texto` para no colisionar con el `result` de StopEvent.
-            texto = (await handler).texto
-            yield f"data: {json.dumps({'type': 'done', 'text': texto})}\n\n"
+            # Nada tumba la conversación: si el workflow falla a mitad del stream
+            # (throttling de Bedrock, guardrail, timeout), los deltas ya emitidos
+            # quedan como están y el turno se cierra con un evento terminal de
+            # error en vez de dejar el SSE truncado sin cierre.
+            try:
+                async for ev in handler.stream_events():
+                    if isinstance(ev, TextDelta):
+                        yield f"data: {json.dumps({'type': 'delta', 'text': ev.text})}\n\n"
+                # `.texto` explícito: await sobre el handler devuelve el ChatDone, no un
+                # string (el framework no desenvuelve subtipos de StopEvent), y el campo
+                # se llama `texto` para no colisionar con el `result` de StopEvent.
+                texto = (await handler).texto
+                yield f"data: {json.dumps({'type': 'done', 'text': texto})}\n\n"
+            except Exception as exc:
+                logger.error("Fallo el workflow del agente a mitad del stream: %s", exc)
+                yield f"data: {json.dumps({'type': 'error', 'code': 'agent_error'})}\n\n"
 
         return StreamingResponse(eventos(), media_type="text/event-stream")
 
