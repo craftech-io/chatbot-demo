@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Demo del chat</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; }
+  .cc-hilo { min-height: 8rem; border: 1px solid #ccc; padding: .75rem; border-radius: .5rem; }
+  form { display: flex; gap: .5rem; margin-top: .75rem; }
+  input { flex: 1; padding: .5rem; }
+</style>
+
+<h1>Demo del chat</h1>
+<p>Usuario: <code id="quien"></code> — cambialo con <code>?user=B</code> en la URL.</p>
+
+<div id="chat"></div>
+<form id="f"><input id="m" placeholder="Escribí un mensaje…" autocomplete="off" /><button>Enviar</button></form>
+
+<script src="/widget.js"></script>
+<script>
+  const user = new URLSearchParams(location.search).get("user") || "demo";
+  document.getElementById("quien").textContent = user;
+
+  const chat = CraftechChat.mount(document.getElementById("chat"), {
+    tokenUrl: `/chat-token?user=${encodeURIComponent(user)}`,
+    chatUrl: "__CHAT_URL__",
+  });
+
+  document.getElementById("f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const input = document.getElementById("m");
+    if (input.value.trim()) chat.send(input.value.trim());
+    input.value = "";
+  });
+</script>

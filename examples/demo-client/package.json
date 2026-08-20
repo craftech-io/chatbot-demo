@@ -1,0 +1,13 @@
+{
+  "name": "@craftech-ai-chat/demo-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jose": "6.2.9",
+    "vitest": "4.1.11"
+  }
+}

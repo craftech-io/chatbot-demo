@@ -2,7 +2,8 @@
   "name": "craftech-ai-chat",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
