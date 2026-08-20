@@ -1,5 +1,7 @@
 # ARM64 es OBLIGATORIO: AgentCore Runtime no acepta otra arquitectura.
-FROM --platform=linux/arm64 python:3.12-slim
+# 3.13 porque pyproject.toml exige >=3.13: con 3.12 de base, `uv sync` bajaba
+# ADEMÁS un Python 3.13 managed en build (dos runtimes en la misma imagen).
+FROM --platform=linux/arm64 python:3.13-slim
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1

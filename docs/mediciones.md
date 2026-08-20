@@ -10,3 +10,10 @@ que lo cierran o lo escalan.
 
 Nota: los ~28s son bajo QEMU en amd64 y sirven como cota superior — en ARM real
 (CI y AWS) el arranque es mucho menor.
+
+Nota: los 471MB del 2026-08-19 se midieron con la imagen base `python:3.12-slim`,
+que además de no coincidir con el `>=3.13` de `pyproject.toml` forzaba a `uv
+sync` a bajar un segundo Python 3.13 managed en build — dos runtimes en la
+misma imagen. Al fijar la base en `python:3.13-slim` (ver `core/Dockerfile`) se
+espera un tamaño menor; no remedido todavía porque el rebuild es lento bajo
+QEMU (lo cubre el smoke del próximo deploy).

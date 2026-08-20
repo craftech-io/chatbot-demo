@@ -52,10 +52,15 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
       {
         Effect: "Allow",
         // El prefijo `us.` de los inference profiles rutea a otra región: hay que
-        // permitir foundation-model y inference-profile, no solo uno.
+        // permitir foundation-model y inference-profile, no solo uno. El
+        // foundation-model va con wildcard de región (`*`): un profile `us.*`
+        // invoca el modelo en cualquiera de las regiones hermanas del profile,
+        // y AWS exige el permiso en CADA región destino, no solo en la propia.
+        // El de inference-profile sí es regional+de cuenta: ese recurso vive
+        // solo en la región y cuenta donde se creó el profile.
         Action: ["bedrock:InvokeModelWithResponseStream", "bedrock:InvokeModel", "bedrock:ApplyGuardrail"],
         Resource: [
-          $interpolate`arn:aws:bedrock:${region}::foundation-model/*`,
+          "arn:aws:bedrock:*::foundation-model/*",
           $interpolate`arn:aws:bedrock:${region}:${accountId}:inference-profile/*`,
         ],
       },

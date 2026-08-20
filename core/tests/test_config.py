@@ -27,3 +27,13 @@ def test_el_guardrail_es_opcional():
     cfg = load_config({"MODEL_ID": "m", "AWS_REGION": "us-east-1"})
     assert cfg.guardrail_id is None
     assert cfg.guardrail_version is None
+
+
+def test_falla_si_hay_guardrail_id_sin_version():
+    with pytest.raises(ConfigError, match="GUARDRAIL_VERSION"):
+        load_config({"MODEL_ID": "m", "GUARDRAIL_ID": "gr-123"})
+
+
+def test_falla_con_model_id_vacio():
+    with pytest.raises(ConfigError, match="MODEL_ID"):
+        load_config({"MODEL_ID": ""})
