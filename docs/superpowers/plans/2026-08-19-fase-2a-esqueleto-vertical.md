@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-19-craftech-ai-chat-design.md`
 
+**Nota post-ejecución (2026-08-20):** este plan ya fue ejecutado; el código canónico es el del repo. Las correcciones de la review final (C1, I1–I5, minors) están en el repo y en el ledger de `.superpowers/sdd/`, no retro-editadas en los bloques de código de este documento.
+
 **Convención de rutas:** todas las rutas de este plan son **relativas a la raíz del
 repo**, y todo comando se ejecuta desde ahí salvo que el paso indique otro directorio.
 No hay rutas absolutas: el repo puede vivir donde el ejecutor quiera.
@@ -20,7 +22,7 @@ Estas reglas aplican a **todas** las tareas:
 
 - **La imagen del contenedor DEBE ser ARM64.** AgentCore Runtime no acepta otra arquitectura. En Docker: `--platform linux/arm64`.
 - **Contrato del Runtime:** el contenedor escucha en `0.0.0.0:8080`, expone `GET /ping` (devuelve `{"status":"Healthy"}`) y `POST /invocations`.
-- **`InvokeAgentRuntime` devuelve NDJSON**, una línea JSON por evento — no SSE. La traducción a SSE la hace el BFF.
+- **`InvokeAgentRuntime` relaya los bytes del contenedor tal cual** (con su content-type). Nuestro contenedor emite frames SSE, así que el parser del BFF tolera frames SSE además de NDJSON puro. ~~La premisa original de esta línea ("devuelve NDJSON") era falsa~~ — corregida por la review final.
 - **AgentCore corre la imagen en una microVM de Firecracker por sesión, y la mantiene viva entre invocaciones** ruteando por `runtimeSessionId`. Ese id se **deriva** del principal verificado; aceptarlo del browser permitiría a un usuario caer en la microVM caliente de otro.
 - **El core nunca usa `Resource` de SST.** Lee su config por `core/src/agent/config.py` (env, y SSM en fases posteriores). Un `import` de SST en `core/` es un error de revisión.
 - **El BFF usa `Resource` únicamente dentro de `src/config/resource.ts`.** El resto del código consume la interfaz de `src/config/index.ts`.
