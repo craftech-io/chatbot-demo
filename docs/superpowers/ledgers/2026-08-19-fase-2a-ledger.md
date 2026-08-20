@@ -171,3 +171,12 @@ Fix wave: re-review — todo ADDRESSED (C1, I1-I5, M1-M11, T3, T9), sin breakage
 Ruling (residual 1): el test del flush del decoder no pinea de verdad la línea del flush (verificado empíricamente por el re-reviewer; el implementer ya lo había declarado). El código del fix es correcto; queda como deuda de diseño de test para 2b. Parked, no extiende el wave.
 Ruling (residual 2): el plan quedó modificado sin commitear en el working tree (mi nota post-ejecución + corrección de la constraint C1, previas al wave) — se commitea ahora como docs.
 == CIERRE: rama fase-2a completa: 11 tareas + fix wave, review final With fixes → fixes aplicados y re-verificados ==
+
+## Addendum post-fase (2026-08-20)
+
+Tarea suelta: modo mock del demo-client (regla nueva del spec §16: toda capacidad con
+entorno local mockeado). Commit 19c9118. Review: Approved, 0 Critical/Important.
+Minors aceptados sin fix (herramienta de demo local): (1) el mock responde 200 también
+para expired_token donde el BFF real usa 401 — el widget ramifica por frame, no por
+status; (2) Map de `vencido` sin bound — proceso local que se reinicia; (3) una línea
+en blanco extra en el HTML de modo real por el placeholder del hint.
