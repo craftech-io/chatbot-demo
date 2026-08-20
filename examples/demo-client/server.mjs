@@ -1,14 +1,24 @@
 // Servidor del demo: hace de "app del cliente". Sirve la página, el bundle del
 // widget y el /chat-token. Es solo un ejemplo: no usarlo en producción.
+//
+// Modo mock: si falta CHAT_URL (todavía no hay backend desplegado), el propio
+// server contesta /chat hablando el mismo contrato SSE que el BFF real — así se
+// puede ver el chat andando en el browser (spec §16: toda capacidad se entrega
+// con su modo local mockeado).
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { signChatToken } from "./sign.mjs";
+import { planificarRespuesta } from "./mock.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
-const SECRETO = process.env.CHAT_HMAC_SECRET;
 const CHAT_URL = process.env.CHAT_URL;
+const MOCK = !CHAT_URL;
 
-if (!SECRETO || !CHAT_URL) {
+let SECRETO = process.env.CHAT_HMAC_SECRET;
+
+if (!MOCK && !SECRETO) {
+  // Modo real sin cambios: ambos env siguen siendo obligatorios juntos.
   console.error(
     "Faltan CHAT_HMAC_SECRET (el mismo que ClientHmacSecret del stage) y CHAT_URL " +
       "(la Function URL del deploy).",
@@ -16,8 +26,101 @@ if (!SECRETO || !CHAT_URL) {
   process.exit(1);
 }
 
+if (MOCK && !SECRETO) {
+  // Nadie tiene por qué generar un secreto compartido solo para probar la UI:
+  // alcanza con uno aleatorio de esta corrida (firma y verifica en el mismo proceso).
+  SECRETO = randomBytes(32).toString("base64");
+  console.log(
+    "Modo mock: no hay CHAT_HMAC_SECRET, se generó uno aleatorio para esta corrida.",
+  );
+}
+
+// __MOCK_HINT__ en el HTML: en mock, el bloque de ayuda con los keywords; en
+// modo real, cadena vacía.
+const MOCK_HINT_HTML =
+  '<p style="color:#888;font-size:.85em;">Modo local (mock). Probá escribir: ' +
+  "<code>error</code> · <code>vencido</code> · <code>lento</code> — o cualquier " +
+  "cosa para ver el streaming.</p>";
+
+// Estado mínimo del escenario "vencido": la PRIMERA vez que un (sessionId, mensaje)
+// contiene "vencido" se responde expired_token; la segunda (el retry automático
+// del widget, con un token nuevo) fluye normal. Así se ve en el browser el ciclo
+// completo de renovación de token.
+const vencidoYaMostrado = new Map();
+
+function leerCuerpo(req) {
+  return new Promise((resolve, reject) => {
+    let datos = "";
+    req.on("data", (chunk) => (datos += chunk));
+    req.on("end", () => {
+      try {
+        resolve(datos ? JSON.parse(datos) : {});
+      } catch {
+        resolve({});
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+// El mock decodifica el JWT sin verificar la firma (no tiene sentido verificar
+// contra un secreto que el propio mock acaba de inventar): solo lee el `sub`
+// para poder saludar por nombre, igual que haría el agente real.
+function subDelBearer(header) {
+  const match = /^Bearer\s+(.+)$/i.exec(header || "");
+  if (!match) return "demo";
+  const partes = match[1].split(".");
+  if (partes.length < 2) return "demo";
+  try {
+    const payload = JSON.parse(Buffer.from(partes[1], "base64url").toString("utf8"));
+    return typeof payload.sub === "string" ? payload.sub : "demo";
+  } catch {
+    return "demo";
+  }
+}
+
+function enviarFrame(res, evento) {
+  res.write(`data: ${JSON.stringify(evento)}\n\n`);
+}
+
+function esperar(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function manejarChatMock(req, res) {
+  const cuerpo = await leerCuerpo(req);
+  const mensaje = String(cuerpo.message ?? "");
+  const sessionId = String(cuerpo.sessionId ?? "sin-sesion");
+  const sub = subDelBearer(req.headers.authorization);
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+  });
+
+  const clave = `${sessionId}::${mensaje}`;
+  if (mensaje.toLowerCase().includes("vencido") && !vencidoYaMostrado.has(clave)) {
+    vencidoYaMostrado.set(clave, true);
+    enviarFrame(res, { type: "error", code: "expired_token" });
+    res.end();
+    return;
+  }
+
+  const { demoraMs, frames } = planificarRespuesta(mensaje, sub);
+  for (let i = 0; i < frames.length; i++) {
+    if (i > 0) await esperar(demoraMs);
+    enviarFrame(res, frames[i]);
+  }
+  res.end();
+}
+
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  if (MOCK && req.method === "POST" && url.pathname === "/chat") {
+    await manejarChatMock(req, res);
+    return;
+  }
 
   if (url.pathname === "/chat-token") {
     // DEMO ONLY: sin auth — firma para cualquiera que lo pida; en producción
@@ -41,5 +144,13 @@ createServer(async (req, res) => {
 
   const html = await readFile(new URL("./public/index.html", import.meta.url), "utf8");
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end(html.replace("__CHAT_URL__", CHAT_URL));
-}).listen(PORT, () => console.log(`demo-client en http://localhost:${PORT}`));
+  res.end(
+    html
+      .replace("__CHAT_URL__", MOCK ? "/chat" : CHAT_URL)
+      .replace("__MOCK_HINT__", MOCK ? MOCK_HINT_HTML : ""),
+  );
+}).listen(PORT, () =>
+  console.log(
+    `demo-client en http://localhost:${PORT}` + (MOCK ? " (modo mock, sin AWS)" : ""),
+  ),
+);

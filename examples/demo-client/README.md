@@ -34,6 +34,31 @@ compartimos ningún secreto.
 
 ## Correr este demo
 
+### Quick start: modo mock, sin AWS
+
+Sin backend desplegado, sin secretos, sin variables de entorno. Sirve para
+probar la UI/UX del chat (streaming, errores, renovación de token) contra
+respuestas simuladas por el propio server:
+
+```bash
+npm run dev
+```
+
+Abrir http://localhost:3000. El mensaje que escribís dispara un escenario según
+si contiene alguna de estas palabras (no importan mayúsculas):
+
+- `error` → el asistente no está disponible (`agent_unavailable`).
+- `vencido` → la primera vez simula un token vencido (`expired_token`); el
+  widget renueva el token solo y reintenta, y esa segunda vez sí fluye normal.
+- `lento` → una respuesta normal pero con streaming más pausado.
+- cualquier otro mensaje → streaming palabra por palabra de una respuesta que
+  saluda por tu usuario.
+
+Con `?user=A` y `?user=B` en dos pestañas se ve que cada usuario tiene su
+propia conversación.
+
+### Modo real: contra un deploy
+
 Primero, generar el secreto compartido (una sola vez por stage) y guardarlo
 fuera del repo:
 

@@ -6,6 +6,7 @@
     "examples/*"
   ],
   "scripts": {
+    "dev": "npm start -w @craftech-ai-chat/demo-client",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "typecheck:infra": "bash scripts/typecheck-infra.sh",
     "test": "npm run test --workspaces --if-present"
