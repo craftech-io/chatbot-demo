@@ -95,6 +95,25 @@ describe("mount", () => {
     expect(el.textContent).toMatch(/problema al responder/i);
   });
 
+  it("ante una falla de red (fetch que rechaza) muestra el error generico, no una rejection sin manejar", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : Promise.reject(new Error("red caida")),
+      ),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await expect(
+      mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola"),
+    ).resolves.toBeUndefined();
+
+    expect(el.textContent).toMatch(/problema al responder/i);
+  });
+
   it("ante agent_unavailable muestra un mensaje al usuario, no un stack", async () => {
     vi.stubGlobal(
       "fetch",

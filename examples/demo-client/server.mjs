@@ -20,6 +20,8 @@ createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   if (url.pathname === "/chat-token") {
+    // DEMO ONLY: sin auth — firma para cualquiera que lo pida; en producción
+    // este endpoint vive detrás del login del cliente.
     // En una app real, el usuario sale de la sesión. Acá viene por query para poder
     // probar el aislamiento entre usuarios: ?user=A y ?user=B.
     const userId = url.searchParams.get("user") || "demo";

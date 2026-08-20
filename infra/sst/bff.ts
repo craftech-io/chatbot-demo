@@ -19,6 +19,9 @@ export const chat = new sst.aws.Function("Chat", {
   timeout: "5 minutes",
   // Response streaming: el SSE tiene que salir a medida que llega, no al final.
   streaming: true,
+  // CORS abierto: el token del chat (JWKS/HMAC) es lo que protege, no el origen.
+  // En el paquete final para un cliente concreto, los orígenes salen de
+  // client.config.ts en vez de "*".
   url: { cors: { allowOrigins: ["*"], allowHeaders: ["content-type", "authorization"] } },
   link: [runtimeLink, clientAuth],
   permissions: [

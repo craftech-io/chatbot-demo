@@ -10,7 +10,7 @@ uno a otro es reimplementar esta lista, nada más.
 |---|---|---|
 | AgentCore Runtime | corre el contenedor del agente | imagen **ARM64**; `/ping` y `/invocations` en `:8080` |
 | Repositorio ECR | aloja la imagen del core | |
-| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:ApplyGuardrail` |
+| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel`, `bedrock:ApplyGuardrail` |
 | Lambda del BFF + Function URL | chat con response streaming | permiso `bedrock-agentcore:InvokeAgentRuntime` |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 
@@ -33,7 +33,8 @@ uno a otro es reimplementar esta lista, nada más.
 
 En el sabor SST estas variables se resuelven por linking y las lee
 `packages/bff/src/config/resource.ts`. En los demás sabores se inyectan como
-variables de entorno y las lee `packages/bff/src/config/env.ts`.
+variables de entorno y las lee `packages/bff/src/config/env.ts` (se crea con
+el segundo sabor de IaC — todavía no existe).
 
 ## Mapeo de nombres reales (Step 0, sabor SST)
 

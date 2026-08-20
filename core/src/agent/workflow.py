@@ -4,15 +4,24 @@ Que sea un Workflow y no un loop opaco es lo que lo hace testeable paso a paso:
 cada step se prueba por los eventos que emite, con dobles de LLM y de tools.
 """
 
+from collections.abc import AsyncIterator
+from typing import Protocol
+
 from workflows import Context, Workflow, step
 
 from .events import ChatDone, ChatStart, TextDelta
 
 
+class AdaptadorLLM(Protocol):
+    """El workflow no conoce Bedrock: solo este protocolo (duck typing). Lo
+    implementa agent/llm.py y, en los tests, los dobles de LLM."""
+
+    def astream(self, message: str, history: list[dict]) -> AsyncIterator[str]: ...
+
+
 class ChatWorkflow(Workflow):
-    def __init__(self, llm, **kwargs):
+    def __init__(self, llm: AdaptadorLLM, **kwargs):
         # `llm` es el adaptador de modelo (agent/llm.py) o un doble en los tests.
-        # El workflow no conoce Bedrock: solo el protocolo `astream`.
         super().__init__(**kwargs)
         self.llm = llm
 

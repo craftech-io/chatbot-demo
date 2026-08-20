@@ -34,6 +34,21 @@ compartimos ningún secreto.
 
 ## Correr este demo
 
+Primero, generar el secreto compartido (una sola vez por stage) y guardarlo
+fuera del repo:
+
+```bash
+openssl rand -base64 32 > ../../.secreto-demo.local
+```
+
+Ese mismo valor tiene que coincidir con el `ClientHmacSecret` del stage:
+
+```bash
+npx sst secret set ClientHmacSecret "$(cat ../../.secreto-demo.local)" --stage <stage>
+```
+
+Y recién ahí correr el demo:
+
 ```bash
 npm run build -w @craftech-ai-chat/widget
 CHAT_HMAC_SECRET="$(cat ../../.secreto-demo.local)" \

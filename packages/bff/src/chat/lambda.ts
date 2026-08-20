@@ -22,6 +22,8 @@ async function invoke(p: InvokePayload): Promise<AsyncIterable<Uint8Array>> {
       agentRuntimeArn: (await cfg()).runtimeArn,
       runtimeSessionId: p.sessionId,
       payload: new TextEncoder().encode(JSON.stringify(p)),
+      contentType: "application/json",
+      accept: "text/event-stream",
     }),
   );
   return out.response as AsyncIterable<Uint8Array>;

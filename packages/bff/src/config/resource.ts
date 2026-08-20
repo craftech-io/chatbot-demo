@@ -6,9 +6,9 @@ import { Resource } from "sst";
 import type { BffConfig } from "./index";
 
 export function fromResource(): BffConfig {
-  // El cliente se autentica por JWKS (preferido: sin secreto compartido) o por HMAC
-  // (cuando no tiene OIDC — y es también el modo que usa el demo-client, porque un
-  // /chat-token local no puede publicar un JWKS que Lambda alcance).
+  // JWKS es el preferido para clientes con OIDC (sin secreto compartido). Si
+  // el cliente no tiene OIDC, usa HMAC. Si ambos están configurados gana HMAC
+  // (deliberado: es el modo del demo y del primer arranque, no un descuido).
   const { jwksUrl, hmacSecret } = Resource.ClientAuth;
   if (!jwksUrl && !hmacSecret) {
     throw new Error(

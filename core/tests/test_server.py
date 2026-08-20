@@ -35,6 +35,9 @@ def test_ping_responde_healthy():
 def test_invocations_streamea_deltas_y_evento_final():
     r = client().post("/invocations", json={"message": "¿hola?", "history": []})
     assert r.status_code == 200
+    # Tras C1, este header es el gatillo del streaming en AgentCore: sin él,
+    # el Runtime podría bufferear la respuesta entera antes de relayarla.
+    assert r.headers["content-type"].startswith("text/event-stream")
 
     eventos = [
         json.loads(line[len("data: ") :])

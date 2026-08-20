@@ -7,6 +7,11 @@ permissions:
   id-token: write
   contents: read
 
+# Dos pushes seguidos no deben correr dos `sst deploy` sobre el mismo state.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

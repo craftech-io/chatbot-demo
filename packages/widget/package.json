@@ -7,10 +7,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "private": true,
+  "license": "UNLICENSED",
   "devDependencies": {
     "happy-dom": "20.11.2",
     "typescript": "7.0.2",

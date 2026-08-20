@@ -74,7 +74,9 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
 });
 
 export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
-  agentRuntimeName: $interpolate`craftechAiChat${$app.stage}`,
+  // El recurso exige `[a-zA-Z][a-zA-Z0-9_]*`: stages con guion (p.ej. `pr-123`)
+  // lo violarían, así que se sanitiza cualquier carácter fuera de ese alfabeto.
+  agentRuntimeName: $interpolate`craftechAiChat${$app.stage.replace(/[^a-zA-Z0-9_]/g, "_")}`,
   agentRuntimeArtifact: { containerConfiguration: { containerUri: image.ref } },
   networkConfiguration: { networkMode: "PUBLIC" },
   roleArn: role.arn,

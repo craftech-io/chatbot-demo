@@ -26,10 +26,18 @@ class FakeConverse:
         self.recibido = messages
 
         async def gen():
-            for texto in ("Hola", "Hola mundo"):
+            # El chunk de delta="" en el medio pinea el filtro de deltas vacíos:
+            # Bedrock a veces emite un chunk sin texto (metadata pura) a mitad
+            # del stream, y no debería colarse como un "" en la salida.
+            secuencia = [
+                ("Hola", "Hola"),
+                ("Hola", ""),
+                ("Hola mundo", " mundo"),
+            ]
+            for texto, delta in secuencia:
                 yield ChatResponse(
                     message=ChatMessage(role="assistant", content=texto),
-                    delta=texto[len("Hola") :] if texto != "Hola" else "Hola",
+                    delta=delta,
                 )
 
         return gen()
