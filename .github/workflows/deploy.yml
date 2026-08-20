@@ -1,0 +1,29 @@
+name: deploy
+on:
+  push:
+    branches: [main, staging]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: docker/setup-qemu-action@v3   # build ARM64 desde runners x86
+      - uses: astral-sh/setup-uv@v3
+        with: { python-version: "3.13" }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: npm ci
+      - run: npm run typecheck && npm test
+      # El core (Python/ARM64) tiene su propia suite, corre acá antes de construir
+      # la imagen que empaqueta el Runtime: si esto falla, no tiene sentido desplegar.
+      - run: uv run pytest core/tests/ -v
+      - run: npx sst deploy --stage ${{ github.ref_name == 'main' && 'production' || 'staging' }}

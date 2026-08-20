@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1114.0",
     "jose": "6.2.9"
   },
   "devDependencies": {

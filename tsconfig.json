@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    // El bundler propio de `sst` (invocado por `sst deploy`/`sst dev`, fuera de
+    // alcance acá) resuelve paquetes de Pulumi no aliasados como global (todo lo
+    // que no sea `aws`/`awsnative`/`sst`) contra `.sst/platform/node_modules`.
+    // Este mapeo replica esa resolución para poder typechequear `infra/` con un
+    // `tsc` de línea de comandos, sin depender de ese bundler.
+    "paths": {
+      "@pulumi/docker-build": ["./.sst/platform/node_modules/@pulumi/docker-build"]
+    }
+  },
+  "include": ["sst.config.ts", "infra/**/*.ts", "sst-env.d.ts"]
+}
