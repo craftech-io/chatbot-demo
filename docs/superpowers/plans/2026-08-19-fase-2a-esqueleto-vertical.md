@@ -25,7 +25,7 @@ Estas reglas aplican a **todas** las tareas:
 - **El core nunca usa `Resource` de SST.** Lee su config por `core/src/agent/config.py` (env, y SSM en fases posteriores). Un `import` de SST en `core/` es un error de revisión.
 - **El BFF usa `Resource` únicamente dentro de `src/config/resource.ts`.** El resto del código consume la interfaz de `src/config/index.ts`.
 - **Guardrail fail-open:** si el guardrail falla, se loguea y el chat sigue. Nunca cortar la conversación por una falla del filtro.
-- **Guardrail de salida vía `guardrail_stream_mode="sync"`** en BedrockConverse, para que Bedrock filtre cada chunk antes de emitirlo. Nunca filtrar a mano texto ya streameado.
+- **Guardrail de salida vía `guardrail_stream_processing_mode="sync"`** en BedrockConverse, para que Bedrock filtre cada chunk antes de emitirlo. Nunca filtrar a mano texto ya streameado.
 - **Máximo 400 líneas por archivo.** Organización feature-based.
 - **Producto en español**, sin i18n. Los textos visibles salen de un registro, no de literales dispersos.
 - **Antes de escribir un literal, buscar si ya existe un registro** (regla de oro de parametría heredada de `msp-platform`).
@@ -71,7 +71,11 @@ Arranca el repo y deja el harness corriendo con un LLM falso. Sin Bedrock todav�
 - Produces:
   - `class TextDelta(Event)` con campo `text: str`
   - `class ChatStart(StartEvent)` con campos `message: str`, `history: list[dict]`
-  - `class ChatDone(StopEvent)` con campo `result: str`
+  - `class ChatDone(StopEvent)` con campo `texto: str`. **Dos cosas:** (1) `await handler`
+    devuelve la instancia de `ChatDone`, no el string — el framework desenvuelve
+    `.result` solo cuando el StopEvent es exactamente `StopEvent`, no un subtipo;
+    (2) el campo se llama `texto` y no `result` para no colisionar con el `result` de
+    `StopEvent`. Todo consumidor escribe `(await handler).texto`.
   - `class ChatWorkflow(Workflow)` — su constructor recibe `llm` (cualquier objeto con `astream(message, history) -> AsyncIterator[str]`)
 
 - [ ] **Step 1: Crear el repo y el proyecto Python**
@@ -124,10 +128,12 @@ async def test_emite_un_delta_por_chunk_y_devuelve_el_texto_completo():
     handler = ChatWorkflow(llm=llm, timeout=10).run(message="¿hola?", history=[])
 
     deltas = [ev.text async for ev in handler.stream_events() if isinstance(ev, TextDelta)]
-    result = await handler
+    # `await handler` devuelve el ChatDone, NO su `.result`: el framework solo
+    # desenvuelve cuando el StopEvent es exactamente StopEvent, jamás un subtipo.
+    done = await handler
 
     assert deltas == ["Hola", " ", "mundo"]
-    assert result == "Hola mundo"
+    assert done.texto == "Hola mundo"
     assert llm.seen == {"message": "¿hola?", "history": []}
 ```
 
@@ -160,9 +166,15 @@ class TextDelta(Event):
 
 
 class ChatDone(StopEvent):
-    """Fin del turno: el texto completo que se le dijo al usuario."""
+    """Fin del turno: el texto completo que se le dijo al usuario.
 
-    result: str
+    El campo se llama `texto`, no `result`: declarar `result` acá lo haría colisionar
+    con el `result` de `StopEvent`. Esa colisión no es solo un warning de pydantic —
+    en versiones anteriores de la librería hacía que `result` quedara silenciosamente
+    como un `property object` en vez del string.
+    """
+
+    texto: str
 ```
 
 `core/src/agent/workflow.py`:
@@ -194,7 +206,7 @@ class ChatWorkflow(Workflow):
         async for chunk in self.llm.astream(ev.message, ev.history):
             partes.append(chunk)
             ctx.write_event_to_stream(TextDelta(text=chunk))
-        return ChatDone(result="".join(partes))
+        return ChatDone(texto="".join(partes))
 ```
 
 - [ ] **Step 5: Correr el test y verificar que pasa**
@@ -389,7 +401,7 @@ def test_construye_el_cliente_con_el_guardrail_en_modo_sync():
     assert FakeConverse.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
     assert FakeConverse.kwargs["guardrail_identifier"] == "gr-123"
     assert FakeConverse.kwargs["guardrail_version"] == "3"
-    assert FakeConverse.kwargs["guardrail_stream_mode"] == "sync"
+    assert FakeConverse.kwargs["guardrail_stream_processing_mode"] == "sync"
 
 
 async def test_emite_deltas_y_el_generador_termina():
@@ -428,7 +440,7 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'agent.llm'`
 el workflow: este archivo es el único que sabe que abajo hay Bedrock.
 
 El guardrail de SALIDA se aplica acá, delegado a Bedrock con
-`guardrail_stream_mode="sync"`: Bedrock evalúa cada chunk ANTES de emitirlo.
+`guardrail_stream_processing_mode="sync"`: Bedrock evalúa cada chunk ANTES de emitirlo.
 Filtrar a mano texto ya streameado llegaría tarde.
 """
 
@@ -447,7 +459,7 @@ class BedrockAdapter:
             kwargs |= {
                 "guardrail_identifier": cfg.guardrail_id,
                 "guardrail_version": cfg.guardrail_version,
-                "guardrail_stream_mode": "sync",
+                "guardrail_stream_processing_mode": "sync",
             }
         self.client = client_factory(**kwargs)
 
@@ -485,13 +497,20 @@ El contrato HTTP que exige AgentCore Runtime. Sin lógica de agente: arma el wor
 **Interfaces:**
 - Consumes: `ChatWorkflow` (Task 1), `load_config` (Task 2), `BedrockAdapter` (Task 3)
 - Produces:
-  - `def build_app(llm_factory=None) -> Starlette` — app ASGI con `GET /ping` y `POST /invocations`
-  - Formato de los eventos SSE: `data: {"type":"delta","text":"..."}` por chunk, y `data: {"type":"done","text":"..."}` al final
+  - `def build_app(llm_factory=None, env=None) -> Starlette` — app ASGI con `GET /ping`
+    y `POST /invocations`. La config se carga al construir la app (fail-fast); `env`
+    se inyecta en tests y default a `os.environ`. No hay `app` a nivel módulo.
+  - Formato de los eventos SSE: `data: {"type":"delta","text":"..."}` por chunk,
+    `data: {"type":"done","text":"..."}` al final, y — si el workflow falla a mitad
+    del stream — un frame terminal `data: {"type":"error","code":"agent_error"}`
+    en lugar del `done`: el cliente nunca recibe un stream truncado sin señal
 
 - [ ] **Step 1: Instalar el servidor ASGI**
 
 ```bash
-uv add starlette uvicorn && uv add --dev httpx
+# httpx2: el TestClient de starlette >=1.6 lo usa como backend; con httpx clásico
+# emite un deprecation warning y la salida de tests debe quedar limpia.
+uv add starlette uvicorn && uv add --dev httpx2
 ```
 
 - [ ] **Step 2: Escribir el test que falla**
@@ -513,7 +532,10 @@ class FakeLLM:
 
 
 def client():
-    return TestClient(build_app(llm_factory=lambda cfg: FakeLLM()))
+    # env inyectado: los tests no dependen de os.environ.
+    return TestClient(
+        build_app(llm_factory=lambda cfg: FakeLLM(), env={"MODEL_ID": "fake"})
+    )
 
 
 def test_ping_responde_healthy():
@@ -578,7 +600,12 @@ from agent.workflow import ChatWorkflow
 PORT = 8080
 
 
-def build_app(llm_factory=None) -> Starlette:
+def build_app(llm_factory=None, env=None) -> Starlette:
+    # `env` se inyecta en los tests; en el contenedor es os.environ.
+    env = os.environ if env is None else env
+    # La config se carga al CONSTRUIR la app, no por request: si falta algo
+    # obligatorio es preferible no arrancar (la misma razón de config.py).
+    cfg = load_config(env)
     # El factory se inyecta en los tests para no pegarle a Bedrock.
     llm_factory = llm_factory or BedrockAdapter
 
@@ -591,7 +618,6 @@ def build_app(llm_factory=None) -> Starlette:
         if not message:
             return JSONResponse({"error": "falta 'message' en el payload"}, status_code=400)
 
-        cfg = load_config(os.environ)
         workflow = ChatWorkflow(llm=llm_factory(cfg), timeout=120)
         handler = workflow.run(message=message, history=payload.get("history") or [])
 
@@ -599,7 +625,10 @@ def build_app(llm_factory=None) -> Starlette:
             async for ev in handler.stream_events():
                 if isinstance(ev, TextDelta):
                     yield f"data: {json.dumps({'type': 'delta', 'text': ev.text})}\n\n"
-            texto = await handler
+            # `.texto` explícito: await sobre el handler devuelve el ChatDone, no un
+            # string (el framework no desenvuelve subtipos de StopEvent), y el campo
+            # se llama `texto` para no colisionar con el `result` de StopEvent.
+            texto = (await handler).texto
             yield f"data: {json.dumps({'type': 'done', 'text': texto})}\n\n"
 
         return StreamingResponse(eventos(), media_type="text/event-stream")
@@ -609,12 +638,12 @@ def build_app(llm_factory=None) -> Starlette:
     )
 
 
-app = build_app()
-
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    # La app se construye recién acá: el contenedor falla al arrancar si falta
+    # config, y el import del módulo (en los tests) no dispara load_config.
+    uvicorn.run(build_app(), host="0.0.0.0", port=PORT)
 ```
 
 - [ ] **Step 5: Correr los tests y verificar que pasan**
@@ -683,9 +712,11 @@ docker build --platform linux/arm64 -f core/Dockerfile -t craftech-ai-chat-core:
 cid=$(docker run -d -p 8080:8080 -e MODEL_ID=fake -e FAKE_LLM=1 craftech-ai-chat-core:dev)
 trap 'docker rm -f "$cid" >/dev/null' EXIT
 
-for _ in $(seq 1 30); do
+# Presupuesto generoso: bajo QEMU (build multi-arch en x86) el arranque tarda
+# ~30s; en ARM real es mucho menor. 60×2s cubre ambos con margen.
+for _ in $(seq 1 60); do
   if curl -sf localhost:8080/ping >/dev/null; then break; fi
-  sleep 1
+  sleep 2
 done
 
 echo "== /ping =="
@@ -708,7 +739,7 @@ por estas tres:
 
 ```python
     # FAKE_LLM permite el smoke del contenedor sin credenciales de Bedrock.
-    if llm_factory is None and os.environ.get("FAKE_LLM"):
+    if llm_factory is None and env.get("FAKE_LLM"):
         llm_factory = lambda cfg: _EchoLLM()  # noqa: E731
     llm_factory = llm_factory or BedrockAdapter
 ```
@@ -731,7 +762,12 @@ Expected: dos líneas `OK`. Si el build falla por la plataforma, verificar que D
 
 - [ ] **Step 5: Medir el arranque en frío y anotarlo**
 
-Run: `time docker run --rm -e MODEL_ID=fake -e FAKE_LLM=1 craftech-ai-chat-core:dev python -c "import agent.workflow, agent.llm"`
+Run: `time docker run --rm -e MODEL_ID=fake -e FAKE_LLM=1 craftech-ai-chat-core:dev uv run --no-dev python -c "import agent.workflow, agent.llm"`
+
+(El `uv run --no-dev` es necesario: el `python` pelado del contenedor no ve el venv
+que `uv sync` creó.) Anotar junto al valor que la medición es **bajo QEMU en amd64**:
+en ARM real (CI y AWS) el arranque es mucho menor — el número sirve como cota
+superior, no como estimación del cold start productivo.
 
 Crear el archivo con los resultados:
 
@@ -938,24 +974,44 @@ function jwks(url: string) {
   return set;
 }
 
+// Algoritmos permitidos por tipo de emisor. Allowlist explícita: en una frontera
+// de confianza no se deja que el token elija el algoritmo.
+const HMAC_ALGS = ["HS256"];
+const JWKS_ALGS = ["RS256", "ES256", "PS256", "EdDSA"];
+
 export async function verifyUserToken(
   token: string,
   v: Verifier,
 ): Promise<Principal> {
   let payload: JWTPayload;
   try {
-    const key =
-      v.kind === "hmac" ? new TextEncoder().encode(v.secret) : jwks(v.url);
-    ({ payload } = await jwtVerify(token, key as never));
+    // Sin cast: cada tipo de clave va con su allowlist en su propia rama.
+    ({ payload } =
+      v.kind === "hmac"
+        ? await jwtVerify(token, new TextEncoder().encode(v.secret), {
+            algorithms: HMAC_ALGS,
+          })
+        : await jwtVerify(token, jwks(v.url), { algorithms: JWKS_ALGS }));
   } catch (e) {
-    const expirado = (e as Error).name === "JWTExpired";
+    // jose marca sus errores con .code (estable ante minificación, a diferencia
+    // de .name). Lo que no venga de jose (red, DNS, URL malformada) se loguea
+    // antes de fallar cerrado: una caída del JWKS no debe quedar indistinguible
+    // de un token adulterado en los logs.
+    const code = (e as { code?: string }).code ?? "";
+    if (!code.startsWith("ERR_")) {
+      console.error("verifyUserToken: error no-JWT verificando el token", e);
+    }
+    const expirado = code === "ERR_JWT_EXPIRED";
     throw new AuthError(
       expirado ? "el token venció" : "token inválido",
       expirado ? "expired_token" : "invalid_token",
     );
   }
 
-  if (!payload.sub) {
+  // `sub` es la identidad misma: se exige string no vacío, no solo truthy —
+  // un emisor mal configurado que mande un sub numérico no puede colarse
+  // como userId en el contrato que todo lo demás considera cierto.
+  if (typeof payload.sub !== "string" || !payload.sub) {
     throw new AuthError("el token no trae 'sub'", "invalid_token");
   }
 
@@ -1262,6 +1318,25 @@ describe("handleChat", () => {
     expect(r.status).toBe(400);
   });
 
+  it("si el stream muere a mitad de la respuesta, emite un frame de error", async () => {
+    const r = await handleChat(
+      { token: await token(), message: "hola", sessionId: "s1" },
+      {
+        cfg,
+        invoke: async () =>
+          (async function* () {
+            yield enc.encode('{"type":"delta","text":"Hola"}\n');
+            throw new Error("microVM caída");
+          })(),
+      },
+    );
+    expect(r.status).toBe(200);
+    expect(await frames(r.frames)).toEqual([
+      'data: {"type":"delta","text":"Hola"}\n\n',
+      'data: {"type":"error","code":"agent_unavailable"}\n\n',
+    ]);
+  });
+
   it("si el runtime falla, emite un evento de error en vez de tirar", async () => {
     const r = await handleChat(
       { token: await token(), message: "hola", sessionId: "s1" },
@@ -1423,7 +1498,15 @@ export async function handleChat(
   return {
     status: 200,
     frames: (async function* () {
-      for await (const ev of parseNdjson(stream)) yield toSse(ev);
+      // El stream puede morir DESPUÉS de que el invoke resolvió (la microVM se
+      // cae a mitad de la respuesta). También ahí la conversación no se tumba:
+      // se loguea y el widget recibe un frame de error parseable.
+      try {
+        for await (const ev of parseNdjson(stream)) yield toSse(ev);
+      } catch (e) {
+        console.error("stream del runtime cortado a mitad de la respuesta", e);
+        yield toSse({ type: "error", code: "agent_unavailable" });
+      }
     })(),
   };
 }
@@ -1505,7 +1588,8 @@ npm i -E -D typescript vite vitest happy-dom
 `packages/widget/vite.config.ts`:
 
 ```ts
-import { defineConfig } from "vite";
+// defineConfig de vitest/config (no de vite): vite 8 no tipa el campo `test`.
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   // Bundle IIFE: el cliente lo carga con un <script> y llama window.CraftechChat.
@@ -1669,6 +1753,43 @@ describe("mount", () => {
     expect(el.textContent).toContain("listo");
   });
 
+  it("el done reconcilia la burbuja con el texto autoritativo", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : sse(
+              'data: {"type":"delta","text":"Hola mund"}\n\n',
+              'data: {"type":"done","text":"Hola mundo"}\n\n',
+            ),
+      ),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    expect(el.querySelector(".cc-respuesta")?.textContent).toBe("Hola mundo");
+  });
+
+  it("una respuesta sin ningún frame SSE muestra el error genérico", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : new Response("Internal Server Error", { status: 500 }),
+      ),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    expect(el.textContent).toMatch(/problema al responder/i);
+  });
+
   it("ante agent_unavailable muestra un mensaje al usuario, no un stack", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1732,9 +1853,17 @@ export function mount(
       body: JSON.stringify({ message: texto, sessionId: sesion() }),
     });
 
+    // Nota: NO se corta por r.ok — el 401 del BFF trae frames SSE parseables
+    // (expired_token viaja ahí). La guarda correcta es "ningún frame llegó".
+    let huboEventos = false;
     for await (const ev of leerSse(r)) {
+      huboEventos = true;
       if (ev.type === "delta") {
         burbuja.textContent += String(ev.text ?? "");
+      } else if (ev.type === "done") {
+        // El texto del done es el autoritativo: reconcilia la burbuja por si
+        // los deltas y el texto final divergieran (renormalización, retries).
+        if (typeof ev.text === "string") burbuja.textContent = ev.text;
       } else if (ev.type === "error") {
         // El token venció mientras el usuario escribía: se renueva y se reintenta
         // UNA vez. Más de una sería un loop ante un token mal emitido.
@@ -1746,6 +1875,11 @@ export function mount(
         burbuja.textContent =
           ev.code === "agent_unavailable" ? MENSAJES.agenteCaido : MENSAJES.errorGenerico;
       }
+    }
+    if (!huboEventos) {
+      // Una respuesta sin ni un frame SSE (el 5xx de un proxy, un body vacío)
+      // no puede dejar la burbuja vacía para siempre.
+      burbuja.textContent = MENSAJES.errorGenerico;
     }
   }
 
@@ -1810,7 +1944,10 @@ Cierra el vertical: despliega el contenedor como AgentCore Runtime y el handler 
 
 **Files:**
 - Create: `sst.config.ts`, `infra/sst/runtime.ts`, `infra/sst/bff.ts`, `infra/CONTRACT.md`, `.github/workflows/deploy.yml`
-- Modify: `packages/bff/tsconfig.json` (volver a incluir `src/config/resource.ts`)
+- Modify: `packages/bff/tsconfig.json` (quitar el `exclude` de `src/config/resource.ts`)
+  y `packages/bff/src/config/resource.ts` (**eliminar la línea `// @ts-nocheck`** que
+  la Task 8 dejó como puente — con `sst` instalado y `sst-env.d.ts` generado, el
+  archivo debe typechequear de verdad; dejarlo en nocheck sería un agujero silencioso)
 
 **Interfaces:**
 - Consumes: `core/Dockerfile` (Task 5), `packages/bff/src/chat/handler.ts` (Task 8)
@@ -1992,7 +2129,7 @@ export const runtimeLink = new sst.Linkable("AgentRuntime", {
 `infra/sst/bff.ts`:
 
 ```ts
-import { runtimeLink } from "./runtime";
+import { runtime, runtimeLink } from "./runtime";
 
 // El emisor de tokens del cliente: JWKS (preferido) o HMAC. Los dos llevan default
 // vacío para que se setee SOLO el que aplica sin que el deploy corte por el otro.
@@ -2016,7 +2153,12 @@ export const chat = new sst.aws.Function("Chat", {
   url: { cors: { allowOrigins: ["*"], allowHeaders: ["content-type", "authorization"] } },
   link: [runtimeLink, clientAuth],
   permissions: [
-    { actions: ["bedrock-agentcore:InvokeAgentRuntime"], resources: ["*"] },
+    // Scoped al ARN del runtime propio: bff.ts ya importa de ./runtime, no hay
+    // dependencia circular que justifique el wildcard.
+    {
+      actions: ["bedrock-agentcore:InvokeAgentRuntime"],
+      resources: [runtime.agentRuntimeArn],
+    },
   ],
 });
 ```
@@ -2057,14 +2199,28 @@ async function invoke(p: InvokePayload): Promise<AsyncIterable<Uint8Array>> {
 
 // @ts-expect-error — `awslambda` lo inyecta el runtime de Lambda, no hay tipos.
 export const handler = awslambda.streamifyResponse(async (event, responseStream) => {
-  const body = JSON.parse(event.body || "{}");
+  // La Function URL es pública: un body malformado no puede tirar la Lambda.
+  // Si no parsea, queda {} y handleChat responde 400 por falta de message.
+  let body: { message?: string; sessionId?: string };
+  try {
+    body = JSON.parse(event.body || "{}");
+  } catch {
+    body = {};
+  }
   const auth = event.headers?.authorization || event.headers?.Authorization || "";
   const r = await handleChat(
     { token: auth.replace(/^Bearer /, "") || undefined, message: body.message, sessionId: body.sessionId },
     { cfg: await cfg(), invoke },
   );
-  for await (const frame of r.frames) responseStream.write(frame);
-  responseStream.end();
+  try {
+    for await (const frame of r.frames) responseStream.write(frame);
+  } catch (e) {
+    // Si el write falla (cliente desconectado) no hay a quién avisarle: solo log.
+    // Los errores del agente ya llegan como frames desde handleChat.
+    console.error("no se pudo escribir el stream al cliente", e);
+  } finally {
+    responseStream.end();
+  }
 });
 ```
 
@@ -2098,13 +2254,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
-      - uses: docker/setup-qemu-action@v3   # build ARM64 desde runners x86
+      - uses: docker/setup-qemu-action@v3   # emulación ARM64 en runners x86
+      # El driver docker default NO buildea plataformas no nativas ni con QEMU:
+      # hace falta un builder docker-container. Sin esto, el primer CI falla.
+      - uses: docker/setup-buildx-action@v3
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
       - run: npm ci
+      # .sst/platform está gitignoreado: sin esto, el gate de typecheck de infra
+      # no tiene tipos en un checkout fresco.
+      - run: npx sst install
       - run: npm run typecheck && npm test
+      # Typecheck de sst.config.ts + infra/ (el de workspaces no los cubre).
+      # Filtra el único error preexistente de .sst/platform (vendored, gitignoreado).
+      - run: npm run typecheck:infra
       - run: npx sst deploy --stage ${{ github.ref_name == 'main' && 'production' || 'staging' }}
 ```
 
