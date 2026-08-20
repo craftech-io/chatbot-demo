@@ -301,6 +301,15 @@ testeable: cada paso se prueba por sus eventos, con LLM y tools falsos.
   usuario", reusando el patrón `dev-local/aws-fakes.ts` de `msp-platform`.
 - **Smoke de deploy**: `/ping` más una invocación real por stage.
 
+**Entorno local mockeado — regla del proyecto (2026-08-20):** toda capacidad se
+entrega con un modo local sin nube que permita verla funcionando y probar su UI/UX,
+no solo sus tests. El chat, con un `/chat` mock en el demo-client que habla el
+contrato SSE real (deltas con delay, y escenarios de error activables); la memoria
+(2b), con un store en memoria; las tools (2c), contra una API del cliente simulada;
+el RAG (2d), contra un índice de ejemplo con documentos de muestra. **El plan de cada
+fase incluye esa tarea, y una capacidad sin su modo local no se considera
+terminada.**
+
 ## 17. Observabilidad
 
 En asesoría IA la observabilidad es parte del producto, no telemetría interna.
@@ -345,3 +354,5 @@ Cada fase de la 2 es desplegable y demostrable por sí sola.
 - Máximo 400 líneas por archivo. Organización feature-based.
 - Producto en español, sin i18n. Locale, timezone y moneda desde un registro.
 - Deploys por CI/CD.
+- Toda capacidad nueva incluye su modo local/mockeado (ver §16) — se puede probar la
+  UI/UX sin cuenta de AWS.
