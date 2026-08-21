@@ -35,7 +35,7 @@ jobs:
       # resuelve sus globals (`aws`, `awsnative`, `$interpolate`, ...) y el
       # typecheck de infra de abajo falla por scaffolding faltante, no por un
       # error real.
-      - run: npx sst install
+      - run: npx sst install --print-logs
       - run: npm run typecheck && npm test
       # Typecheck de sst.config.ts + infra/ (el de workspaces no los cubre).
       # Filtra el único error preexistente de .sst/platform (vendored, gitignoreado).
