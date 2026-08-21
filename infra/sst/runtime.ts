@@ -14,7 +14,12 @@ import * as dockerbuild from "@pulumi/docker-build";
 const region = aws.getRegionOutput().region;
 const accountId = aws.getCallerIdentityOutput().accountId;
 
-const repo = new aws.ecr.Repository("CoreRepo", { forceDelete: true });
+const repo = new aws.ecr.Repository("CoreRepo", {
+  // ECR exige nombres en minúsculas y el autoname de Pulumi parte del nombre
+  // lógico (CoreRepo) — lo rechaza. Nombre físico explícito y saneado.
+  name: `craftech-ai-chat-core-${$app.stage.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
+  forceDelete: true,
+});
 
 const image = new dockerbuild.Image("CoreImage", {
   context: { location: "." },
