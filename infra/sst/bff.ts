@@ -27,6 +27,14 @@ export const chat = new sst.aws.Function("Chat", {
   permissions: [
     // Acotado al Runtime propio: "*" le daría a esta Lambda permiso para
     // invocar CUALQUIER AgentCore Runtime de la cuenta, no solo el suyo.
-    { actions: ["bedrock-agentcore:InvokeAgentRuntime"], resources: [runtime.agentRuntimeArn] },
+    // El invoke real apunta al sub-recurso runtime-endpoint/DEFAULT: sin ese
+    // patrón, el scope al ARN pelado del runtime da AccessDenied.
+    {
+      actions: ["bedrock-agentcore:InvokeAgentRuntime"],
+      resources: [
+        runtime.agentRuntimeArn,
+        $interpolate`${runtime.agentRuntimeArn}/runtime-endpoint/*`,
+      ],
+    },
   ],
 });
