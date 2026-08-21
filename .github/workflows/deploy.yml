@@ -23,8 +23,9 @@ jobs:
       # El driver docker default NO buildea plataformas no nativas ni con QEMU:
       # hace falta un builder docker-container. Sin esto, el primer CI falla.
       - uses: docker/setup-buildx-action@v3
+      # Sin input python-version: no existe en setup-uv@v3, y uv descarga solo
+      # el Python que pide requires-python (3.13) al primer `uv run`.
       - uses: astral-sh/setup-uv@v3
-        with: { python-version: "3.13" }
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
