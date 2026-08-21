@@ -72,6 +72,19 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
         ],
       },
       {
+        // AgentCore valida al CREAR el Runtime que su execution role pueda
+        // pullear la imagen de ECR (lo exige explícitamente el servicio).
+        Effect: "Allow",
+        Action: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+        Resource: [repo.arn],
+      },
+      {
+        // GetAuthorizationToken no soporta scope por recurso.
+        Effect: "Allow",
+        Action: ["ecr:GetAuthorizationToken"],
+        Resource: "*",
+      },
+      {
         Effect: "Allow",
         Action: ["logs:CreateLogStream", "logs:PutLogEvents", "logs:CreateLogGroup"],
         Resource: "*",
