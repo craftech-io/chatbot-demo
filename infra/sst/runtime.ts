@@ -22,8 +22,10 @@ const repo = new aws.ecr.Repository("CoreRepo", {
 });
 
 const image = new dockerbuild.Image("CoreImage", {
-  context: { location: "." },
-  dockerfile: { location: "core/Dockerfile" },
+  // Rutas ABSOLUTAS desde la raíz del repo: docker-build resuelve las relativas
+  // contra .sst/platform (el directorio del programa Pulumi), no contra el repo.
+  context: { location: $cli.paths.root },
+  dockerfile: { location: `${$cli.paths.root}/core/Dockerfile` },
   platforms: ["linux/arm64"],
   push: true,
   tags: [$interpolate`${repo.repositoryUrl}:latest`],
