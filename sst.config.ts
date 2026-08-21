@@ -10,6 +10,10 @@ export default $config({
       providers: {
         // Pin explícito: el bundle tiene que ser determinístico entre local y CI.
         aws: { version: "7.32.0", region: process.env.AWS_REGION ?? "us-east-1" },
+        // El build de la imagen ARM64 (infra/sst/runtime.ts) importa
+        // @pulumi/docker-build: declararlo como provider hace que `sst install`
+        // lo instale en .sst/platform en CUALQUIER máquina (CI incluido).
+        "docker-build": { version: "0.0.14" },
         // Cloud Control: AgentCore Runtime no está en el provider classic.
         // A diferencia del provider "aws" (region: string), el tipo de "aws-native"
         // exige el literal `awsnative.Region`: el cast documenta que el valor sigue
