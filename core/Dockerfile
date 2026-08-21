@@ -13,4 +13,8 @@ COPY core/ ./core/
 ENV PYTHONPATH=/app/core/src
 
 EXPOSE 8080
-CMD ["uv", "run", "--no-dev", "python", "core/server.py"]
+# El python del venv DIRECTO, sin uv en runtime: `uv run` intenta verificar y
+# sincronizar el entorno al arrancar, y en la microVM de AgentCore (FS
+# restringido, sin cache escribible) eso muere antes de loguear una línea.
+# El venv ya quedó completo en build time con `uv sync --frozen`.
+CMD ["/app/.venv/bin/python", "core/server.py"]
