@@ -17,3 +17,13 @@ sync` a bajar un segundo Python 3.13 managed en build — dos runtimes en la
 misma imagen. Al fijar la base en `python:3.13-slim` (ver `core/Dockerfile`) se
 espera un tamaño menor; no remedido todavía porque el rebuild es lento bajo
 QEMU (lo cubre el smoke del próximo deploy).
+
+## Primer deploy real (staging, cuenta 776805327629, 2026-08-21)
+
+| Qué | Valor |
+|---|---|
+| Respuesta con microVM caliente (mismo hilo) | ~3,3 s total (incluye el modelo) |
+| Respuesta con sesión nueva (microVM fría) | ~3,3 s total — el cold start real en ARM es despreciable |
+| Boot de la imagen en runner x86 bajo QEMU | ~60 s hasta /ping (cota superior, no representativa) |
+
+El riesgo de cold start del spec (§19.2) queda cerrado: era un artefacto de QEMU.

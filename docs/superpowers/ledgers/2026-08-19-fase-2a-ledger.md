@@ -180,3 +180,29 @@ Minors aceptados sin fix (herramienta de demo local): (1) el mock responde 200 t
 para expired_token donde el BFF real usa 401 — el widget ramifica por frame, no por
 status; (2) Map de `vencido` sin bound — proceso local que se reinicia; (3) una línea
 en blanco extra en el HTML de modo real por el placeholder del hint.
+
+## Addendum: primer deploy real (2026-08-21, staging en 776805327629)
+
+Resultado: chat funcionando punta a punta (streaming real, Claude Sonnet 4.6, ~3,3s
+caliente y frío). El checklist del smoke quedó respondido: (1) AgentCore relaya los
+bytes del contenedor tal cual → el parser tolerante de C1 era necesario y suficiente;
+(2) el inference profile us.* funcionó con el IAM wildcard-region de I2; (3) MODEL_ID
+válido; (4) el default us-east-1 de config.py alcanzó.
+
+Defectos del TEMPLATE que solo el deploy real reveló (corregidos en origen):
+- @pulumi/docker-build sin declarar (funcionaba de casualidad por estado local) → devDependency raíz + provider.
+- Nombre físico de ECR en minúsculas (el autoname de Pulumi usa el lógico con mayúsculas).
+- docker-build resuelve rutas contra .sst/platform → rutas absolutas con $cli.paths.root.
+- El execution role necesita permisos ECR de pull (AgentCore lo valida al crear).
+- InvokeAgentRuntime necesita el sub-recurso runtime-endpoint/* (el scope al ARN pelado da AccessDenied).
+- CMD con `uv run` → python del venv directo (en la microVM muere sin loguear).
+- **Root cause del health check**: containerUri con tag@digest combinado — CreateRuntime lo valida OK pero el pull de la microVM no lo resuelve; digest puro lo arregla. Diagnóstico decisivo: smoke de la imagen en el runner del CI (la imagen probó estar sana → el problema era de plataforma).
+
+Fixes de ENTORNO (no del template): input python-version inexistente en setup-uv@v3; trust OIDC con el formato de sub con IDs inmutables de la org (repo:org@ID/repo@ID:*).
+
+Decisión operativa: el paso "smoke de la imagen" del CI se queda (≈90s por run) como
+gate de regresión del boot del contenedor.
+Pendientes: switch de verificación a Cognito JWKS (elegido: después del smoke HMAC;
+requiere crear app client/usuario demo en el pool de betwarrior → confirmar con el
+humano); demo visual del browser (comando listo); main quedó atrás de staging a
+propósito (merge a main = deploy a production).
