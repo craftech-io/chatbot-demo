@@ -12,6 +12,7 @@
     "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
+    "@pulumi/docker-build": "0.0.14",
     "sst": "4.17.1"
   }
 }
