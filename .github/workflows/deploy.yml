@@ -44,3 +44,21 @@ jobs:
       # la imagen que empaqueta el Runtime: si esto falla, no tiene sentido desplegar.
       - run: uv run pytest core/tests/ -v
       - run: npx sst deploy --stage ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      # Ground truth del contenedor (diagnóstico): correr la imagen recién
+      # pusheada en el runner (QEMU) y exigir /ping. Si esto pasa y AgentCore
+      # igual falla su health check, el problema es de la plataforma, no de la
+      # imagen. FAKE_LLM evita credenciales de Bedrock.
+      - name: smoke de la imagen
+        if: github.ref_name != 'main'
+        run: |
+          IMG="776805327629.dkr.ecr.us-east-1.amazonaws.com/craftech-ai-chat-core-staging:latest"
+          aws ecr get-login-password | docker login --username AWS --password-stdin 776805327629.dkr.ecr.us-east-1.amazonaws.com
+          docker pull -q --platform linux/arm64 "$IMG"
+          cid=$(docker run -d -p 8080:8080 -e MODEL_ID=fake -e FAKE_LLM=1 "$IMG")
+          ok=""
+          for i in $(seq 1 60); do
+            if curl -sf localhost:8080/ping; then ok=1; break; fi; sleep 2
+          done
+          echo "--- docker logs ---"
+          docker logs "$cid" || true
+          [ -n "$ok" ] || { echo "PING FALLÓ tras 120s"; exit 1; }
