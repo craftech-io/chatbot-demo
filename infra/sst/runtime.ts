@@ -97,7 +97,16 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   // El recurso exige `[a-zA-Z][a-zA-Z0-9_]*`: stages con guion (p.ej. `pr-123`)
   // lo violarían, así que se sanitiza cualquier carácter fuera de ese alfabeto.
   agentRuntimeName: $interpolate`craftechAiChat${$app.stage.replace(/[^a-zA-Z0-9_]/g, "_")}`,
-  agentRuntimeArtifact: { containerConfiguration: { containerUri: image.ref } },
+  agentRuntimeArtifact: {
+    containerConfiguration: {
+      // Digest PURO (repo@sha256:...): el ref canónico de docker-build combina
+      // tag y digest (repo:latest@sha256:...) — la validación de CreateRuntime
+      // lo acepta, pero el pull real de la microVM no lo resuelve y el
+      // contenedor jamás arranca (health check timeout con logs vacíos).
+      // El digest cambia por build, así que los updates siguen disparando.
+      containerUri: image.ref.apply((r) => r.replace(/:[^@]+@/, "@")),
+    },
+  },
   networkConfiguration: { networkMode: "PUBLIC" },
   roleArn: role.arn,
   environmentVariables: {
