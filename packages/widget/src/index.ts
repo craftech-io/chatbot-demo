@@ -21,69 +21,76 @@ const ID_ESTILOS = "cc-estilos";
 // lo decide la página anfitriona redefiniendo las `--cc-*` (la demo lo hace en
 // su propio <style>). El widget no asume que toda página oscura quiere los
 // mismos colores.
+//
+// TODO el CSS del widget vive en @layer: los estilos SIN capa del host le ganan
+// SIEMPRE a los de una capa, sin importar orden de inyección ni especificidad.
+// Ese es el contrato de theming: la página anfitriona redefine las --cc-* con
+// cualquier selector simple y gana, aunque este <style> se inyecte último.
 const CSS_WIDGET = `
-.cc-hilo {
-  --cc-acento: #0E7568;
-  --cc-acento-texto: #fff;
-  --cc-fondo-resp: #f1f3f2;
-  --cc-texto-resp: #1c2422;
-  --cc-radio: 14px;
-  --cc-fuente: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+@layer cc-widget {
+  .cc-hilo {
+    --cc-acento: #0E7568;
+    --cc-acento-texto: #fff;
+    --cc-fondo-resp: #f1f3f2;
+    --cc-texto-resp: #1c2422;
+    --cc-radio: 14px;
+    --cc-fuente: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  display: flex;
-  flex-direction: column;
-  gap: .5rem;
-  overflow-y: auto;
-  padding: 1rem;
-  scroll-behavior: smooth;
-  font-family: var(--cc-fuente);
-}
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    overflow-y: auto;
+    padding: 1rem;
+    scroll-behavior: smooth;
+    font-family: var(--cc-fuente);
+  }
 
-.cc-usuario {
-  align-self: flex-end;
-  background: var(--cc-acento);
-  color: var(--cc-acento-texto);
-  border-radius: var(--cc-radio) var(--cc-radio) 4px var(--cc-radio);
-  max-width: 80%;
-  padding: .55rem .9rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
+  .cc-usuario {
+    align-self: flex-end;
+    background: var(--cc-acento);
+    color: var(--cc-acento-texto);
+    border-radius: var(--cc-radio) var(--cc-radio) 4px var(--cc-radio);
+    max-width: 80%;
+    padding: .55rem .9rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 
-.cc-respuesta {
-  align-self: flex-start;
-  background: var(--cc-fondo-resp);
-  color: var(--cc-texto-resp);
-  border-radius: var(--cc-radio) var(--cc-radio) var(--cc-radio) 4px;
-  max-width: 85%;
-  padding: .55rem .9rem;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
+  .cc-respuesta {
+    align-self: flex-start;
+    background: var(--cc-fondo-resp);
+    color: var(--cc-texto-resp);
+    border-radius: var(--cc-radio) var(--cc-radio) var(--cc-radio) 4px;
+    max-width: 85%;
+    padding: .55rem .9rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 
-.cc-escribiendo .cc-punto {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: .35;
-  animation: cc-pulso 1s ease-in-out infinite;
-}
-
-.cc-escribiendo .cc-punto:nth-child(2) { animation-delay: .15s; }
-.cc-escribiendo .cc-punto:nth-child(3) { animation-delay: .3s; }
-
-@keyframes cc-pulso {
-  0%, 80%, 100% { opacity: .35; }
-  40% { opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
   .cc-escribiendo .cc-punto {
-    animation: none;
-    opacity: .6;
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 3px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .35;
+    animation: cc-pulso 1s ease-in-out infinite;
+  }
+
+  .cc-escribiendo .cc-punto:nth-child(2) { animation-delay: .15s; }
+  .cc-escribiendo .cc-punto:nth-child(3) { animation-delay: .3s; }
+
+  @keyframes cc-pulso {
+    0%, 80%, 100% { opacity: .35; }
+    40% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cc-escribiendo .cc-punto {
+      animation: none;
+      opacity: .6;
+    }
   }
 }
 `;

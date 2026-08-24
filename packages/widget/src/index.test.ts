@@ -242,5 +242,12 @@ describe("mount", () => {
     mount(el2, { tokenUrl: "/chat-token", chatUrl: "/chat" });
 
     expect(document.querySelectorAll("#cc-estilos").length).toBe(1);
+    // El CSS vive en @layer: así, sin importar el orden de inyección ni la
+    // especificidad, un <style> sin capa del host (ej. la demo) le gana
+    // siempre a este — la cascada de capas no depende de quién se inyectó
+    // último en el <head>.
+    expect(document.getElementById("cc-estilos")?.textContent?.trim().startsWith("@layer cc-widget")).toBe(
+      true,
+    );
   });
 });

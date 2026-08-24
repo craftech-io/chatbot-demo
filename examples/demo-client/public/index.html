@@ -29,7 +29,10 @@
     }
 
     /* El widget no trae modo oscuro propio (lo decide el host): acá es donde
-       la demo pisa las --cc-* para que las burbujas de respuesta combinen. */
+       la demo pisa las --cc-* para que las burbujas de respuesta combinen.
+       Este <style> NO tiene @layer (adrede): el CSS del widget vive en
+       @layer cc-widget, así que estas reglas sin capa le ganan siempre, sin
+       importar el orden en que mount() haya inyectado su <style>. */
     .cc-hilo {
       --cc-fondo-resp: #232B27;
       --cc-texto-resp: #E7ECE9;
