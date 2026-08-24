@@ -36,3 +36,28 @@ describe("planificarRespuesta", () => {
     expect(frames).toEqual([{ type: "error", code: "agent_unavailable" }]);
   });
 });
+
+const ctx = { turnos: 0, historial: [] };
+
+describe("escenarios de la fase 2b", () => {
+  it("'tope' produce el frame de límite con motivo", () => {
+    const { frames } = planificarRespuesta("quiero ver el tope", "A", ctx);
+    expect(frames).toEqual([{ type: "error", code: "limit_reached", motivo: "dia" }]);
+  });
+
+  it("'bloqueado' responde un done de política (respuesta, no error)", () => {
+    const { frames } = planificarRespuesta("bloqueado por favor", "A", ctx);
+    expect(frames.at(-1).type).toBe("done");
+    expect(frames.at(-1).text.length).toBeGreaterThan(20);
+  });
+
+  it("'memoria' usa el contexto: menciona los turnos y el mensaje previo", () => {
+    const { frames } = planificarRespuesta("memoria", "A", {
+      turnos: 2,
+      historial: ["hola", "¿cómo estás?"],
+    });
+    const texto = frames.at(-1).text;
+    expect(texto).toContain("2");
+    expect(texto).toContain("¿cómo estás?");
+  });
+});

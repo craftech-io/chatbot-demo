@@ -39,7 +39,8 @@ if (MOCK && !SECRETO) {
 // modo real, cadena vacía.
 const MOCK_HINT_HTML =
   '<p style="color:#888;font-size:.85em;">Modo local (mock). Probá escribir: ' +
-  "<code>error</code> · <code>vencido</code> · <code>lento</code> — o cualquier " +
+  "<code>error</code> · <code>vencido</code> · <code>lento</code> · " +
+  "<code>memoria</code> · <code>tope</code> · <code>bloqueado</code> — o cualquier " +
   "cosa para ver el streaming.</p>";
 
 // Estado mínimo del escenario "vencido": la PRIMERA vez que un (sessionId, mensaje)
@@ -47,6 +48,11 @@ const MOCK_HINT_HTML =
 // del widget, con un token nuevo) fluye normal. Así se ve en el browser el ciclo
 // completo de renovación de token.
 const vencidoYaMostrado = new Map();
+
+// Memoria en proceso del mock (fase 2b): sessionId → array de mensajes del
+// usuario, en orden. Vive solo en este proceso (se pierde al reiniciar el
+// server) — es la versión mockeada de la memoria real en AgentCore Memory.
+const historialPorSesion = new Map();
 
 function leerCuerpo(req) {
   return new Promise((resolve, reject) => {
@@ -106,12 +112,21 @@ async function manejarChatMock(req, res) {
     return;
   }
 
-  const { demoraMs, frames } = planificarRespuesta(mensaje, sub);
+  // El contexto se arma con el historial ANTES de planificar (turnos = lo que
+  // ya se conversó, sin contar este mensaje); el mensaje se pushea DESPUÉS de
+  // responder, para que el turno actual no se cuente a sí mismo.
+  const historial = historialPorSesion.get(sessionId) ?? [];
+  const contexto = { turnos: historial.length, historial };
+
+  const { demoraMs, frames } = planificarRespuesta(mensaje, sub, contexto);
   for (let i = 0; i < frames.length; i++) {
     if (i > 0) await esperar(demoraMs);
     enviarFrame(res, frames[i]);
   }
   res.end();
+
+  historial.push(mensaje);
+  historialPorSesion.set(sessionId, historial);
 }
 
 createServer(async (req, res) => {

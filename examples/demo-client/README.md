@@ -57,6 +57,20 @@ si contiene alguna de estas palabras (no importan mayúsculas):
 Con `?user=A` y `?user=B` en dos pestañas se ve que cada usuario tiene su
 propia conversación.
 
+La fase 2b agregó memoria, topes de uso y un guardrail de entrada; el mock
+los hace visibles sin AWS con tres escenarios más:
+
+- `memoria` → la respuesta dice cuántos turnos lleva la conversación y cuál
+  fue tu mensaje anterior. El server guarda ese historial en memoria de proceso
+  (`historialPorSesion`, por `sessionId`) — se pierde al reiniciar el server;
+  es la versión mockeada de la memoria real en AgentCore Memory.
+- `tope` → simula haber llegado al límite de uso (`limit_reached`, motivo
+  `dia`): un único frame de error, la conversación no sigue.
+- `bloqueado` → simula al guardrail de entrada rechazando el mensaje. No es
+  un error: es un `done` con un texto de política, como respondería el BFF
+  real (el mock emula el espíritu del mensaje canónico, no lo importa —
+  no hay build en este ejemplo).
+
 ### Modo real: contra un deploy
 
 Primero, generar el secreto compartido (una sola vez por stage) y guardarlo
