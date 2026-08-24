@@ -10,10 +10,11 @@ uno a otro es reimplementar esta lista, nada más.
 |---|---|---|
 | AgentCore Runtime | corre el contenedor del agente | imagen **ARM64**; `/ping` y `/invocations` en `:8080` |
 | Repositorio ECR | aloja la imagen del core | |
-| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel`, `bedrock:ApplyGuardrail` |
+| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel`, `bedrock:ApplyGuardrail`, `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents` |
 | Lambda del BFF + Function URL | chat con response streaming | permiso `bedrock-agentcore:InvokeAgentRuntime` |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
+| AgentCore Memory | historial de conversación | (actorId, sessionId) |
 
 ## Variables que recibe el core (contenedor)
 
@@ -23,6 +24,7 @@ uno a otro es reimplementar esta lista, nada más.
 | `AWS_REGION` | no (default `us-east-1`) | región de Bedrock |
 | `GUARDRAIL_ID` | no | si falta, el core corre sin guardrail — las inyecta la infra desde 2b |
 | `GUARDRAIL_VERSION` | no | requerida si hay `GUARDRAIL_ID` — las inyecta la infra desde 2b |
+| `MEMORY_ID` | no | sin ella, el core usa el history del payload (modo local/tests) |
 
 ## Variables que recibe el BFF
 
@@ -84,3 +86,25 @@ Extra encontrado (no estaba en el plan): la clase `Guardrail` también expone
 `bedrock:ApplyGuardrail` del BFF al Guardrail propio (`resources:
 [guardrail.guardrailArn]`), en vez de armar el ARN a mano con `$interpolate`
 o dejar `"*"` — ambas alternativas que el plan contemplaba como fallback.
+
+## Mapeo de nombres reales (fase 2b, AgentCore Memory)
+
+Step 0 (gate obligatorio de esta tarea): `awsnative.bedrockagentcore.Memory`
+SÍ existe en `@pulumi/aws-native@1.68.0` — confirmado con
+`grep -rio "bedrockagentcore\.Memory" .sst/platform/` (aparece en
+`bedrockagentcore/memory.d.ts`, `getMemory.d.ts` y en `types/input.d.ts`/
+`types/output.d.ts`) y con `grep -rn "class Memory"
+.sst/platform/node_modules/@pulumi/aws-native/bedrockagentcore/` (declara
+`export declare class Memory extends pulumi.CustomResource`). Se leyó
+`bedrockagentcore/memory.d.ts` completo: los campos que asumió el plan
+(`name`, `eventExpiryDuration` como inputs; `memoryId`, `memoryArn` como
+outputs) coinciden exactamente con `MemoryArgs`/`Memory` — sin mapeo,
+sin desvío.
+
+Los nombres de acción IAM del data plane (`bedrock-agentcore:CreateEvent`,
+`bedrock-agentcore:ListEvents`) NO tienen evidencia local: no hay paquete
+`@aws-sdk/client-bedrock-agentcore*` instalado en `.sst/platform/node_modules`
+ni referencias a esas acciones en los `.d.ts` de `aws`/`aws-native` (solo
+aparece `bedrock-agentcore:InvokeAgentRuntime`, ya usado por el BFF, en
+`aws/bedrock/agentcoreResourcePolicy.d.ts`). Quedan los nombres del plan tal
+cual, marcados en `infra/sst/runtime.ts` para verificar en el smoke.

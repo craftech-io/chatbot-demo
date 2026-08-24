@@ -10,6 +10,7 @@
 //   explícito.
 import * as dockerbuild from "@pulumi/docker-build";
 import { guardrail } from "./guardrail";
+import { memoria } from "./memoria";
 
 // `.name` en GetRegionResult está deprecado a favor de `.region` (mismo valor).
 const region = aws.getRegionOutput().region;
@@ -90,6 +91,14 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
         Action: ["logs:CreateLogStream", "logs:PutLogEvents", "logs:CreateLogGroup"],
         Resource: "*",
       },
+      {
+        // Data plane de Memory: el core lista y crea eventos de la conversación.
+        // Nombres de acción: mejor hipótesis del plan (no hay evidencia local
+        // de los tipos o docs) — verificar en el smoke.
+        Effect: "Allow",
+        Action: ["bedrock-agentcore:CreateEvent", "bedrock-agentcore:ListEvents"],
+        Resource: [$interpolate`${memoria.memoryArn}*`],
+      },
     ],
   }),
 });
@@ -115,6 +124,8 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
     // Encienden el guardrail de salida (sync) que el core ya soporta desde 2a.
     GUARDRAIL_ID: guardrail.guardrailId,
     GUARDRAIL_VERSION: guardrail.version,
+    // Memoria de conversación gestionada (AgentCore Memory, ver ./memoria.ts).
+    MEMORY_ID: memoria.memoryId,
   },
 });
 
