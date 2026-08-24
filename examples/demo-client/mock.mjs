@@ -67,7 +67,11 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
   }
 
   if (minusculas.includes("memoria")) {
-    const textoMemoria = `Llevamos ${contexto.turnos} turnos; lo último que me dijiste fue: "${contexto.historial.at(-1)}"`;
+    // Primer mensaje de la sesión: no hay turno previo que citar.
+    const textoMemoria =
+      contexto.historial.length === 0
+        ? "Este es nuestro primer mensaje de la conversación."
+        : `Llevamos ${contexto.turnos} turnos; lo último que me dijiste fue: "${contexto.historial.at(-1)}"`;
     return {
       demoraMs,
       frames: [{ type: "done", text: textoMemoria }],

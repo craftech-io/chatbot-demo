@@ -60,4 +60,11 @@ describe("escenarios de la fase 2b", () => {
     expect(texto).toContain("2");
     expect(texto).toContain("¿cómo estás?");
   });
+
+  it("'memoria' con historial vacío no imprime undefined", () => {
+    const { frames } = planificarRespuesta("memoria", "A", { turnos: 0, historial: [] });
+    const texto = frames.at(-1).text;
+    expect(texto).not.toContain("undefined");
+    expect(texto).toMatch(/primer mensaje/i);
+  });
 });
