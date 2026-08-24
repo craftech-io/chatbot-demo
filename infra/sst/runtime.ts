@@ -9,6 +9,7 @@
 //   ambiental para esto, a diferencia de `aws`/`awsnative`/`sst`): se importa
 //   explícito.
 import * as dockerbuild from "@pulumi/docker-build";
+import { guardrail } from "./guardrail";
 
 // `.name` en GetRegionResult está deprecado a favor de `.region` (mismo valor).
 const region = aws.getRegionOutput().region;
@@ -111,6 +112,9 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   roleArn: role.arn,
   environmentVariables: {
     MODEL_ID: "us.anthropic.claude-sonnet-4-6",
+    // Encienden el guardrail de salida (sync) que el core ya soporta desde 2a.
+    GUARDRAIL_ID: guardrail.guardrailId,
+    GUARDRAIL_VERSION: guardrail.version,
   },
 });
 

@@ -13,6 +13,7 @@ uno a otro es reimplementar esta lista, nada más.
 | Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel`, `bedrock:ApplyGuardrail` |
 | Lambda del BFF + Function URL | chat con response streaming | permiso `bedrock-agentcore:InvokeAgentRuntime` |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
+| Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
 
 ## Variables que recibe el core (contenedor)
 
@@ -20,8 +21,8 @@ uno a otro es reimplementar esta lista, nada más.
 |---|---|---|
 | `MODEL_ID` | sí | id del modelo o inference profile de Bedrock |
 | `AWS_REGION` | no (default `us-east-1`) | región de Bedrock |
-| `GUARDRAIL_ID` | no | si falta, el core corre sin guardrail |
-| `GUARDRAIL_VERSION` | no | requerida si hay `GUARDRAIL_ID` |
+| `GUARDRAIL_ID` | no | si falta, el core corre sin guardrail — las inyecta la infra desde 2b |
+| `GUARDRAIL_VERSION` | no | requerida si hay `GUARDRAIL_ID` — las inyecta la infra desde 2b |
 
 ## Variables que recibe el BFF
 
@@ -30,6 +31,8 @@ uno a otro es reimplementar esta lista, nada más.
 | `AGENT_RUNTIME_ARN` | sí | ARN del AgentCore Runtime a invocar |
 | `CLIENT_JWKS_URL` | una de las dos | JWKS del emisor de tokens del cliente |
 | `CLIENT_HMAC_SECRET` | una de las dos | secreto compartido, si el cliente no tiene OIDC |
+| `GUARDRAIL_ID` | no (2b) | id del Guardrail, vía linkable en SST (`Resource.Guardrail.id`) |
+| `GUARDRAIL_VERSION` | no (2b) | versión del Guardrail, vía linkable en SST (`Resource.Guardrail.version`) |
 
 En el sabor SST estas variables se resuelven por linking y las lee
 `packages/bff/src/config/resource.ts`. En los demás sabores se inyectan como
@@ -62,3 +65,22 @@ coinciden exactamente con el plan.
 
 Versiones de providers instaladas por `sst install` (pineadas en `sst.config.ts`):
 `@pulumi/aws@7.32.0`, `@pulumi/aws-native@1.68.0` — sin desviación de versión.
+
+## Mapeo de nombres reales (fase 2b, Guardrail)
+
+`infra/sst/guardrail.ts` usa el provider classic (`aws.bedrock.Guardrail`, no
+Cloud Control). Se verificó contra
+`.sst/platform/node_modules/@pulumi/aws/bedrock/guardrail.d.ts` y
+`.sst/platform/node_modules/@pulumi/aws/types/input.d.ts` (interfaces
+`GuardrailContentPolicyConfig`/`GuardrailContentPolicyConfigFiltersConfig`):
+todos los nombres que asumió el plan (`aws.bedrock.Guardrail`,
+`blockedInputMessaging`, `blockedOutputsMessaging`, `contentPolicyConfig`,
+`filtersConfigs`, `type`, `inputStrength`, `outputStrength`, `guardrailId`,
+`version`) coinciden exactamente con los tipos instalados — sin mapeo,
+sin desvío.
+
+Extra encontrado (no estaba en el plan): la clase `Guardrail` también expone
+`guardrailArn` como output. Se usó ese output para acotar el permiso
+`bedrock:ApplyGuardrail` del BFF al Guardrail propio (`resources:
+[guardrail.guardrailArn]`), en vez de armar el ARN a mano con `$interpolate`
+o dejar `"*"` — ambas alternativas que el plan contemplaba como fallback.

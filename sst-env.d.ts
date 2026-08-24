@@ -6,5 +6,6 @@ declare module "sst" {
   export interface Resource {
     AgentRuntime: { arn: string };
     ClientAuth: { jwksUrl: string; hmacSecret: string };
+    Guardrail: { id: string; version: string };
   }
 }

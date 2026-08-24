@@ -1,4 +1,5 @@
 import { runtime, runtimeLink } from "./runtime";
+import { guardrail, guardrailLink } from "./guardrail";
 
 // El emisor de tokens del cliente: JWKS (preferido) o HMAC. Los dos llevan default
 // vacío para que se setee SOLO el que aplica sin que el deploy corte por el otro.
@@ -23,7 +24,7 @@ export const chat = new sst.aws.Function("Chat", {
   // En el paquete final para un cliente concreto, los orígenes salen de
   // client.config.ts en vez de "*".
   url: { cors: { allowOrigins: ["*"], allowHeaders: ["content-type", "authorization"] } },
-  link: [runtimeLink, clientAuth],
+  link: [runtimeLink, clientAuth, guardrailLink],
   permissions: [
     // Acotado al Runtime propio: "*" le daría a esta Lambda permiso para
     // invocar CUALQUIER AgentCore Runtime de la cuenta, no solo el suyo.
@@ -35,6 +36,12 @@ export const chat = new sst.aws.Function("Chat", {
         runtime.agentRuntimeArn,
         $interpolate`${runtime.agentRuntimeArn}/runtime-endpoint/*`,
       ],
+    },
+    {
+      // Acotado al propio Guardrail: el recurso expone `guardrailArn` como
+      // output, así que no hace falta armar el ARN a mano.
+      actions: ["bedrock:ApplyGuardrail"],
+      resources: [guardrail.guardrailArn],
     },
   ],
 });
