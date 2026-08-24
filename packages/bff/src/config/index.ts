@@ -5,6 +5,10 @@ import type { Verifier } from "../auth/verify";
 export type BffConfig = {
   runtimeArn: string;
   verifier: Verifier;
+  // Opcional: sabores/mocks viejos pueden no tener el Guardrail linkeado
+  // (Task 2, fase 2b). Si falta, lambda.ts no construye el dep `guard` y el
+  // handler sigue sin filtro de entrada.
+  guardrail?: { id: string; version: string };
 };
 
 export async function loadConfig(): Promise<BffConfig> {

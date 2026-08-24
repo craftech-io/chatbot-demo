@@ -2,6 +2,7 @@
 // token, arma el payload CONFIABLE para el Runtime y relata el stream de vuelta.
 // No tiene lógica de agente.
 import { createHash } from "node:crypto";
+import { MENSAJES_GUARDRAIL } from "@craftech-ai-chat/shared/mensajes";
 import { AuthError, verifyUserToken } from "../auth/verify";
 import type { BffConfig } from "../config/index";
 import { parseNdjson, toSse } from "./ndjson";
@@ -27,6 +28,10 @@ export type InvokePayload = {
 type Deps = {
   cfg: BffConfig;
   invoke: (p: InvokePayload) => Promise<AsyncIterable<Uint8Array>>;
+  // Opcional: si no está seteado (sabor viejo, mock, etc.) el flujo sigue sin
+  // filtro de entrada. Punto de inserción fijo entre topes (Task 7) y el
+  // invoke: auth → mensaje → topes → guardrail → invoke.
+  guard?: (texto: string) => Promise<{ bloqueada: boolean }>;
 };
 
 type Result = { status: number; frames: AsyncIterable<string> };
@@ -67,6 +72,21 @@ export async function handleChat(
     message: input.message,
     sessionId: runtimeSessionId(principal.userId, input.sessionId),
   };
+
+  // Punto de inserción de los topes (Task 7, aún no existe): van ACÁ, entre el
+  // armado del payload y el guardrail. Orden final: auth → mensaje → topes →
+  // guardrail → invoke.
+  if (deps.guard) {
+    const g = await deps.guard(input.message);
+    if (g.bloqueada) {
+      // Una entrada bloqueada es una RESPUESTA, no un error (spec §15): el
+      // widget la muestra como burbuja normal con el texto canónico.
+      return {
+        status: 200,
+        frames: unFrame({ type: "done", text: MENSAJES_GUARDRAIL.entradaBloqueada }),
+      };
+    }
+  }
 
   let stream: AsyncIterable<Uint8Array>;
   try {

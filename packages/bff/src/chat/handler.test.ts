@@ -145,4 +145,27 @@ describe("handleChat", () => {
       'data: {"type":"error","code":"agent_unavailable"}\n\n',
     ]);
   });
+
+  it("una entrada bloqueada responde el mensaje canónico como done, no como error", async () => {
+    const recibido: InvokePayload[] = [];
+    const r = await handleChat(
+      { token: await token(), message: "algo horrible", sessionId: "s1" },
+      { cfg, invoke: invokeFalso(recibido), guard: async () => ({ bloqueada: true }) },
+    );
+    expect(r.status).toBe(200);
+    const fs = await frames(r.frames);
+    expect(fs).toHaveLength(1);
+    expect(JSON.parse(fs[0].slice(6)).type).toBe("done");
+    expect(recibido).toHaveLength(0); // nunca llegó al Runtime
+  });
+
+  it("si no hay guard configurado, el flujo sigue igual que antes", async () => {
+    const recibido: InvokePayload[] = [];
+    const r = await handleChat(
+      { token: await token(), message: "hola", sessionId: "s1" },
+      { cfg, invoke: invokeFalso(recibido) },
+    );
+    expect(r.status).toBe(200);
+    expect(recibido).toHaveLength(1);
+  });
 });

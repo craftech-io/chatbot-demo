@@ -5,6 +5,7 @@ import {
   InvokeAgentRuntimeCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
 import { loadConfig } from "../config/index";
+import { evaluarEntrada } from "../guardrail/entrada";
 import { handleChat, type InvokePayload } from "./handler";
 
 const client = new BedrockAgentCoreClient({});
@@ -40,9 +41,16 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
     body = {};
   }
   const auth = event.headers?.authorization || event.headers?.Authorization || "";
+  const c = await cfg();
   const r = await handleChat(
     { token: auth.replace(/^Bearer /, "") || undefined, message: body.message, sessionId: body.sessionId },
-    { cfg: await cfg(), invoke },
+    {
+      cfg: c,
+      invoke,
+      // Solo si el sabor tiene el Guardrail linkeado (fase 2b): sabores/mocks
+      // viejos sin `cfg.guardrail` corren sin filtro de entrada.
+      guard: c.guardrail ? (t) => evaluarEntrada(t, c.guardrail!) : undefined,
+    },
   );
   // HttpResponseStream.from envuelve el stream con metadata HTTP real (status,
   // headers): sin esto, la Function URL responde siempre 200 y sin

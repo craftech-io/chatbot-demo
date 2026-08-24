@@ -20,5 +20,9 @@ export function fromResource(): BffConfig {
     verifier: hmacSecret
       ? { kind: "hmac", secret: hmacSecret }
       : { kind: "jwks", url: jwksUrl },
+    // El linkable Guardrail existe siempre en el sabor SST desde la fase 2b:
+    // no hace falta try/catch. El campo es opcional en BffConfig por otros
+    // sabores/mocks, no por este.
+    guardrail: { id: Resource.Guardrail.id, version: Resource.Guardrail.version },
   };
 }
