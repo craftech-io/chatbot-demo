@@ -118,15 +118,19 @@ async function manejarChatMock(req, res) {
   const historial = historialPorSesion.get(sessionId) ?? [];
   const contexto = { turnos: historial.length, historial };
 
-  const { demoraMs, frames } = planificarRespuesta(mensaje, sub, contexto);
+  const { demoraMs, frames, persistible } = planificarRespuesta(mensaje, sub, contexto);
   for (let i = 0; i < frames.length; i++) {
     if (i > 0) await esperar(demoraMs);
     enviarFrame(res, frames[i]);
   }
   res.end();
 
-  historial.push(mensaje);
-  historialPorSesion.set(sessionId, historial);
+  // Los turnos bloqueados/rechazados no van al historial — el core real
+  // tampoco los persiste (no llegan a invocar al modelo ni a la Memory).
+  if (persistible !== false) {
+    historial.push(mensaje);
+    historialPorSesion.set(sessionId, historial);
+  }
 }
 
 createServer(async (req, res) => {

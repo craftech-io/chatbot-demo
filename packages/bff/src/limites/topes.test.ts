@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
+import type { UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { verificarYConsumirTope } from "./topes";
 
 function ddbFalso(nuevoCount: number) {
-  return { send: vi.fn(async () => ({ Attributes: { count: { N: String(nuevoCount) } } })) } as never;
+  return {
+    send: vi.fn(async (_comando: UpdateItemCommand) => ({
+      Attributes: { count: { N: String(nuevoCount) } },
+    })),
+  };
 }
 
-const base = (ddb: never, turnosSesion = 0) => ({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const base = (ddb: any, turnosSesion = 0) => ({
   ddb, tabla: "Limits", topeDiario: 3, topeSesion: 5,
   sesiones: { turnos: async () => turnosSesion },
 });
@@ -33,5 +39,17 @@ describe("verificarYConsumirTope", () => {
     expect(r).toEqual({ permitido: true });
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+
+  it("setea expiraAt (TTL) sin pisar el existente, para que Dynamo purgue períodos vencidos", async () => {
+    const ddb = ddbFalso(1);
+    await verificarYConsumirTope(base(ddb), "u1", "s1", "2026-08-21");
+    const [comando] = ddb.send.mock.calls[0]!;
+    expect(comando.input.UpdateExpression).toContain(
+      "SET expiraAt = if_not_exists(expiraAt, :expira)",
+    );
+    expect(comando.input.ExpressionAttributeValues?.[":expira"]).toEqual({
+      N: expect.stringMatching(/^\d+$/),
+    });
   });
 });

@@ -26,9 +26,19 @@ export async function verificarYConsumirTope(
       new UpdateItemCommand({
         TableName: deps.tabla,
         Key: { userId: { S: userId }, periodo: { S: hoy } },
-        UpdateExpression: "ADD #c :uno",
+        // El TTL (`expiraAt`) se setea SOLO si no existe: no hay que
+        // refrescarlo en cada turno, y no queremos que un turno tardío
+        // extienda la vida del item más allá del período que ya expiró.
+        // 48h en vez de 24h: cubre el día completo del período (que puede
+        // arrancar en cualquier huso horario respecto al reloj del server)
+        // más margen para que un consumidor lento del stream de Dynamo (o
+        // un reintento) todavía vea el item antes de que TTL lo borre.
+        UpdateExpression: "ADD #c :uno SET expiraAt = if_not_exists(expiraAt, :expira)",
         ExpressionAttributeNames: { "#c": "count" },
-        ExpressionAttributeValues: { ":uno": { N: "1" } },
+        ExpressionAttributeValues: {
+          ":uno": { N: "1" },
+          ":expira": { N: String(Math.floor(Date.now() / 1000) + 172_800) },
+        },
         ReturnValues: "UPDATED_NEW",
       }),
     );

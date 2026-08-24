@@ -50,8 +50,11 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
   if (minusculas.includes("tope")) {
     // Emula el 429 de topes de uso del BFF real (Task 7): un único frame de
     // error, sin done — la conversación no sigue hasta que se libere el tope.
+    // persistible:false — el core real nunca persiste turnos rechazados por
+    // tope (no llegan a la Memory real); el server no debe pushearlo.
     return {
       demoraMs,
+      persistible: false,
       frames: [{ type: "error", code: "limit_reached", motivo: "dia" }],
     };
   }
@@ -60,8 +63,11 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
     // Una entrada bloqueada por el guardrail es una RESPUESTA, no un error
     // (spec §15): termina en `done` con el texto de política, igual que el
     // BFF real.
+    // persistible:false — el core real tampoco persiste turnos bloqueados
+    // por el guardrail de entrada (nunca llegan a invocar al modelo/Memory).
     return {
       demoraMs,
+      persistible: false,
       frames: [{ type: "done", text: TEXTO_ENTRADA_BLOQUEADA }],
     };
   }

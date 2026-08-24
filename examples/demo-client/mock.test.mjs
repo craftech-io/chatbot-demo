@@ -67,4 +67,17 @@ describe("escenarios de la fase 2b", () => {
     expect(texto).not.toContain("undefined");
     expect(texto).toMatch(/primer mensaje/i);
   });
+
+  // Paridad con el sistema real: el core nunca persiste turnos bloqueados o
+  // rechazados por tope (no llegan a la Memory real). El plan lo marca con
+  // `persistible: false` para que el server sepa no pushearlo al historial.
+  it("'tope' y 'bloqueado' no son persistibles; un mensaje normal no declara el campo", () => {
+    const tope = planificarRespuesta("quiero ver el tope", "A", ctx);
+    const bloqueado = planificarRespuesta("bloqueado por favor", "A", ctx);
+    const normal = planificarRespuesta("Hola, ¿qué tal?", "A", ctx);
+
+    expect(tope.persistible).toBe(false);
+    expect(bloqueado.persistible).toBe(false);
+    expect(normal.persistible).toBeUndefined();
+  });
 });
