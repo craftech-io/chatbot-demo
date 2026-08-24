@@ -6,7 +6,11 @@ from server import build_app
 
 
 class FakeLLM:
+    def __init__(self):
+        self.visto = None
+
     async def astream(self, message: str, history: list[dict]):
+        self.visto = {"message": message, "history": history}
         for c in ("Hola", " mundo"):
             yield c
 
@@ -98,3 +102,4 @@ def test_con_memoria_el_historial_sale_de_memory_y_el_turno_se_persiste():
     assert r.status_code == 200
     assert mem.reclamado == ("u1", "s1")
     assert mem.turnos == [("u1", "s1", "hola", "Hola mundo")]
+    assert llm.visto["history"] == [{"role": "user", "content": "previo"}]

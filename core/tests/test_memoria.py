@@ -37,6 +37,9 @@ def test_historial_traduce_eventos_al_formato_del_adaptador():
     assert cliente.kw["memoryId"] == "mem-1"
     assert cliente.kw["actorId"] == "user-a"
     assert cliente.kw["sessionId"] == "sesion-1"
+    # Pin: el data plane real default a False (sin esto el historial vuelve
+    # vacío en producción sin que ningún otro test lo note).
+    assert cliente.kw["includePayloads"] is True
 
 
 def test_registrar_turno_crea_el_evento_con_ambos_mensajes():
