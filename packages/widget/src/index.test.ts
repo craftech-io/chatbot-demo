@@ -145,4 +145,102 @@ describe("mount", () => {
     await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
     expect(el.textContent).toMatch(/límite de mensajes de hoy/i);
   });
+
+  it("renderiza la burbuja del usuario con el texto enviado", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : sse('data: {"type":"delta","text":"Hola"}\n\n'),
+      ),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    const hilo = el.querySelector(".cc-hilo");
+    const hijos = hilo ? Array.from(hilo.children) : [];
+    const idxUsuario = hijos.findIndex((h) => h.classList.contains("cc-usuario"));
+    const idxRespuesta = hijos.findIndex((h) => h.classList.contains("cc-respuesta"));
+
+    expect(el.querySelector(".cc-usuario")?.textContent).toBe("hola");
+    expect(idxUsuario).toBeGreaterThanOrEqual(0);
+    expect(idxUsuario).toBeLessThan(idxRespuesta);
+  });
+
+  it("no duplica la burbuja del usuario en el retry de expired_token", async () => {
+    let chats = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("chat-token")) {
+        return new Response(JSON.stringify({ token: `t${chats}` }));
+      }
+      chats++;
+      return chats === 1
+        ? sse('data: {"type":"error","code":"expired_token"}\n\n')
+        : sse('data: {"type":"delta","text":"listo"}\n\n');
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    expect(chats).toBe(2);
+    expect(el.querySelectorAll(".cc-usuario").length).toBe(1);
+    expect(el.querySelector(".cc-usuario")?.textContent).toBe("hola");
+  });
+
+  it("muestra el indicador de escribiendo hasta el primer delta", async () => {
+    const enc = new TextEncoder();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("chat-token")) {
+          return new Response(JSON.stringify({ token: "t1" }));
+        }
+        return new Response(
+          new ReadableStream({
+            async start(c) {
+              // El primer delta llega recién tras un tick: simula la demora real
+              // de la red para poder observar el estado "escribiendo".
+              await Promise.resolve();
+              c.enqueue(enc.encode('data: {"type":"delta","text":"Hola"}\n\n'));
+              c.close();
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    const promesa = mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+
+    // enviar() corre sincrónico hasta su primer await: justo después de llamar a
+    // send(), la burbuja de respuesta ya nació con el indicador de escribiendo.
+    // Esto no depende del timing de happy-dom (es semántica de async functions),
+    // así que se verifica el estado "antes" además del estado final.
+    const burbuja = el.querySelector(".cc-respuesta");
+    expect(burbuja?.classList.contains("cc-escribiendo")).toBe(true);
+    expect(el.querySelectorAll(".cc-punto").length).toBe(3);
+
+    await promesa;
+
+    expect(el.querySelector(".cc-respuesta")?.classList.contains("cc-escribiendo")).toBe(false);
+    expect(el.querySelector(".cc-respuesta")?.textContent).toBe("Hola");
+  });
+
+  it("inyecta los estilos una sola vez", () => {
+    const el1 = document.createElement("div");
+    const el2 = document.createElement("div");
+    document.body.append(el1, el2);
+
+    mount(el1, { tokenUrl: "/chat-token", chatUrl: "/chat" });
+    mount(el2, { tokenUrl: "/chat-token", chatUrl: "/chat" });
+
+    expect(document.querySelectorAll("#cc-estilos").length).toBe(1);
+  });
 });
