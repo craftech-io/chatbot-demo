@@ -18,6 +18,7 @@ class Config:
     guardrail_id: str | None
     guardrail_version: str | None
     region: str
+    memory_id: str | None
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -41,4 +42,5 @@ def load_config(env: Mapping[str, str]) -> Config:
         guardrail_id=guardrail_id,
         guardrail_version=guardrail_version,
         region=env.get("AWS_REGION", "us-east-1"),
+        memory_id=env.get("MEMORY_ID") or None,
     )

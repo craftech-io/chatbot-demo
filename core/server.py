@@ -18,6 +18,7 @@ from starlette.routing import Route
 from agent.config import load_config
 from agent.events import TextDelta
 from agent.llm import BedrockAdapter
+from agent.memoria import Memoria
 from agent.workflow import ChatWorkflow
 
 PORT = 8080
@@ -33,7 +34,7 @@ class _EchoLLM:
             yield palabra + " "
 
 
-def build_app(llm_factory=None, env=None) -> Starlette:
+def build_app(llm_factory=None, env=None, memoria_factory=None) -> Starlette:
     # `env` se inyecta en los tests; en el contenedor es os.environ.
     env = os.environ if env is None else env
     # La config se carga al CONSTRUIR la app, no por request: si falta algo
@@ -44,6 +45,11 @@ def build_app(llm_factory=None, env=None) -> Starlette:
     if llm_factory is None and env.get("FAKE_LLM"):
         llm_factory = lambda cfg: _EchoLLM()  # noqa: E731
     llm_factory = llm_factory or BedrockAdapter
+    # Sin MEMORY_ID (Task 4 no cableó el recurso, o entorno sin memoria) queda en
+    # None: el server sigue usando `payload.get("history")` como en 2a.
+    if memoria_factory is None and cfg.memory_id:
+        memoria_factory = lambda cfg: Memoria(cfg.memory_id)  # noqa: E731
+    memoria = memoria_factory(cfg) if memoria_factory else None
 
     async def ping(_: Request) -> JSONResponse:
         return JSONResponse({"status": "Healthy"})
@@ -54,8 +60,12 @@ def build_app(llm_factory=None, env=None) -> Starlette:
         if not message:
             return JSONResponse({"error": "falta 'message' en el payload"}, status_code=400)
 
+        actor = payload.get("userId") or "anonimo"
+        sesion = payload.get("sessionId") or "default"
+        history = memoria.historial(actor, sesion) if memoria else (payload.get("history") or [])
+
         workflow = ChatWorkflow(llm=llm_factory(cfg), timeout=120)
-        handler = workflow.run(message=message, history=payload.get("history") or [])
+        handler = workflow.run(message=message, history=history)
 
         async def eventos():
             # Nada tumba la conversación: si el workflow falla a mitad del stream
@@ -70,6 +80,11 @@ def build_app(llm_factory=None, env=None) -> Starlette:
                 # string (el framework no desenvuelve subtipos de StopEvent), y el campo
                 # se llama `texto` para no colisionar con el `result` de StopEvent.
                 texto = (await handler).texto
+                # Se persiste ANTES de emitir el `done`: el turno queda guardado aunque
+                # el cliente corte al recibirlo. El costo es la latencia de una llamada
+                # a Memory (fail-open: si falla, no impide emitir el evento final).
+                if memoria:
+                    memoria.registrar_turno(actor, sesion, message, texto)
                 yield f"data: {json.dumps({'type': 'done', 'text': texto})}\n\n"
             except Exception as exc:
                 logger.error("Fallo el workflow del agente a mitad del stream: %s", exc)

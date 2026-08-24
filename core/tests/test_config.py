@@ -37,3 +37,8 @@ def test_falla_si_hay_guardrail_id_sin_version():
 def test_falla_con_model_id_vacio():
     with pytest.raises(ConfigError, match="MODEL_ID"):
         load_config({"MODEL_ID": ""})
+
+
+def test_memory_id_es_opcional():
+    assert load_config({"MODEL_ID": "m"}).memory_id is None
+    assert load_config({"MODEL_ID": "m", "MEMORY_ID": "mem-1"}).memory_id == "mem-1"

@@ -3,6 +3,7 @@ name = "craftech-ai-chat"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "boto3>=1.43.74",
     "llama-index-llms-bedrock-converse>=0.14.18",
     "llama-index-workflows>=2.23.2",
     "starlette>=1.6.0",
