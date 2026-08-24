@@ -7,5 +7,7 @@ declare module "sst" {
     AgentRuntime: { arn: string };
     ClientAuth: { jwksUrl: string; hmacSecret: string };
     Guardrail: { id: string; version: string };
+    SessionsTable: { name: string };
+    LimitsTable: { name: string };
   }
 }

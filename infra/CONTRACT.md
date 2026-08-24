@@ -15,6 +15,8 @@ uno a otro es reimplementar esta lista, nada más.
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
 | AgentCore Memory | historial de conversación | (actorId, sessionId) |
+| SessionsTable (DynamoDB) | índice de hilos por usuario | pk: userId, sk: sessionId |
+| LimitsTable (DynamoDB) | contadores de tope por usuario y período | pk: userId, sk: periodo |
 
 ## Variables que recibe el core (contenedor)
 
@@ -35,6 +37,10 @@ uno a otro es reimplementar esta lista, nada más.
 | `CLIENT_HMAC_SECRET` | una de las dos | secreto compartido, si el cliente no tiene OIDC |
 | `GUARDRAIL_ID` | no (2b) | id del Guardrail, vía linkable en SST (`Resource.Guardrail.id`) |
 | `GUARDRAIL_VERSION` | no (2b) | versión del Guardrail, vía linkable en SST (`Resource.Guardrail.version`) |
+| `SESSIONS_TABLE` | sí (2b) | nombre de la tabla de sesiones, vía linkable en SST (`Resource.SessionsTable.name`) |
+| `LIMITS_TABLE` | sí (2b) | nombre de la tabla de límites, vía linkable en SST (`Resource.LimitsTable.name`) |
+| `LIMITE_DIARIO` | sí (2b) | número máximo de llamadas por usuario por día (default: 50) |
+| `LIMITE_POR_SESION` | sí (2b) | número máximo de turnos por sesión (default: 40) |
 
 En el sabor SST estas variables se resuelven por linking y las lee
 `packages/bff/src/config/resource.ts`. En los demás sabores se inyectan como
