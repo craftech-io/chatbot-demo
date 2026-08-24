@@ -1,0 +1,8 @@
+{
+  "name": "@craftech-ai-chat/shared",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": { "./mensajes": "./src/mensajes.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" }
+}
