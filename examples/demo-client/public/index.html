@@ -1,34 +1,240 @@
 <!doctype html>
+<html lang="es">
+<head>
 <meta charset="utf-8" />
-<title>Demo del chat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>craftech-ai-chat — demo</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; }
-  .cc-hilo { min-height: 8rem; border: 1px solid #ccc; padding: .75rem; border-radius: .5rem; }
-  form { display: flex; gap: .5rem; margin-top: .75rem; }
-  input { flex: 1; padding: .5rem; }
+  /* Tokens de la página de demo (tema claro por defecto, oscuro por
+     prefers-color-scheme). Estos son del MARCO (header, tarjeta, input); las
+     burbujas del chat las pinta el propio widget con sus --cc-*, que acá
+     redefinimos en dark para que combinen con el resto de la página. */
+  :root {
+    --bg: #F7F8F6;
+    --tarjeta: #ffffff;
+    --texto: #1C2422;
+    --linea: #DBE1DD;
+    --acento: #0E7568;
+    --acento-texto: #ffffff;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131917;
+      --tarjeta: #1A211E;
+      --texto: #E7ECE9;
+      --linea: #2B342F;
+      --acento: #3CB8A6;
+      --acento-texto: #0E1512;
+    }
+
+    /* El widget no trae modo oscuro propio (lo decide el host): acá es donde
+       la demo pisa las --cc-* para que las burbujas de respuesta combinen. */
+    .cc-hilo {
+      --cc-fondo-resp: #232B27;
+      --cc-texto-resp: #E7ECE9;
+      --cc-acento: #3CB8A6;
+      --cc-acento-texto: #0E1512;
+    }
+
+    .badge.live { background: #16302B; }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: var(--bg);
+    color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  .tarjeta {
+    width: 100%;
+    max-width: 640px;
+    height: min(720px, 85vh);
+    display: flex;
+    flex-direction: column;
+    background: var(--tarjeta);
+    border: 1px solid var(--linea);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .08);
+  }
+
+  header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--linea);
+  }
+
+  .fila-titulo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .badge {
+    font-size: .75rem;
+    line-height: 1;
+    padding: .3rem .6rem;
+    border-radius: 999px;
+    border: 1px solid var(--linea);
+    white-space: nowrap;
+  }
+
+  .badge.mock { color: #8A6D1A; background: #FBF3DC; border-color: #EAD9A0; }
+  .badge.live { color: var(--acento); background: #E6F4F1; border-color: var(--acento); }
+
+  .quien {
+    margin: .4rem 0 0;
+    font-size: .85rem;
+    opacity: .75;
+  }
+
+  .quien a { color: var(--acento); }
+
+  .chips-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+    margin-top: .65rem;
+  }
+
+  .chips-label {
+    font-size: .78rem;
+    opacity: .6;
+  }
+
+  .chip-esc {
+    font: inherit;
+    font-size: .78rem;
+    padding: .3rem .65rem;
+    border-radius: 999px;
+    border: 1px solid var(--linea);
+    background: transparent;
+    color: var(--texto);
+    cursor: pointer;
+  }
+
+  .chip-esc:hover { border-color: var(--acento); color: var(--acento); }
+
+  #chat {
+    flex: 1;
+    min-height: 0;
+  }
+
+  #chat .cc-hilo {
+    height: 100%;
+  }
+
+  form {
+    display: flex;
+    gap: .5rem;
+    padding: .85rem 1rem;
+    border-top: 1px solid var(--linea);
+  }
+
+  input[type="text"] {
+    flex: 1;
+    padding: .6rem .95rem;
+    border-radius: 999px;
+    border: 1px solid var(--linea);
+    background: var(--bg);
+    color: var(--texto);
+    font: inherit;
+  }
+
+  button {
+    padding: .6rem 1.15rem;
+    border-radius: 999px;
+    border: none;
+    background: var(--acento);
+    color: var(--acento-texto);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button:disabled { opacity: .6; cursor: default; }
+
+  :focus-visible {
+    outline: 2px solid var(--acento);
+    outline-offset: 2px;
+  }
 </style>
+</head>
+<body>
+  <main class="tarjeta">
+    <header>
+      <div class="fila-titulo">
+        <h1>craftech-ai-chat</h1>
+        __MODO__
+      </div>
+      <p class="quien">
+        Conversando como <b id="quien"></b> ·
+        <a href="?user=Ana">Ana</a> · <a href="?user=Bruno">Bruno</a>
+      </p>
+      __MOCK_HINT__
+    </header>
 
-<h1>Demo del chat</h1>
-<p>Usuario: <code id="quien"></code> — cambialo con <code>?user=B</code> en la URL.</p>
-__MOCK_HINT__
+    <div id="chat" role="log" aria-label="Historial de la conversación"></div>
 
-<div id="chat"></div>
-<form id="f"><input id="m" placeholder="Escribí un mensaje…" autocomplete="off" /><button>Enviar</button></form>
+    <form id="f">
+      <input id="m" type="text" placeholder="Escribí un mensaje…" autocomplete="off" />
+      <button id="btn" type="submit">Enviar</button>
+    </form>
+  </main>
 
-<script src="/widget.js"></script>
-<script>
-  const user = new URLSearchParams(location.search).get("user") || "demo";
-  document.getElementById("quien").textContent = user;
+  <script src="/widget.js"></script>
+  <script>
+    const user = new URLSearchParams(location.search).get("user") || "demo";
+    document.getElementById("quien").textContent = user;
 
-  const chat = CraftechChat.mount(document.getElementById("chat"), {
-    tokenUrl: `/chat-token?user=${encodeURIComponent(user)}`,
-    chatUrl: "__CHAT_URL__",
-  });
+    const chat = CraftechChat.mount(document.getElementById("chat"), {
+      tokenUrl: `/chat-token?user=${encodeURIComponent(user)}`,
+      chatUrl: "__CHAT_URL__",
+    });
 
-  document.getElementById("f").addEventListener("submit", (e) => {
-    e.preventDefault();
+    const form = document.getElementById("f");
     const input = document.getElementById("m");
-    if (input.value.trim()) chat.send(input.value.trim());
-    input.value = "";
-  });
-</script>
+    const boton = document.getElementById("btn");
+    const textoBoton = boton.textContent;
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const texto = input.value.trim();
+      if (!texto) return;
+      input.value = "";
+      boton.disabled = true;
+      boton.textContent = "…";
+      chat.send(texto).finally(() => {
+        boton.disabled = false;
+        boton.textContent = textoBoton;
+      });
+    });
+
+    // Los chips del hint (solo existen en modo mock) escriben la keyword en el
+    // input y lo enfocan: delegado en document porque el hint del server puede
+    // venir vacío (modo real) y entonces no hay nada que escuchar.
+    document.addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip-esc");
+      if (!chip) return;
+      input.value = chip.textContent;
+      input.focus();
+    });
+  </script>
+</body>
+</html>

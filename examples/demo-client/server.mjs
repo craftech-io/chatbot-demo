@@ -35,13 +35,22 @@ if (MOCK && !SECRETO) {
   );
 }
 
-// __MOCK_HINT__ en el HTML: en mock, el bloque de ayuda con los keywords; en
-// modo real, cadena vacía.
+// __MOCK_HINT__ en el HTML: en mock, chips clickeables con las keywords que
+// disparan cada escenario del mock (el click, del lado del cliente, escribe la
+// keyword en el input); en modo real, cadena vacía.
 const MOCK_HINT_HTML =
-  '<p style="color:#888;font-size:.85em;">Modo local (mock). Probá escribir: ' +
-  "<code>error</code> · <code>vencido</code> · <code>lento</code> · " +
-  "<code>memoria</code> · <code>tope</code> · <code>bloqueado</code> — o cualquier " +
-  "cosa para ver el streaming.</p>";
+  '<div class="chips-hint">' +
+  '<span class="chips-label">Modo local — probá:</span>' +
+  ["error", "vencido", "lento", "memoria", "tope", "bloqueado"]
+    .map((palabra) => `<button type="button" class="chip-esc">${palabra}</button>`)
+    .join("") +
+  "</div>";
+
+// __MODO__ en el HTML: el badge del header. En mock, aclara que no hay AWS
+// detrás; en real, indica el ambiente contra el que efectivamente se habla.
+const MODO_HTML = MOCK
+  ? '<span class="badge mock">modo local</span>'
+  : '<span class="badge live">● staging</span>';
 
 // Estado mínimo del escenario "vencido": la PRIMERA vez que un (sessionId, mensaje)
 // contiene "vencido" se responde expired_token; la segunda (el retry automático
@@ -166,7 +175,8 @@ createServer(async (req, res) => {
   res.end(
     html
       .replace("__CHAT_URL__", MOCK ? "/chat" : CHAT_URL)
-      .replace("__MOCK_HINT__", MOCK ? MOCK_HINT_HTML : ""),
+      .replace("__MOCK_HINT__", MOCK ? MOCK_HINT_HTML : "")
+      .replace("__MODO__", MODO_HTML),
   );
 }).listen(PORT, () =>
   console.log(
