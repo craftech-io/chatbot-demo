@@ -27,3 +27,17 @@ QEMU (lo cubre el smoke del próximo deploy).
 | Boot de la imagen en runner x86 bajo QEMU | ~60 s hasta /ping (cota superior, no representativa) |
 
 El riesgo de cold start del spec (§19.2) queda cerrado: era un artefacto de QEMU.
+
+## Smoke de la fase 2b (staging, 2026-08-24)
+
+| Qué | Resultado |
+|---|---|
+| Memoria: 3 turnos, pregunta por el 1º | ✓ "Verde esmeralda" — orden cronológico, includePayloads y acciones IAM del data plane confirmados |
+| Guardrail de entrada (prompt attack) | ✓ done canónico del registro, sin invoke al Runtime |
+| Guardrail de salida armado | ✓ los turnos streamean (ApplyGuardrail scoped al guardrailArn funciona) |
+| LimitsTable | ✓ count=4 con TTL — el mensaje bloqueado consumió cupo (semántica deliberada del diseño) |
+| SessionsTable | ✓ turnos=3, título = primer mensaje; el turno bloqueado NO se indexó (correcto: nunca hubo invoke) |
+| Errores de fail-open en logs | 0 — los permisos Dynamo del fix C1 funcionan de verdad |
+
+El 429 forzado no se ejerció en vivo (requeriría ~37 mensajes más); los contadores
+probados vivos + la lógica pineada por unit tests se consideran evidencia suficiente.

@@ -92,3 +92,12 @@ Fix wave: DONE (763c699 C1+C2, 0dcde3c M1+M2; 39/1/10/12 + 19 core; formas sst v
 Fix wave: re-review — 4/4 ADDRESSED con verificación independiente (forma del include contra el source de la plataforma; gramática ADD...SET contra los docs de AWS). Sin breakage.
 Out-of-scope anotado para 2c: el escenario `error` del mock aún persiste al historial (el real no persiste turnos con invoke fallido); pasada de paridad futura.
 == FASE 2B COMPLETA: 9 tareas + fix wave, review final With fixes → aplicados y re-verificados. Falta Task 10 (smoke real, controlador+humano). ==
+
+## Addendum: Task 10 — smoke real (2026-08-24)
+
+Deploy verde tras 1 fix de deploy (nombres de componentes SST únicos: los Dynamo
+ganaron sufijo Db, los Linkables conservan la clave de Resource). Smoke: memoria
+end-to-end (3 turnos, recall del 1º), guardrail de entrada bloqueando con el texto
+canónico sin invoke, guardrail de salida armado sin AccessDenied, tablas escribiendo
+con TTL y 0 errores de fail-open en logs. Semántica confirmada en vivo: el mensaje
+bloqueado consume cupo diario pero no se indexa como turno. FASE 2B CERRADA.
