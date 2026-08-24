@@ -130,4 +130,19 @@ describe("mount", () => {
 
     expect(el.textContent).toMatch(/no est(á|a) disponible/i);
   });
+
+  it("ante limit_reached muestra el mensaje del registro según el motivo", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("chat-token")
+          ? new Response(JSON.stringify({ token: "t1" }))
+          : sse('data: {"type":"error","code":"limit_reached","motivo":"dia"}\n\n'),
+      ),
+    );
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", chatUrl: "/chat" }).send("hola");
+    expect(el.textContent).toMatch(/límite de mensajes de hoy/i);
+  });
 });

@@ -1,6 +1,7 @@
 // El widget: lo que el cliente pega en su app. Sin framework, para no chocar con
 // su stack. Toda la UI es DOM plano; los textos visibles viven en MENSAJES.
 import { TokenSource } from "./token";
+import { MENSAJES_LIMITE } from "@craftech-ai-chat/shared/mensajes";
 
 // Registro de textos visibles: el producto es en español y los literales no se
 // dispersan por el código.
@@ -51,9 +52,15 @@ export function mount(
             tokens.invalidate();
             burbuja.remove();
             return enviar(texto, true);
+          } else if (ev.code === "limit_reached") {
+            burbuja.textContent =
+              ev.motivo === "sesion"
+                ? MENSAJES_LIMITE.sesionAlcanzada
+                : MENSAJES_LIMITE.diarioAlcanzado;
+          } else {
+            burbuja.textContent =
+              ev.code === "agent_unavailable" ? MENSAJES.agenteCaido : MENSAJES.errorGenerico;
           }
-          burbuja.textContent =
-            ev.code === "agent_unavailable" ? MENSAJES.agenteCaido : MENSAJES.errorGenerico;
         }
       }
       if (!huboEventos) {
