@@ -67,11 +67,18 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
         // y AWS exige el permiso en CADA región destino, no solo en la propia.
         // El de inference-profile sí es regional+de cuenta: ese recurso vive
         // solo en la región y cuenta donde se creó el profile.
-        Action: ["bedrock:InvokeModelWithResponseStream", "bedrock:InvokeModel", "bedrock:ApplyGuardrail"],
+        Action: ["bedrock:InvokeModelWithResponseStream", "bedrock:InvokeModel"],
         Resource: [
           "arn:aws:bedrock:*::foundation-model/*",
           $interpolate`arn:aws:bedrock:${region}:${accountId}:inference-profile/*`,
         ],
+      },
+      {
+        // ConverseStream con guardrailConfig exige ApplyGuardrail sobre el
+        // guardrail mismo (no sobre el modelo).
+        Effect: "Allow",
+        Action: ["bedrock:ApplyGuardrail"],
+        Resource: [guardrail.guardrailArn],
       },
       {
         // AgentCore valida al CREAR el Runtime que su execution role pueda

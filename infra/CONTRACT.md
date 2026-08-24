@@ -10,8 +10,8 @@ uno a otro es reimplementar esta lista, nada más.
 |---|---|---|
 | AgentCore Runtime | corre el contenedor del agente | imagen **ARM64**; `/ping` y `/invocations` en `:8080` |
 | Repositorio ECR | aloja la imagen del core | |
-| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel`, `bedrock:ApplyGuardrail`, `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents` |
-| Lambda del BFF + Function URL | chat con response streaming | permiso `bedrock-agentcore:InvokeAgentRuntime` |
+| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel` (foundation-model + inference-profile), `bedrock:ApplyGuardrail` (statement propio, scoped al `guardrailArn` — NO al statement de modelos, que no matchea ese recurso), `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents` |
+| Lambda del BFF + Function URL | chat con response streaming | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio); `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`) |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
 | AgentCore Memory | historial de conversación | (actorId, sessionId) |
@@ -114,3 +114,23 @@ ni referencias a esas acciones en los `.d.ts` de `aws`/`aws-native` (solo
 aparece `bedrock-agentcore:InvokeAgentRuntime`, ya usado por el BFF, en
 `aws/bedrock/agentcoreResourcePolicy.d.ts`). Quedan los nombres del plan tal
 cual, marcados en `infra/sst/runtime.ts` para verificar en el smoke.
+
+## Mapeo de nombres reales (fix-wave fase 2b, permisos de DynamoDB en Linkables)
+
+Verificado contra `.sst/platform/src/components/linkable.ts` y
+`.sst/platform/src/components/aws/permission.ts`: la interfaz `Definition` de
+`sst.Linkable` expone un campo opcional `include: { type: string; [key:
+string]: any }[]`, y `sst.aws.permission({ actions, resources })` devuelve
+`{ type: "aws.permission", actions, resources }`. La forma coincide
+exactamente con la que documenta el JSDoc del propio archivo (`sst.Linkable`
+con `include: [sst.aws.permission({ actions: [...], resources: [...] })]`) —
+sin mapeo, sin desvío. Se usó para scopear `sessionsTableLink`/`limitsTableLink`
+en `infra/sst/tablas.ts` a `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre el
+ARN de cada tabla: un `sst.Linkable` pelado (solo `properties`) NO hereda el
+auto-grant que da linkear el componente `sst.aws.Dynamo` directo, así que sin
+`include` la Lambda del BFF quedaba sin permisos de Dynamo (AccessDenied
+tragado por el fail-open de `topes.ts`/`indice.ts`).
+
+También verificado contra `.sst/platform/src/components/aws/dynamo.ts`: el
+campo `ttl?: Input<string>` existe con esa forma exacta (ejemplo del propio
+JSDoc: `ttl: "expireAt"`) — se usó para `LimitsTable.ttl = "expiraAt"`.
