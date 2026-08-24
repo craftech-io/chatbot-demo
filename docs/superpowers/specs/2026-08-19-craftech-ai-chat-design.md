@@ -282,7 +282,7 @@ pueda contarle al usuario.
 | Guardrail bloquea la entrada | mensaje canónico de política del registro — es una respuesta, no un error |
 | Guardrail interviene la salida | se corta el stream con el mensaje de política; el turno queda registrado |
 | Tool del cliente 5xx / timeout | el workflow **no muere**: devuelve al modelo un resultado de error estructurado para que lo explique al usuario. Timeout duro y tope de reintentos por tool |
-| SSE cortado a mitad | el turno parcial se persiste marcado incompleto; el widget muestra lo recibido y reconecta |
+| SSE cortado a mitad | el widget muestra lo recibido. *(Ajuste 2b: el turno fallido NO se persiste — un turno a medias contaminaría el historial; el marcador "incompleto" y la reconexión quedan para cuando exista listado de conversaciones, 2e)* |
 | Throttling de Bedrock | backoff con jitter; si persiste, mensaje al usuario |
 | Guardrail caído | fail-open: se loguea y el chat sigue |
 
