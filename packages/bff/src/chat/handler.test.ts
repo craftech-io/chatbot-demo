@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
 import { handleChat, type InvokePayload } from "./handler";
 
@@ -167,5 +167,26 @@ describe("handleChat", () => {
     );
     expect(r.status).toBe(200);
     expect(recibido).toHaveLength(1);
+  });
+
+  it("un tope excedido responde 429 con frame limit_reached y su motivo", async () => {
+    const recibido: InvokePayload[] = [];
+    const r = await handleChat(
+      { token: await token(), message: "hola", sessionId: "s1" },
+      { cfg, invoke: invokeFalso(recibido), limites: async () => ({ permitido: false, motivo: "dia" }) },
+    );
+    expect(r.status).toBe(429);
+    const ev = JSON.parse((await frames(r.frames))[0].slice(6));
+    expect(ev).toEqual({ type: "error", code: "limit_reached", motivo: "dia" });
+    expect(recibido).toHaveLength(0);
+  });
+
+  it("los topes corren ANTES que el guardrail (no se paga ApplyGuardrail de más)", async () => {
+    const guard = vi.fn(async () => ({ bloqueada: false }));
+    await handleChat(
+      { token: await token(), message: "hola", sessionId: "s1" },
+      { cfg, invoke: invokeFalso([]), guard, limites: async () => ({ permitido: false, motivo: "dia" }) },
+    );
+    expect(guard).not.toHaveBeenCalled();
   });
 });

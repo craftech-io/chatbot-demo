@@ -9,6 +9,12 @@ export type BffConfig = {
   // (Task 2, fase 2b). Si falta, lambda.ts no construye el dep `guard` y el
   // handler sigue sin filtro de entrada.
   guardrail?: { id: string; version: string };
+  // Opcional: sabores/mocks viejos pueden no tener las tablas linkeadas
+  // (Task 6/7, fase 2b). Si falta, lambda.ts no construye el dep `limites` ni
+  // registra el índice de hilos.
+  tablas?: { sesiones: string; limites: string };
+  // Topes de uso (spec §12): con default si el sabor no los trae seteados.
+  topes?: { diario: number; porSesion: number };
 };
 
 export async function loadConfig(): Promise<BffConfig> {

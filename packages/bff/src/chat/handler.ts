@@ -29,9 +29,16 @@ type Deps = {
   cfg: BffConfig;
   invoke: (p: InvokePayload) => Promise<AsyncIterable<Uint8Array>>;
   // Opcional: si no está seteado (sabor viejo, mock, etc.) el flujo sigue sin
-  // filtro de entrada. Punto de inserción fijo entre topes (Task 7) y el
-  // invoke: auth → mensaje → topes → guardrail → invoke.
+  // filtro de entrada. Orden final: auth → mensaje → topes → guardrail →
+  // invoke.
   guard?: (texto: string) => Promise<{ bloqueada: boolean }>;
+  // Opcional: si no está seteado (sabor viejo, mock, etc.) el flujo sigue sin
+  // topes de uso. Corre ANTES del guard: si el tope ya se superó, no vale la
+  // pena pagar el ApplyGuardrail de la entrada.
+  limites?: (
+    userId: string,
+    sessionId: string,
+  ) => Promise<{ permitido: boolean; motivo?: "dia" | "sesion" }>;
 };
 
 type Result = { status: number; frames: AsyncIterable<string> };
@@ -73,9 +80,18 @@ export async function handleChat(
     sessionId: runtimeSessionId(principal.userId, input.sessionId),
   };
 
-  // Punto de inserción de los topes (Task 7, aún no existe): van ACÁ, entre el
-  // armado del payload y el guardrail. Orden final: auth → mensaje → topes →
-  // guardrail → invoke.
+  // Los topes van ACÁ, entre el armado del payload y el guardrail. Orden
+  // final: auth → mensaje → topes → guardrail → invoke.
+  if (deps.limites) {
+    const l = await deps.limites(principal.userId, payload.sessionId);
+    if (!l.permitido) {
+      return {
+        status: 429,
+        frames: unFrame({ type: "error", code: "limit_reached", motivo: l.motivo }),
+      };
+    }
+  }
+
   if (deps.guard) {
     const g = await deps.guard(input.message);
     if (g.bloqueada) {
