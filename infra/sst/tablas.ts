@@ -1,6 +1,8 @@
 // SessionsTable: índice de hilos por usuario — SOLO metadata (título, timestamps,
 // contador de turnos). La transcripción vive en AgentCore Memory, nunca acá.
-export const sessionsTable = new sst.aws.Dynamo("SessionsTable", {
+export const sessionsTable = // El componente lleva sufijo Db: los nombres de componentes SST son únicos
+// entre sí, y el Linkable de abajo ya usa "SessionsTable" (la clave de Resource).
+new sst.aws.Dynamo("SessionsTableDb", {
   fields: { userId: "string", sessionId: "string" },
   primaryIndex: { hashKey: "userId", rangeKey: "sessionId" },
 });
@@ -9,7 +11,7 @@ export const sessionsTable = new sst.aws.Dynamo("SessionsTable", {
 // su Bedrock: sin topes, la primera factura sorpresa se come la relación (§12).
 // TTL en `expiraAt`: sin esto los períodos vencidos se acumulan para siempre —
 // el campo lo escribe topes.ts al primer UpdateItem de cada período.
-export const limitsTable = new sst.aws.Dynamo("LimitsTable", {
+export const limitsTable = new sst.aws.Dynamo("LimitsTableDb", {
   fields: { userId: "string", periodo: "string" },
   primaryIndex: { hashKey: "userId", rangeKey: "periodo" },
   ttl: "expiraAt",
