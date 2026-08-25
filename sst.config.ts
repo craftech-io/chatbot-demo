@@ -28,6 +28,10 @@ export default $config({
   async run() {
     const { runtime } = await import("./infra/sst/runtime");
     await import("./infra/sst/bff");
+    // El worker (Task 5, fase 2c) linkea messagesTableLink/runtimeLink desde
+    // ./mensajeria y ./runtime — ambos módulos ya se ejecutaron por el import
+    // de bff.ts de arriba (Node cachea el módulo, no se duplican recursos).
+    await import("./infra/sst/worker");
     // El plan original decía `runtime.arn`: el recurso real (Step 0) expone
     // `agentRuntimeArn`, no un `.arn` genérico.
     return { runtimeArn: runtime.agentRuntimeArn };

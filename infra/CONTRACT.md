@@ -18,8 +18,9 @@ uno a otro es reimplementar esta lista, nada más.
 | SessionsTable (DynamoDB) | índice de hilos por usuario | pk: userId, sk: sessionId |
 | LimitsTable (DynamoDB) | contadores de tope por usuario y período | pk: userId, sk: periodo |
 | MessagesTable (DynamoDB) | fuente de verdad de la transcripción (spec §8 v2) | pk: conversationId, sk: orden (`${ts ISO}#${msgId}` — el orden lexicográfico ES el cronológico) |
-| MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver nota de mapeo abajo); redirige a MensajesDlq tras 3 intentos |
+| MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver nota de mapeo abajo); redirige a MensajesDlq tras 3 intentos; `visibilityTimeout` 6 minutos — **invariante: siempre ≥ 2x el `timeout` del worker** (hoy 3 minutos, `infra/sst/worker.ts`), o SQS re-entrega el mensaje mientras el primer invoke sigue corriendo y el segundo `procesarMensaje` concurrente pasa el debounce (nada cambió) → doble invocación al agente, doble respuesta, sin error ni DLQ que lo delate (fix round 1, Task 5) |
 | MensajesDlq (SQS FIFO) | destino de mensajes que MensajesCola no pudo entregar tras 3 intentos | también FIFO — SQS no permite que una cola FIFO redirija a una DLQ estándar (ni al revés) |
+| Lambda del worker (`Worker`) | consume MensajesCola (batch size 1) y corre el turno del agente en background: debounce + agregación de pendientes + invoke a AgentCore Runtime + escritura de la respuesta en MessagesTable (spec §8 v2) | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio + sub-recurso `runtime-endpoint/*`); `sqs:ChangeMessageVisibility`+`sqs:DeleteMessage`+`sqs:GetQueueAttributes`+`sqs:GetQueueUrl`+`sqs:ReceiveMessage` sobre MensajesCola (a mano — ver nota de mapeo abajo, `subscribe` por ARN no los auto-otorga); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable heredado de `messagesTableLink` (mismo Linkable que usa el BFF, `include` en `infra/sst/mensajeria.ts`); timeout 3 minutos (el turno puede tardar tanto como el invoke completo al Runtime) |
 
 ## Variables que recibe el core (contenedor)
 
@@ -194,3 +195,44 @@ el sufijo `Db` de `MessagesTableDb`/`SessionsTableDb`/`LimitsTableDb`, y el
 mismo tipo de bug que un fix de deploy de 2b). El nombre físico autogenerado
 ahora usa `MensajesColaQueue` como parte lógica (`...-MensajesColaQueue-${random8}.fifo`);
 la clave del Linkable (`Resource.MensajesCola`) no cambió.
+
+## Mapeo de nombres reales (Task 5, fase 2c: `Queue.subscribe` y su `batch`)
+
+Gate obligatorio de esta tarea. Verificado contra
+`.sst/platform/src/components/aws/queue.ts` (leído completo, incluida
+`_subscribeFunction`) y `.sst/platform/src/components/aws/queue-lambda-subscriber.ts`:
+
+- `public subscribe(subscriber: Input<string | FunctionArgs | FunctionArn>, args?: QueueSubscriberArgs, opts?)`
+  (queue.ts:509-527) — el parámetro NO acepta una instancia de `sst.aws.Function`
+  (el tipo público es `string | FunctionArgs | FunctionArn`, no `Function`),
+  aunque el helper interno `functionBuilder` sepa manejar ese caso para otros
+  callers. Sí acepta un ARN como `string` — `Output<string>` (lo que devuelve
+  `worker.arn`) es asignable ahí porque `string` ya está en la unión.
+- `QueueSubscriberArgs.batch?: Input<{ size?: Input<number>; window?:
+  Input<DurationMinutes>; partialResponses?: Input<boolean> }>`
+  (queue.ts:200-262), default `{size: 10, window: "20 seconds",
+  partialResponses: false}` — `{ batch: { size: 1 } }` del plan coincide
+  exactamente.
+- `subscribe()` delega en el método estático `_subscribeFunction` (queue.ts:590-610),
+  que crea un `QueueLambdaSubscriber` nombrado `${nombreDelComponenteQueue}Subscriber${hash}`
+  — un nombre auto-derivado (nunca colisiona, no hace falta elegirlo a mano).
+
+**Desvío encontrado respecto al plan (por qué el worker NO usa ese patrón
+auto-nombrado):** si se le pasa a `subscribe()` un handler string o un objeto
+`FunctionArgs` (en vez de un ARN), `QueueLambdaSubscriber.createFunction()`
+(queue-lambda-subscriber.ts) crea la Function del subscriber por dentro y le
+auto-otorga `sqs:ChangeMessageVisibility`/`DeleteMessage`/`GetQueueAttributes`/
+`GetQueueUrl`/`ReceiveMessage` sobre la cola — pero esa Function queda con un
+nombre auto-hasheado (`MensajesColaQueueSubscriber<hash>Function`), no
+`"Worker"`. La ruling de esta tarea pide un componente `Function` propio
+llamado `"Worker"` (verificado libre con grep en `infra/`, ver arriba), así
+que `infra/sst/worker.ts` crea `new sst.aws.Function("Worker", {...})` primero
+y recién después llama `mensajesCola.subscribe(worker.arn, {batch: {size:
+1}})` — la rama de `functionBuilder` para un ARN NO crea una Function nueva ni
+le agrega permisos (`helpers/function-builder.ts`, caso `definition.startsWith("arn:")`):
+por eso `infra/sst/worker.ts` declara a mano, en el propio `permissions` de
+`Worker`, el mismo set de 5 acciones SQS que el auto-grant le daría si
+`subscribe()` hubiera creado la Function. Sin esto, el Lambda poller de SQS no
+puede leer/borrar mensajes de la cola y el worker nunca se dispara (el
+`EventSourceMapping` se crea igual, pero con `AccessDenied` silencioso del
+lado del poller — no hay error de deploy que lo delate).

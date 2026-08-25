@@ -28,6 +28,16 @@ export const mensajesCola = new sst.aws.Queue("MensajesColaQueue", {
   // el BFF es solo informativo, ver bff.ts.
   delay: "6 seconds",
   dlq: { queue: dlq.arn, retry: 3 },
+  // SIEMPRE mayor que el timeout del worker (3 min, infra/sst/worker.ts): con
+  // el default de 30s, SQS re-entrega el mensaje MIENTRAS el primer invoke
+  // sigue corriendo (60-90s típico) → un segundo procesarMensaje concurrente
+  // e idéntico pasa el debounce (nada cambió entre uno y otro) → doble
+  // invocación al agente → doble respuesta silenciosa, sin error ni DLQ. 2x
+  // el timeout del worker alcanza porque el handler jamás lanza (turno.ts:
+  // la redelivery real solo ocurre ante un crash duro del contenedor, no por
+  // un fallo de negocio) y un múltiplo mayor bloquearía la conversación FIFO
+  // demasiado tiempo tras ese crash.
+  visibilityTimeout: "6 minutes",
 });
 
 // Los wrappers de sst.Linkable NO heredan el auto-grant que sst.aws.Dynamo/
