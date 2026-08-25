@@ -95,6 +95,12 @@ export const mensajesCola = new sst.aws.Queue("MensajesColaQueue", {
   // FIFO no soporta delay POR MENSAJE: el delay de la cola ES la ventana de
   // debounce — todo mensaje espera estos segundos antes de ser visible.
   delay: "6 seconds",
+  // SIEMPRE mayor que el timeout del worker (3 min): con el default de 30s,
+  // SQS re-entrega mientras el invoke sigue corriendo → doble respuesta
+  // silenciosa. 2x el timeout alcanza porque el handler nunca lanza (la
+  // redelivery solo ocurre en crash duro) y un 6x literal bloquearía la
+  // conversación FIFO demasiado tiempo tras un crash.
+  visibilityTimeout: "6 minutes",
   dlq: { queue: dlq.arn, retry: 3 },
 });
 
