@@ -27,7 +27,7 @@ compartimos ningún secreto.
 <script>
   CraftechChat.mount(document.getElementById("chat"), {
     tokenUrl: "/chat-token",
-    chatUrl: "https://<url-del-chat>",
+    apiUrl: "https://<url-del-messages-backend>",
   });
 </script>
 ```
@@ -37,22 +37,33 @@ compartimos ningún secreto.
 ### Quick start: modo mock, sin AWS
 
 Sin backend desplegado, sin secretos, sin variables de entorno. Sirve para
-probar la UI/UX del chat (streaming, errores, renovación de token) contra
+probar la UI/UX del chat (envío, errores, renovación de token) contra
 respuestas simuladas por el propio server:
 
 ```bash
 npm run dev
 ```
 
-Abrir http://localhost:3000. El mensaje que escribís dispara un escenario según
-si contiene alguna de estas palabras (no importan mayúsculas):
+Abrir http://localhost:3000. Desde la fase 2c el chat es asíncrono (spec §8
+v2): al mandar un mensaje el widget hace `POST /mensajes` y después hace
+polling con `GET /mensajes` hasta que aparece la respuesta — no hay más
+streaming palabra por palabra, la respuesta llega entera cuando está lista.
+El mock simula el worker real con un `setTimeout` de 1200ms: si mandás dos
+mensajes seguidos antes de que pase ese tiempo, el debounce los agrupa y
+contestás una sola vez (se ve en el chat: dos burbujas de usuario, una sola
+respuesta).
 
-- `error` → el asistente no está disponible (`agent_unavailable`).
-- `vencido` → la primera vez simula un token vencido (`expired_token`); el
-  widget renueva el token solo y reintenta, y esa segunda vez sí fluye normal.
-- `lento` → una respuesta normal pero con streaming más pausado.
-- cualquier otro mensaje → streaming palabra por palabra de una respuesta que
-  saluda por tu usuario.
+El mensaje que escribís dispara un escenario según si contiene alguna de
+estas palabras (no importan mayúsculas):
+
+- `error` → el worker no pudo generar una respuesta (`agent_unavailable`); el
+  usuario igual ve un mensaje, no silencio (texto de fallback).
+- `vencido` → la primera vez simula un token vencido (`expired_token`, 401 en
+  el POST); el widget renueva el token solo y reintenta, y esa segunda vez sí
+  fluye normal.
+- `lento` → una respuesta normal pero que tarda un poco más en aparecer.
+- cualquier otro mensaje → una respuesta que saluda por tu usuario, visible
+  después del debounce.
 
 Con `?user=A` y `?user=B` en dos pestañas se ve que cada usuario tiene su
 propia conversación.
@@ -62,14 +73,16 @@ los hace visibles sin AWS con tres escenarios más:
 
 - `memoria` → la respuesta dice cuántos turnos lleva la conversación y cuál
   fue tu mensaje anterior. El server guarda ese historial en memoria de proceso
-  (`historialPorSesion`, por `sessionId`) — se pierde al reiniciar el server;
-  es la versión mockeada de la memoria real en AgentCore Memory.
-- `tope` → simula haber llegado al límite de uso (`limit_reached`, motivo
-  `dia`): un único frame de error, la conversación no sigue.
+  (`historialPorConversacion`, por conversación) — se pierde al reiniciar el
+  server; es la versión mockeada de la memoria real en AgentCore Memory.
+- `tope` → simula haber llegado al límite de uso: `429` en el propio POST,
+  con `{error:{code:"limit_reached",motivo:"dia"}}`. No se guarda ni se
+  encola nada, la conversación no sigue.
 - `bloqueado` → simula al guardrail de entrada rechazando el mensaje. No es
-  un error: es un `done` con un texto de política, como respondería el BFF
-  real (el mock emula el espíritu del mensaje canónico, no lo importa —
-  no hay build en este ejemplo).
+  un error: el POST responde 200 y el usuario y la respuesta de política ya
+  quedan escritos de una, sin pasar por el debounce (el mock emula el
+  espíritu del mensaje canónico, no lo importa — no hay build en este
+  ejemplo).
 
 ### Modo real: contra un deploy
 
@@ -91,9 +104,13 @@ Y recién ahí correr el demo:
 ```bash
 npm run build -w @craftech-ai-chat/widget
 CHAT_HMAC_SECRET="$(cat ../../.secreto-demo.local)" \
-CHAT_URL="<la Function URL del deploy>" \
+API_URL="<la Function URL del Messages Backend>" \
   npm start -w @craftech-ai-chat/demo-client
 ```
+
+(`API_URL` reemplaza al viejo `CHAT_URL` de la fase con streaming; el server
+todavía lee `CHAT_URL` como fallback si `API_URL` no está seteada, por las
+dudas de que algún script externo lo siga exportando así.)
 
 Abrir http://localhost:3000. Con `?user=A` y `?user=B` en dos pestañas se ve que cada
 usuario tiene su propia conversación.
