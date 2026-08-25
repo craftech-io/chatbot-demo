@@ -205,6 +205,13 @@ export function mount(
   // es el `orden` del primer mensaje sin responder — el cursor que usa el
   // poller del dueño, sin importar cuántos sends concurrentes se agreguen
   // después.
+  // M5 (riesgo conocido y aceptado, fix-wave fase 2c): ventana de pocos
+  // milisegundos entre que preguntarHastaRespuesta ENCUENTRA la respuesta y
+  // recién ahí baja `pollerActivo` (línea de abajo del `if` en el loop) — un
+  // send() concurrente que caiga justo en esa ventana todavía ve
+  // `pollerActivo === true`, no se vuelve dueño, y confía en un poller que ya
+  // está por terminar (encontró SU respuesta) y no va a volver a preguntar:
+  // ese mensaje nuevo queda sin quien lo pollee hasta el próximo send().
   let pollerActivo = false;
   let cursorInicial: string | null = null;
 

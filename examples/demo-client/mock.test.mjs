@@ -190,4 +190,20 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     expect(mensajes.filter((m) => m.rol === "assistant")).toHaveLength(1);
     expect(mensajes.at(-1).rol).toBe("assistant");
   });
+
+  // M4 (fix-wave fase 2c): "error500" emula una falla temprana y síncrona del
+  // BFF real (nada de debounce/worker de por medio) — test de contrato de una
+  // sola aserción.
+  it("'error500': el POST responde 500 sin escribir nada", async () => {
+    const post = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "dame un error500 por favor", hilo: "hilo-error500" }),
+    });
+
+    expect({ status: post.status, body: await post.json() }).toEqual({
+      status: 500,
+      body: { error: { code: "error_interno" } },
+    });
+  });
 });

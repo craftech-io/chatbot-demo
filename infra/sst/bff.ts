@@ -22,7 +22,11 @@ export const clientAuth = new sst.Linkable("ClientAuth", {
 export const chat = new sst.aws.Function("Chat", {
   handler: "packages/bff/src/chat/lambda.handler",
   runtime: "nodejs24.x",
-  timeout: "5 minutes",
+  // 30s alcanza de sobra: el router hace auth + 2 PutItem + 1 SendMessage
+  // (nada de invoke al agente, eso lo hace el worker en background). El
+  // timeout de 5 minutos era herencia del modo streaming viejo, que sí
+  // mantenía la conexión abierta esperando al agente.
+  timeout: "30 seconds",
   // CORS abierto: el token del chat (JWKS/HMAC) es lo que protege, no el origen.
   // En el paquete final para un cliente concreto, los orígenes salen de
   // client.config.ts en vez de "*".

@@ -75,6 +75,25 @@ describe("postMensaje", () => {
     expect(store.mensajes).toHaveLength(0);
   });
 
+  // M1 (fix-wave fase 2c): un texto de solo espacios era truthy y pasaba la
+  // validación vieja (`!input.texto`) — llegaba al store/guardrail como
+  // mensaje real.
+  it("responde 400 con texto de solo espacios (trim antes de validar)", async () => {
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    const r = await postMensaje({ token: await token(), texto: "   " }, { cfg, store, encolar });
+    expect(r.status).toBe(400);
+    expect(r.body.error?.code).toBe("empty_message");
+    expect(store.mensajes).toHaveLength(0);
+  });
+
+  it("guarda el texto trimeado, no el crudo con espacios", async () => {
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    await postMensaje({ token: await token(), texto: "  hola  " }, { cfg, store, encolar });
+    expect(store.mensajes[0]).toMatchObject({ texto: "hola" });
+  });
+
   it("un tope excedido responde 429 con motivo y no escribe NI encola nada", async () => {
     const store = storeFalso();
     const { encolar, encolados } = encolarFalso();

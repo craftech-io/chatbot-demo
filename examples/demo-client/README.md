@@ -58,6 +58,7 @@ estas palabras (no importan mayúsculas):
 
 - `error` → el worker no pudo generar una respuesta (`agent_unavailable`); el
   usuario igual ve un mensaje, no silencio (texto de fallback).
+- `error500` → falla temprana y síncrona del BFF (no del worker): el POST responde `500 {error:{code:"error_interno"}}` de una, sin escribir nada.
 - `vencido` → la primera vez simula un token vencido (`expired_token`, 401 en
   el POST); el widget renueva el token solo y reintenta, y esa segunda vez sí
   fluye normal.

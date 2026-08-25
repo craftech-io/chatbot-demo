@@ -56,7 +56,7 @@ percibida es la suma de:
   respuesta (típicamente 3-4s en staging con microVM caliente, ver smoke 2b
   arriba).
 - **Intervalo de polling:** 1,5 segundos aprox (configurable en el widget,
-  `packages/widget/src/polling.ts`, `POLLING_INTERVAL_MS`) — cadencia con que
+  `packages/widget/src/index.ts`, `POLL_MS_DEFECTO`) — cadencia con que
   el navegador pregunta si la respuesta ya está lista.
 
 Números reales los midió el smoke del deploy que cierre la fase 2c.

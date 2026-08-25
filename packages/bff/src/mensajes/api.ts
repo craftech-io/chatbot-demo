@@ -78,7 +78,12 @@ export async function postMensaje(
   const auth = await autenticar(input.token, deps.cfg);
   if ("error" in auth) return { status: 401, body: { error: auth.error } };
 
-  if (!input.texto) {
+  // M1 (fix-wave fase 2c): trim antes de validar y de usar — un texto de solo
+  // espacios pasaba `!input.texto` (string truthy) y llegaba al guardrail/store
+  // como "mensaje" real. El resto de la función usa `texto` (trimeado), nunca
+  // `input.texto`.
+  const texto = input.texto?.trim();
+  if (!texto) {
     return { status: 400, body: { error: { code: "empty_message" } } };
   }
 
@@ -96,7 +101,7 @@ export async function postMensaje(
   const ts = new Date().toISOString();
 
   if (deps.guard) {
-    const g = await deps.guard(input.texto);
+    const g = await deps.guard(texto);
     if (g.bloqueada) {
       // Una entrada bloqueada es una RESPUESTA, no un error (spec §15): se
       // escribe la respuesta de política como si fuera del assistant, NO se
@@ -107,7 +112,7 @@ export async function postMensaje(
           conversationId,
           msgId,
           rol: "user",
-          texto: input.texto,
+          texto,
           ts,
         });
         // Estrictamente posterior al del usuario: un empate de milisegundo dejaría el
@@ -137,7 +142,7 @@ export async function postMensaje(
 
   let userMsg: Mensaje;
   try {
-    userMsg = await deps.store.escribir({ conversationId, msgId, rol: "user", texto: input.texto, ts });
+    userMsg = await deps.store.escribir({ conversationId, msgId, rol: "user", texto, ts });
   } catch (e) {
     console.error("escritura del mensaje del usuario falló", e);
     return { status: 500, body: { error: { code: "error_interno" } } };
@@ -152,7 +157,7 @@ export async function postMensaje(
     return { status: 500, body: { error: { code: "error_interno" } } };
   }
   if (deps.registrarTurno) {
-    deps.registrarTurno(auth.userId, conversationId, input.texto).catch((e) =>
+    deps.registrarTurno(auth.userId, conversationId, texto).catch((e) =>
       console.error("registrarTurnoEnIndice falló (fire-and-forget)", e),
     );
   }

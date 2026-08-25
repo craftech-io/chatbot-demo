@@ -60,7 +60,7 @@ const TEXTO_WORKER_ERROR = "Tuve un problema para responderte. Probá de nuevo e
 const MOCK_HINT_HTML =
   '<div class="chips-hint">' +
   '<span class="chips-label">Modo local — probá:</span>' +
-  ["error", "vencido", "lento", "memoria", "tope", "bloqueado"]
+  ["error", "error500", "vencido", "lento", "memoria", "tope", "bloqueado"]
     .map((palabra) => `<button type="button" class="chip-esc">${palabra}</button>`)
     .join("") +
   "</div>";
@@ -237,8 +237,23 @@ async function manejarMensajesPost(req, res) {
     return;
   }
 
+  // M4 (fix-wave fase 2c): emula una falla temprana y síncrona del BFF real
+  // (p. ej. el PutItem del mensaje del usuario o el encolado fallando,
+  // packages/bff/src/mensajes/api.ts) — a diferencia de "error" (que SÍ
+  // escribe el mensaje del usuario y responde `agent_unavailable` como
+  // assistant tras el debounce, ver mock.mjs), "error500" corta ANTES de
+  // escribir nada. Chequeo explícito antes de `planificarRespuesta`: la
+  // keyword "error" está contenida en "error500", así que este camino tiene
+  // que ganarle al genérico.
+  if (texto.toLowerCase().includes("error500")) {
+    responderJson(res, 500, { error: { code: "error_interno" } });
+    return;
+  }
+
   if (!texto) {
-    responderJson(res, 400, { error: { code: "texto_vacio" } });
+    // M1 (fix-wave fase 2c): paridad de contrato con el BFF real
+    // (packages/bff/src/mensajes/api.ts), que devuelve "empty_message".
+    responderJson(res, 400, { error: { code: "empty_message" } });
     return;
   }
 
