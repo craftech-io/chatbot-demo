@@ -59,4 +59,28 @@ percibida es la suma de:
   `packages/widget/src/index.ts`, `POLL_MS_DEFECTO`) — cadencia con que
   el navegador pregunta si la respuesta ya está lista.
 
-Números reales los midió el smoke del deploy que cierre la fase 2c.
+## Smoke de la fase 2c (staging, 2026-08-25)
+
+Primer deploy de la arquitectura v2 (asíncrona). El deploy salió verde a la
+primera — cero fixes de infraestructura.
+
+| Qué | Resultado |
+|---|---|
+| GET /mensajes con token válido | ✓ 200 — el fix C1 (runtimeArn fuera de BffConfig) funciona en producción |
+| Turno simple end-to-end (POST → cola → worker → Runtime → polling) | ✓ 8 s totales (incluye los 6 s de debounce) |
+| Debounce en vivo: 2 POSTs con 2 s de separación | ✓ UNA sola respuesta que cubre ambos mensajes; logs del worker: 1 `descartado` + 1 `procesado`; una sola invocación al Runtime |
+| Memoria: recall del nombre en un turno posterior | ✓ "Te llamás Lautaro" — 13 s end-to-end |
+| Guardrail de entrada (prompt attack) vía polling | ✓ respuesta canónica visible en el primer poll (~3 s), sin encolar |
+| CORS preflight (OPTIONS) real | ✓ 200 con Allow-Origin/Headers/Methods |
+| DLQ | ✓ vacía (0 mensajes) tras todos los turnos |
+| Permiso `runtime-endpoint/*` del worker | ✓ implícito — todas las invocaciones al Runtime salieron sin AccessDenied |
+
+Con la ventana de debounce de 6 s, la latencia percibida real quedó en 8-13 s
+por turno — dentro del rango estimado. Si para el widget web se quisiera
+bajar, el knob es `MensajesColaQueue.delay` en `infra/sst/mensajeria.ts` (el
+trade-off es agrupar menos los mensajes que llegan seguidos).
+
+No ejercido en vivo: la falla forzada del worker (requeriría deployar
+configuración rota a staging). La rama está pineada por unit tests — el worker
+nunca lanza: escribe `MENSAJES_WORKER.error` como mensaje del assistant y el
+grupo FIFO sigue fluyendo. La DLQ vacía tras el smoke es consistente.
