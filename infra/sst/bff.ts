@@ -1,4 +1,3 @@
-import { runtime, runtimeLink } from "./runtime";
 import { guardrail, guardrailLink } from "./guardrail";
 import { sessionsTableLink, limitsTableLink } from "./tablas";
 import { messagesTableLink, mensajesColaLink } from "./mensajeria";
@@ -16,37 +15,20 @@ export const clientAuth = new sst.Linkable("ClientAuth", {
   },
 });
 
+// Desde la Task 4 (fase 2c) esta Function ya NO invoca AgentCore Runtime
+// directamente: solo escribe en MessagesTable y encola en MensajesCola (JSON
+// clásico, sin streaming). El invoke al Runtime pasa al worker (Task 5), que
+// linkea `runtimeLink` en su propio stack.
 export const chat = new sst.aws.Function("Chat", {
   handler: "packages/bff/src/chat/lambda.handler",
   runtime: "nodejs24.x",
   timeout: "5 minutes",
-  // Response streaming: el SSE tiene que salir a medida que llega, no al final.
-  streaming: true,
   // CORS abierto: el token del chat (JWKS/HMAC) es lo que protege, no el origen.
   // En el paquete final para un cliente concreto, los orígenes salen de
   // client.config.ts en vez de "*".
   url: { cors: { allowOrigins: ["*"], allowHeaders: ["content-type", "authorization"] } },
-  link: [
-    runtimeLink,
-    clientAuth,
-    guardrailLink,
-    sessionsTableLink,
-    limitsTableLink,
-    messagesTableLink,
-    mensajesColaLink,
-  ],
+  link: [clientAuth, guardrailLink, sessionsTableLink, limitsTableLink, messagesTableLink, mensajesColaLink],
   permissions: [
-    // Acotado al Runtime propio: "*" le daría a esta Lambda permiso para
-    // invocar CUALQUIER AgentCore Runtime de la cuenta, no solo el suyo.
-    // El invoke real apunta al sub-recurso runtime-endpoint/DEFAULT: sin ese
-    // patrón, el scope al ARN pelado del runtime da AccessDenied.
-    {
-      actions: ["bedrock-agentcore:InvokeAgentRuntime"],
-      resources: [
-        runtime.agentRuntimeArn,
-        $interpolate`${runtime.agentRuntimeArn}/runtime-endpoint/*`,
-      ],
-    },
     {
       // Acotado al propio Guardrail: el recurso expone `guardrailArn` como
       // output, así que no hace falta armar el ARN a mano.

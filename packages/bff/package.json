@@ -10,9 +10,9 @@
   "private": true,
   "license": "UNLICENSED",
   "dependencies": {
-    "@aws-sdk/client-bedrock-agentcore": "3.1114.0",
     "@aws-sdk/client-bedrock-runtime": "3.1116.0",
     "@aws-sdk/client-dynamodb": "3.1116.0",
+    "@aws-sdk/client-sqs": "3.1116.0",
     "@craftech-ai-chat/shared": "*",
     "jose": "6.2.9"
   },

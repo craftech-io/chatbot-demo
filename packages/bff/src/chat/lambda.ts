@@ -1,60 +1,39 @@
-// Entrypoint de la Function URL en modo response streaming. Todo lo testeable
-// vive en handler.ts; acá solo está el pegamento con Lambda y el SDK.
-import {
-  BedrockAgentCoreClient,
-  InvokeAgentRuntimeCommand,
-} from "@aws-sdk/client-bedrock-agentcore";
+// Entrypoint de la Function URL en modo clásico (JSON): router de /mensajes
+// (spec §8 v2). Reemplaza el modo response streaming (SSE) que vivía acá
+// hasta la Task 4 (fase 2c) — el flujo asíncrono de mensajes/api.ts no
+// necesita mantener la conexión HTTP abierta mientras el agente responde: el
+// worker (Task 5) procesa el turno en background y el widget pollea con GET.
+// Todo lo testeable vive en mensajes/api.ts; acá solo está el pegamento con
+// Lambda y los SDKs (Dynamo, SQS, Bedrock Guardrail).
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { loadConfig } from "../config/index";
 import { evaluarEntrada } from "../guardrail/entrada";
 import { verificarYConsumirTope } from "../limites/topes";
+import { getMensajes, postMensaje } from "../mensajes/api";
+import { escribirMensaje, listarMensajes, type Mensaje } from "../mensajes/store";
 import { registrarTurnoEnIndice, turnosDeSesion } from "../sesiones/indice";
-import { handleChat, type InvokePayload } from "./handler";
 
-const client = new BedrockAgentCoreClient({});
-// Un solo cliente Dynamo por contenedor caliente, reusado entre requests
-// (igual que el de AgentCore arriba): abrir uno por invocación es gasto sin
-// beneficio, el cliente no guarda estado por request.
+// Un solo cliente por SDK y por contenedor caliente, reusado entre requests:
+// abrir uno por invocación es gasto sin beneficio, ninguno guarda estado por
+// request.
 const ddb = new DynamoDBClient({});
+const sqs = new SQSClient({});
 
-// La config se resuelve una vez por contenedor caliente, no una vez por request.
+// La config se resuelve una vez por contenedor caliente, no una vez por
+// request (mismo patrón que el viejo chat/lambda.ts en modo streaming).
 let cfgCache: Awaited<ReturnType<typeof loadConfig>> | undefined;
 async function cfg() {
   cfgCache ??= await loadConfig();
   return cfgCache;
 }
 
-async function invoke(p: InvokePayload): Promise<AsyncIterable<Uint8Array>> {
-  const c = await cfg();
-  const out = await client.send(
-    new InvokeAgentRuntimeCommand({
-      agentRuntimeArn: c.runtimeArn,
-      runtimeSessionId: p.sessionId,
-      payload: new TextEncoder().encode(JSON.stringify(p)),
-      contentType: "application/json",
-      accept: "text/event-stream",
-    }),
-  );
-  // Fire-and-forget: el índice de hilos es metadata para listar conversaciones
-  // (la standalone de 2e), no algo que el turno tenga que esperar. Si el sabor
-  // no tiene la tabla linkeada, no hay dónde escribir.
-  if (c.tablas) {
-    registrarTurnoEnIndice(
-      { ddb, tabla: c.tablas.sesiones },
-      p.userId,
-      p.sessionId,
-      p.message,
-    ).catch(console.error);
-  }
-  return out.response as AsyncIterable<Uint8Array>;
-}
-
-// Solo si el sabor tiene las tablas linkeadas (Task 6, fase 2b): sabores/mocks
-// viejos sin `cfg.tablas` corren sin topes de uso (deps.limites queda undefined
-// abajo). El default 50/40 vive en resource.ts, no acá.
+// Solo si el sabor tiene las tablas de topes linkeadas (Task 6, fase 2b):
+// sabores/mocks viejos sin `cfg.tablas` corren sin tope de uso (deps.limites
+// queda undefined en el router, más abajo).
 async function limites(
   userId: string,
-  sessionId: string,
+  conversationId: string,
 ): Promise<{ permitido: boolean; motivo?: "dia" | "sesion" }> {
   const c = await cfg();
   if (!c.tablas) return { permitido: true };
@@ -70,7 +49,7 @@ async function limites(
       },
     },
     userId,
-    sessionId,
+    conversationId,
     // `hoy` se calcula ACÁ, por request: si se calculara a nivel módulo, un
     // contenedor caliente que sobreviviera la medianoche seguiría contando
     // contra el período de ayer.
@@ -78,44 +57,109 @@ async function limites(
   );
 }
 
-// @ts-expect-error — `awslambda` lo inyecta el runtime de Lambda, no hay tipos.
-export const handler = awslambda.streamifyResponse(async (event, responseStream) => {
-  // La Function URL es pública: un body malformado no puede tirar la Lambda.
-  // Si no parsea, queda {} y handleChat responde 400 por falta de message.
-  let body: { message?: string; sessionId?: string };
-  try {
-    body = JSON.parse(event.body || "{}");
-  } catch {
-    body = {};
-  }
-  const auth = event.headers?.authorization || event.headers?.Authorization || "";
+// Fire-and-forget en el POST exitoso (spec §8 v2): el contador de turnos de
+// sesión pasa a contar mensajes ACEPTADOS, no turnos de agente — coherente
+// con el tope, que también cuenta mensajes.
+async function registrarTurno(userId: string, conversationId: string, texto: string): Promise<number> {
   const c = await cfg();
-  const r = await handleChat(
-    { token: auth.replace(/^Bearer /, "") || undefined, message: body.message, sessionId: body.sessionId },
-    {
-      cfg: c,
-      invoke,
-      // Solo si el sabor tiene el Guardrail linkeado (fase 2b): sabores/mocks
-      // viejos sin `cfg.guardrail` corren sin filtro de entrada.
-      guard: c.guardrail ? (t) => evaluarEntrada(t, c.guardrail!) : undefined,
-      limites: c.tablas ? limites : undefined,
-    },
+  if (!c.tablas) return 0;
+  return registrarTurnoEnIndice({ ddb, tabla: c.tablas.sesiones }, userId, conversationId, texto);
+}
+
+// Atado a MessagesTable vía config (Task 1, fase 2c): siempre linkeada en el
+// sabor SST, ver config/resource.ts.
+const store = {
+  async escribir(m: Omit<Mensaje, "orden">): Promise<Mensaje> {
+    const c = await cfg();
+    if (!c.mensajes) throw new Error("mensajería no configurada: falta cfg.mensajes");
+    return escribirMensaje({ ddb, tabla: c.mensajes.tabla }, m);
+  },
+  async listar(conversationId: string, desde?: string): Promise<Mensaje[]> {
+    const c = await cfg();
+    if (!c.mensajes) return [];
+    return listarMensajes({ ddb, tabla: c.mensajes.tabla }, conversationId, desde);
+  },
+};
+
+// Publica el turno en la cola FIFO (Task 1, fase 2c). MessageGroupId serializa
+// los turnos de una misma conversación; MessageDeduplicationId evita duplicar
+// el turno si SQS reintrega el mensaje (at-least-once).
+async function encolar(payload: { conversationId: string; msgId: string; userId: string }): Promise<void> {
+  const c = await cfg();
+  if (!c.mensajes) throw new Error("mensajería no configurada: falta cfg.mensajes");
+  await sqs.send(
+    new SendMessageCommand({
+      QueueUrl: c.mensajes.colaUrl,
+      MessageBody: JSON.stringify(payload),
+      MessageGroupId: payload.conversationId,
+      MessageDeduplicationId: payload.msgId,
+    }),
   );
-  // HttpResponseStream.from envuelve el stream con metadata HTTP real (status,
-  // headers): sin esto, la Function URL responde siempre 200 y sin
-  // content-type, y el browser no dispara el modo streaming del fetch.
-  // @ts-expect-error — mismo global inyectado por el runtime, sin tipos.
-  const stream = awslambda.HttpResponseStream.from(responseStream, {
-    statusCode: r.status,
-    headers: { "content-type": "text/event-stream" },
-  });
-  try {
-    for await (const frame of r.frames) stream.write(frame);
-  } catch (e) {
-    // Si el write falla (cliente desconectado) no hay a quién avisarle: solo log.
-    // Los errores del agente ya llegan como frames desde handleChat.
-    console.error("no se pudo escribir el stream al cliente", e);
-  } finally {
-    stream.end();
+}
+
+// Forma mínima del evento de una Function URL clásica (payload format 2.0):
+// solo los campos que este router lee. No hay @types/aws-lambda en el repo.
+type FunctionUrlEvent = {
+  rawPath?: string;
+  requestContext?: { http?: { method?: string } };
+  headers?: Record<string, string | undefined>;
+  queryStringParameters?: Record<string, string | undefined> | null;
+  body?: string;
+};
+
+type JsonResponse = { statusCode: number; headers: { "content-type": string }; body: string };
+
+function json(status: number, body: unknown): JsonResponse {
+  return { statusCode: status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+function token(event: FunctionUrlEvent): string | undefined {
+  const h = event.headers ?? {};
+  const raw = h.authorization ?? h.Authorization ?? "";
+  return raw.replace(/^Bearer /, "") || undefined;
+}
+
+// Function URL clásica: sin el modo de respuesta en streaming del viejo
+// lambda.ts — el handler devuelve un objeto {statusCode, headers, body} como
+// cualquier Lambda síncrona.
+export async function handler(event: FunctionUrlEvent): Promise<JsonResponse> {
+  const path = event.rawPath ?? "";
+  const method = event.requestContext?.http?.method ?? "GET";
+  if (path !== "/mensajes") return json(404, { error: { code: "not_found" } });
+
+  const c = await cfg();
+
+  if (method === "POST") {
+    // La Function URL es pública: un body malformado no puede tirar la
+    // Lambda. Si no parsea, queda {} y postMensaje responde 400 por falta de
+    // texto.
+    let body: { texto?: string; hilo?: string };
+    try {
+      body = JSON.parse(event.body || "{}");
+    } catch {
+      body = {};
+    }
+    const r = await postMensaje(
+      { token: token(event), texto: body.texto, hilo: body.hilo },
+      {
+        cfg: c,
+        store,
+        encolar,
+        // Solo si el sabor tiene el Guardrail linkeado (fase 2b): sabores/mocks
+        // viejos sin `cfg.guardrail` corren sin filtro de entrada.
+        guard: c.guardrail ? (t) => evaluarEntrada(t, c.guardrail!) : undefined,
+        limites: c.tablas ? limites : undefined,
+        registrarTurno: c.tablas ? registrarTurno : undefined,
+      },
+    );
+    return json(r.status, r.body);
   }
-});
+
+  if (method === "GET") {
+    const qs = event.queryStringParameters ?? {};
+    const r = await getMensajes({ token: token(event), hilo: qs?.hilo, desde: qs?.desde }, { cfg: c, store });
+    return json(r.status, r.body);
+  }
+
+  return json(404, { error: { code: "not_found" } });
+}
