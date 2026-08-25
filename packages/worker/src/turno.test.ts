@@ -100,6 +100,25 @@ describe("procesarMensaje", () => {
     err.mockRestore();
   });
 
+  it("PIN: si el stream corta sin frame done (solo deltas), se trata como fallo y NO relanza", async () => {
+    // Nace verde: turno.ts ya cubre este caso por el mismo catch que atrapa
+    // invoke/parseo/PutItem — `texto` queda `undefined` si el for-await
+    // termina sin ver `type:"done"`, y eso dispara el error path. Test fijado
+    // para blindar el comportamiento ante un futuro refactor.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = depsBase({
+      invocar: vi.fn(async () => streamDe({ type: "delta", text: "Hola" }, { type: "delta", text: " mundo" })),
+    });
+
+    const resultado = await procesarMensaje(evento, deps);
+
+    expect(resultado).toBe("error_respondido");
+    expect(deps.escribir).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "c1", rol: "assistant", texto: MENSAJES_WORKER.error }),
+    );
+    err.mockRestore();
+  });
+
   it("si el PutItem de la respuesta del assistant falla, loguea y NO relanza", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const deps = depsBase({
