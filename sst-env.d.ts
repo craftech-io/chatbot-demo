@@ -9,5 +9,7 @@ declare module "sst" {
     Guardrail: { id: string; version: string };
     SessionsTable: { name: string };
     LimitsTable: { name: string };
+    MessagesTable: { name: string };
+    MensajesCola: { url: string };
   }
 }

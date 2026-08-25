@@ -1,6 +1,7 @@
 import { runtime, runtimeLink } from "./runtime";
 import { guardrail, guardrailLink } from "./guardrail";
 import { sessionsTableLink, limitsTableLink } from "./tablas";
+import { messagesTableLink, mensajesColaLink } from "./mensajeria";
 
 // El emisor de tokens del cliente: JWKS (preferido) o HMAC. Los dos llevan default
 // vacío para que se setee SOLO el que aplica sin que el deploy corte por el otro.
@@ -25,7 +26,15 @@ export const chat = new sst.aws.Function("Chat", {
   // En el paquete final para un cliente concreto, los orígenes salen de
   // client.config.ts en vez de "*".
   url: { cors: { allowOrigins: ["*"], allowHeaders: ["content-type", "authorization"] } },
-  link: [runtimeLink, clientAuth, guardrailLink, sessionsTableLink, limitsTableLink],
+  link: [
+    runtimeLink,
+    clientAuth,
+    guardrailLink,
+    sessionsTableLink,
+    limitsTableLink,
+    messagesTableLink,
+    mensajesColaLink,
+  ],
   permissions: [
     // Acotado al Runtime propio: "*" le daría a esta Lambda permiso para
     // invocar CUALQUIER AgentCore Runtime de la cuenta, no solo el suyo.
@@ -50,5 +59,10 @@ export const chat = new sst.aws.Function("Chat", {
     // los absorberá en 2e).
     LIMITE_DIARIO: "50",
     LIMITE_POR_SESION: "40",
+    // Informativo: el delay real (la ventana de debounce) vive en la cola
+    // (MensajesCola.delay, infra/sst/mensajeria.ts) — SQS FIFO no expone el
+    // delay como env de la cola. Esta var es para logs/tests del BFF, no
+    // controla el comportamiento real.
+    DEBOUNCE_SEGUNDOS: "6",
   },
 });

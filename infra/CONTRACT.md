@@ -11,12 +11,14 @@ uno a otro es reimplementar esta lista, nada más.
 | AgentCore Runtime | corre el contenedor del agente | imagen **ARM64**; `/ping` y `/invocations` en `:8080` |
 | Repositorio ECR | aloja la imagen del core | |
 | Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel` (foundation-model + inference-profile), `bedrock:ApplyGuardrail` (statement propio, scoped al `guardrailArn` — NO al statement de modelos, que no matchea ese recurso), `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents` |
-| Lambda del BFF + Function URL | chat con response streaming | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio); `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`) |
+| Lambda del BFF + Function URL | chat con response streaming | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio); `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable y `sqs:SendMessage` sobre MensajesCola (vía `include` en `infra/sst/mensajeria.ts`, mismo patrón) |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
 | AgentCore Memory | historial de conversación | (actorId, sessionId) |
 | SessionsTable (DynamoDB) | índice de hilos por usuario | pk: userId, sk: sessionId |
 | LimitsTable (DynamoDB) | contadores de tope por usuario y período | pk: userId, sk: periodo |
+| MessagesTable (DynamoDB) | fuente de verdad de la transcripción (spec §8 v2) | pk: conversationId, sk: orden (`${ts ISO}#${msgId}` — el orden lexicográfico ES el cronológico) |
+| MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver nota de mapeo abajo); DLQ propia (también FIFO — SQS lo exige) con `maxReceiveCount` 3 |
 
 ## Variables que recibe el core (contenedor)
 
@@ -41,6 +43,9 @@ uno a otro es reimplementar esta lista, nada más.
 | `LIMITS_TABLE` | sí (2b) | nombre de la tabla de límites, vía linkable en SST (`Resource.LimitsTable.name`) |
 | `LIMITE_DIARIO` | sí (2b) | número máximo de llamadas por usuario por día (default: 50) |
 | `LIMITE_POR_SESION` | sí (2b) | número máximo de turnos por sesión (default: 40) |
+| `MESSAGES_TABLE` | sí (2c) | nombre de la tabla de mensajes, vía linkable en SST (`Resource.MessagesTable.name`) |
+| `MENSAJES_COLA_URL` | sí (2c) | URL de la cola FIFO de mensajería, vía linkable en SST (`Resource.MensajesCola.url`) |
+| `DEBOUNCE_SEGUNDOS` | no (2c, default 6) | informativo para logs/tests: el delay real de debounce vive en `delaySeconds` de la cola SQS, no en esta variable — ver nota de mapeo abajo |
 
 En el sabor SST estas variables se resuelven por linking y las lee
 `packages/bff/src/config/resource.ts`. En los demás sabores se inyectan como
@@ -134,3 +139,49 @@ tragado por el fail-open de `topes.ts`/`indice.ts`).
 También verificado contra `.sst/platform/src/components/aws/dynamo.ts`: el
 campo `ttl?: Input<string>` existe con esa forma exacta (ejemplo del propio
 JSDoc: `ttl: "expireAt"`) — se usó para `LimitsTable.ttl = "expiraAt"`.
+
+## Mapeo de nombres reales (fase 2c, sst.aws.Queue)
+
+Gate obligatorio de esta tarea (spec §8 v2, mensajería asíncrona). Verificado
+contra `.sst/platform/src/components/aws/queue.ts` (leído completo) y
+`.sst/platform/src/components/duration.ts`:
+
+- `fifo?: Input<boolean | { contentBasedDeduplication?: Input<boolean> }>`
+  (queue.ts:47-58) — `fifo: true` del plan coincide exactamente.
+- `delay?: Input<DurationMinutes>`, default `"0 seconds"` (queue.ts:59-72);
+  `DurationMinutes` acepta el literal `${number} ${"second"|"seconds"|...}`
+  (duration.ts:13-19) — `delay: "6 seconds"` del plan coincide exactamente.
+- `dlq?: Input<string | { queue: Input<string>; retry: Input<number> }>`,
+  default `retry: 3` si se pasa solo el ARN como string (queue.ts:121-134) —
+  `dlq: { queue: dlq.arn, retry: 3 }` del plan coincide exactamente.
+- Sufijo `.fifo` automático: confirmado en
+  `.sst/platform/src/components/component.ts:315-324`. El hook global de
+  autonombrado de SST (que envuelve la creación de CUALQUIER recurso Pulumi,
+  no solo `sst.aws.Queue`) tiene una regla explícita para
+  `"aws:sqs/queue:Queue"` que agrega el sufijo `.fifo` al nombre físico
+  autogenerado cuando `fifoQueue` es `true` — pero SOLO si el nombre no vino
+  ya seteado (`component.ts:368`: `if (args.props[nameField] ...) return`).
+  Como ni el plan ni esta implementación pasan `name`/`transform.queue.name`,
+  el autonombrado aplica y el sufijo se agrega solo: confirma la hipótesis
+  del plan ("no pasamos name → autoname; confirmar que el componente agrega
+  `.fifo` solo").
+
+**Desvío encontrado respecto al plan:** la sección "Produces" del brief
+documenta el nombre físico literal `craftech-ai-chat-mensajes-${stage}.fifo`
+para `MensajesCola`. Ese nombre NO es lo que produce el código: `QueueArgs`
+(queue.ts:20-145) no tiene ningún campo `name` propio — la única forma de
+fijar un nombre físico explícito es `transform.queue.name` (el `name` de
+`sqs.QueueArgs` de Pulumi), que ni el plan ni esta implementación usan. Sin
+esa transform, `physicalName()` (`.sst/platform/src/components/naming.ts:8-21`)
+genera `${app}-${stage}-MensajesCola-${random8}.fifo` (prefijo app+stage +
+nombre lógico del componente + sufijo aleatorio de 8 chars + `.fifo`), no el
+nombre determinístico del brief. Se implementó tal como aparece el Step 2 del
+plan (sin `name`/`transform`, autoname) porque es el mismo patrón que ya usan
+`MessagesTableDb`/`SessionsTableDb`/`LimitsTableDb` en este repo (ningún
+recurso de este proyecto fija nombres físicos a mano) y porque el BFF/worker
+nunca hardcodean el nombre: lo obtienen del Linkable (`Resource.MensajesCola.url`),
+así que el nombre físico real es irrelevante para el código del producto. Si
+en el futuro se necesita el nombre determinístico del brief (p. ej. para
+referenciarlo desde fuera de SST), hay que agregar
+`transform: { queue: { name: <literal>+".fifo" } }` a mano — SST no agrega el
+sufijo cuando el nombre viene explícito.
