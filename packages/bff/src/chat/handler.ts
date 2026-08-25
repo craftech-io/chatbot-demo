@@ -1,22 +1,15 @@
 // Function URL de chat, en modo response streaming. Es el portero: valida el
 // token, arma el payload CONFIABLE para el Runtime y relata el stream de vuelta.
 // No tiene lógica de agente.
-import { createHash } from "node:crypto";
 import { MENSAJES_GUARDRAIL } from "@craftech-ai-chat/shared/mensajes";
 import { AuthError, verifyUserToken } from "../auth/verify";
 import type { BffConfig } from "../config/index";
+// La derivación vive en mensajes/conversacion.ts desde la fase 2c: el mismo id
+// hace de runtimeSessionId (acá) y de conversationId de MessagesTable
+// (mensajes/api.ts). Este import se retira cuando la Task 4 jubile este
+// handler en favor del flujo asíncrono.
+import { runtimeSessionId } from "../mensajes/conversacion";
 import { parseNdjson, toSse } from "./ndjson";
-
-// AgentCore Runtime provisiona una microVM de Firecracker POR SESIÓN y la mantiene
-// VIVA entre invocaciones, ruteando por este id. Por eso no puede venir crudo del
-// browser: quien adivinara el id de otro caería en SU microVM caliente, con su
-// filesystem y su memoria. Se deriva del principal ya verificado, y se hashea para
-// no filtrar el userId en un identificador que viaja a AWS.
-function runtimeSessionId(userId: string, hiloDelBrowser?: string): string {
-  return createHash("sha256")
-    .update(`${userId}:${hiloDelBrowser ?? "default"}`)
-    .digest("hex");
-}
 
 export type InvokePayload = {
   userId: string;

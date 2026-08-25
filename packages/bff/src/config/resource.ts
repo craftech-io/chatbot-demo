@@ -37,5 +37,14 @@ export function fromResource(): BffConfig {
       diario: Number(process.env.LIMITE_DIARIO ?? "50"),
       porSesion: Number(process.env.LIMITE_POR_SESION ?? "40"),
     },
+    // Ídem tablas: MessagesTable y MensajesCola están linkeadas siempre en el
+    // sabor SST desde la fase 2c (Task 1). `debounceSegundos` lee env (como
+    // los topes arriba): es informativo, el delay real vive en la cola
+    // (infra/sst/mensajeria.ts) porque SQS FIFO no lo expone por mensaje.
+    mensajes: {
+      tabla: Resource.MessagesTable.name,
+      colaUrl: Resource.MensajesCola.url,
+      debounceSegundos: Number(process.env.DEBOUNCE_SEGUNDOS ?? "6"),
+    },
   };
 }
