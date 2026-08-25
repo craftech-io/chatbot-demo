@@ -87,7 +87,10 @@ export const messagesTable = new sst.aws.Dynamo("MessagesTableDb", {
 
 const dlq = new sst.aws.Queue("MensajesDlq", { fifo: true });
 
-export const mensajesCola = new sst.aws.Queue("MensajesCola", {
+// Sufijo Queue en el COMPONENTE: los nombres de componentes SST son únicos
+// globalmente y el Linkable de abajo ya usa "MensajesCola" (la clave de
+// Resource) — misma lección que MessagesTableDb (y que el fix de deploy de 2b).
+export const mensajesCola = new sst.aws.Queue("MensajesColaQueue", {
   fifo: true,
   // FIFO no soporta delay POR MENSAJE: el delay de la cola ES la ventana de
   // debounce — todo mensaje espera estos segundos antes de ser visible.
