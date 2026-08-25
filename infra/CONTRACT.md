@@ -11,7 +11,7 @@ uno a otro es reimplementar esta lista, nada más.
 | AgentCore Runtime | corre el contenedor del agente | imagen **ARM64**; `/ping` y `/invocations` en `:8080` |
 | Repositorio ECR | aloja la imagen del core | |
 | Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel` (foundation-model + inference-profile), `bedrock:ApplyGuardrail` (statement propio, scoped al `guardrailArn` — NO al statement de modelos, que no matchea ese recurso), `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents` |
-| Lambda del BFF + Function URL | chat con response streaming | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio); `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable y `sqs:SendMessage` sobre MensajesCola (vía `include` en `infra/sst/mensajeria.ts`, mismo patrón) |
+| Lambda del BFF + Function URL | encolá los mensajes en MessagesTable y MensajesCola (spec §8 v2, async) | permisos: `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable y `sqs:SendMessage` sobre MensajesCola (vía `include` en `infra/sst/mensajeria.ts`, mismo patrón) |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
 | AgentCore Memory | historial de conversación | (actorId, sessionId) |
@@ -74,7 +74,7 @@ El resto de los nombres del plan (`aws.ecr.Repository`, `aws.iam.Role`,
 `RuntimeArgs` — `agentRuntimeName`, `agentRuntimeArtifact.containerConfiguration.containerUri`,
 `networkConfiguration.networkMode: "PUBLIC"`, `roleArn`, `environmentVariables`,
 el output `agentRuntimeArn` —, `sst.Linkable`, `sst.Secret`, `sst.aws.Function`
-con `streaming`, `url.cors`, `link`, `permissions`) se verificaron contra
+con `url.cors`, `link`, `permissions`) se verificaron contra
 `.sst/platform/node_modules/@pulumi/{aws,aws-native,docker-build}/**/*.d.ts` y
 coinciden exactamente con el plan.
 
@@ -195,6 +195,24 @@ el sufijo `Db` de `MessagesTableDb`/`SessionsTableDb`/`LimitsTableDb`, y el
 mismo tipo de bug que un fix de deploy de 2b). El nombre físico autogenerado
 ahora usa `MensajesColaQueue` como parte lógica (`...-MensajesColaQueue-${random8}.fifo`);
 la clave del Linkable (`Resource.MensajesCola`) no cambió.
+
+## Nota sobre streaming SSE (interno)
+
+El flujo v2 de mensajería asíncrona (spec §8 v2) desapareció el streaming de
+respuesta en el camino browser ↔ BFF:
+
+- **V1 (streaming end-to-end):** browser ←SSE← BFF ←SSE← AgentCore (Lambda con
+  `streaming: true`; el BFF relayaba los frames directamente al navegador)
+- **V2 (async + polling):** browser → BFF (POST, respuesta 200 sin streaming) →
+  encola → worker (background) ←SSE← AgentCore (streaming interno)
+
+La Lambda del BFF (v2) ya no tiene `streaming: true` en su config de SST: recibe
+POST, encolá el mensaje y responde rápido. El streaming SSE PERMANECE en el camino
+interno worker ↔ AgentCore: el contenedor del core emite frames SSE que el worker
+parsea con `packages/worker/src/ndjson.ts`, agrega pendientes, y escribe la respuesta
+final en MessagesTable. El browser no ve el streaming: hace polling con `GET /mensajes`
+hasta que la respuesta aparezca en la tabla (latencia percibida = debounce + turno
+del agente + intervalo de polling).
 
 ## Mapeo de nombres reales (Task 5, fase 2c: `Queue.subscribe` y su `batch`)
 

@@ -41,3 +41,22 @@ El riesgo de cold start del spec (§19.2) queda cerrado: era un artefacto de QEM
 
 El 429 forzado no se ejerció en vivo (requeriría ~37 mensajes más); los contadores
 probados vivos + la lógica pineada por unit tests se consideran evidencia suficiente.
+
+## Latencia percibida en fase 2c (mensajería asíncrona)
+
+Desde la fase 2c el flujo es asíncrono (spec §8 v2): el usuario no ve streaming
+palabra por palabra, sino una respuesta entera cuando está lista. La latencia
+percibida es la suma de:
+
+- **Debounce de cola:** 6 segundos (configurable en `infra/sst/mensajeria.ts`,
+  `MensajesColaQueue.delay`) — ventana de agregación de mensajes que llegan
+  seguidos (si mandás dos mensajes en menos de 6s, se agrupan y se responde
+  una sola vez).
+- **Turno del agente:** el invoke al AgentCore Runtime y procesamiento de su
+  respuesta (típicamente 3-4s en staging con microVM caliente, ver smoke 2b
+  arriba).
+- **Intervalo de polling:** 1,5 segundos aprox (configurable en el widget,
+  `packages/widget/src/polling.ts`, `POLLING_INTERVAL_MS`) — cadencia con que
+  el navegador pregunta si la respuesta ya está lista.
+
+Números reales los midió el smoke del deploy que cierre la fase 2c.
