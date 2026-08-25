@@ -41,6 +41,21 @@
 | `packages/widget/src/index.ts` | Transporte nuevo: POST + polling; misma UI |
 | `examples/demo-client/server.mjs` + `mock.mjs` | Mock del Messages Backend + worker fake con debounce |
 
+## Paralelización (regla del proyecto, 2026-08-25)
+
+Las tareas se ejecutan en OLAS de archivos disjuntos, un worktree por implementer:
+
+- **Ola 1 (paralela):** T1 (shared+infra) ∥ T2 (store, deps inyectadas) ∥ T6 (widget,
+  contra el contrato del plan) ∥ T7 (mock, ídem). Ninguna instala deps npm → cero
+  conflicto de lockfile.
+- **Ola 2 (serial):** T3 (necesita T1+T2 mergeadas).
+- **Ola 3 (serial):** T4 → T5 (comparten la zona de bff/chat y el lockfile: T4 saca
+  el streaming, T5 muda ndjson y crea el worker) → T8 (docs).
+- T9 (smoke) al final, controlador + humano.
+
+Merge: el controlador mergea cada rama `wt/tN` a `fase-2a` DESPUÉS de su review
+limpia, en orden de ola; la suite completa corre tras cada merge.
+
 ---
 
 ### Task 1: Registro + infra de mensajería
