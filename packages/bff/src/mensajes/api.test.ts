@@ -8,7 +8,7 @@ import { getMensajes, postMensaje } from "./api";
 import type { Mensaje } from "./store";
 
 const SECRET = "un-secreto-de-al-menos-32-bytes!!";
-const cfg = { runtimeArn: "arn:x", verifier: { kind: "hmac", secret: SECRET } as const };
+const cfg = { verifier: { kind: "hmac", secret: SECRET } as const };
 
 async function token(claims: Record<string, unknown> = { sub: "4821" }) {
   return new SignJWT(claims)

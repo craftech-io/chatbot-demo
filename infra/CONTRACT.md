@@ -36,7 +36,6 @@ uno a otro es reimplementar esta lista, nada más.
 
 | Variable | Obligatoria | Descripción |
 |---|---|---|
-| `AGENT_RUNTIME_ARN` | sí | ARN del AgentCore Runtime a invocar |
 | `CLIENT_JWKS_URL` | una de las dos | JWKS del emisor de tokens del cliente |
 | `CLIENT_HMAC_SECRET` | una de las dos | secreto compartido, si el cliente no tiene OIDC |
 | `GUARDRAIL_ID` | no (2b) | id del Guardrail, vía linkable en SST (`Resource.Guardrail.id`) |
@@ -53,6 +52,22 @@ En el sabor SST estas variables se resuelven por linking y las lee
 `packages/bff/src/config/resource.ts`. En los demás sabores se inyectan como
 variables de entorno y las lee `packages/bff/src/config/env.ts` (se crea con
 el segundo sabor de IaC — todavía no existe).
+
+## Variables que recibe el worker
+
+| Variable | Obligatoria | Descripción |
+|---|---|---|
+| `AGENT_RUNTIME_ARN` | sí | ARN del AgentCore Runtime a invocar, vía linkable en SST (`Resource.AgentRuntime.arn`) — leído directo en `packages/worker/src/lambda.ts` (el worker no tiene un módulo de config separado, a diferencia del BFF) |
+
+Hasta T4 (fase 2c) esta fila vivía en la tabla del BFF: la Function del Chat
+tenía `runtimeLink` porque el modo streaming viejo invocaba el Runtime
+directo. T4 quitó ese link (correcto — el invoke ahora lo hace el worker en
+background) pero `packages/bff/src/config/resource.ts` siguió leyendo
+`Resource.AgentRuntime.arn` sin que el linkable existiera: el proxy `Resource`
+de sst lanza ante un recurso no linkeado, y como la config se resuelve por
+request, TODO POST/GET del Messages Backend moría en el primer deploy. Fix en
+el fix-wave de fase 2c (C1): se borró `runtimeArn` de `BffConfig` y esta fila
+se movió acá, que es donde el dato realmente se usa hoy.
 
 ## Mapeo de nombres reales (Step 0, sabor SST)
 

@@ -17,7 +17,12 @@ export function fromResource(): BffConfig {
     );
   }
   return {
-    runtimeArn: Resource.AgentRuntime.arn,
+    // Ojo: NO leer Resource.AgentRuntime acá. T4 (fase 2c) quitó `runtimeLink`
+    // de la Function del Chat a propósito — el invoke al Runtime ahora lo hace
+    // el worker (packages/worker/src/lambda.ts), no el BFF. El proxy Resource
+    // de sst LANZA ante un recurso no linkeado, así que leer
+    // Resource.AgentRuntime.arn acá tiraba en cada request y mataba TODO
+    // POST/GET del Messages Backend en el primer deploy (C1, fix-wave fase 2c).
     verifier: hmacSecret
       ? { kind: "hmac", secret: hmacSecret }
       : { kind: "jwks", url: jwksUrl },
