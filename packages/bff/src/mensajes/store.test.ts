@@ -121,6 +121,9 @@ describe("pendientesDesdeUltimaRespuesta", () => {
     const cmd = send.mock.calls[0]![0].input;
     expect(cmd.KeyConditionExpression).toBe("conversationId = :cid");
     expect(cmd.ScanIndexForward).toBe(false);
+    // Defensa barata contra el corte de página de 1MB de Dynamo: el tope por
+    // sesión (40) hace inalcanzable un backlog real mayor a 100 mensajes.
+    expect(cmd.Limit).toBe(100);
   });
 
   it("si el mensaje más reciente ya es del assistant, no hay pendientes", async () => {

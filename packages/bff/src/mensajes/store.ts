@@ -70,8 +70,9 @@ export async function listarMensajes(
     const out = await deps.ddb.send(
       new QueryCommand({
         TableName: deps.tabla,
-        // `orden` va detrás de `#orden`: ORDER es palabra reservada de Dynamo
-        // (como `count` en topes.ts) y rompería el KeyConditionExpression.
+        // Alias defensivo: `orden` no es palabra reservada (la lista de Dynamo
+        // es en inglés), pero el alias evita sorpresas y es el estilo del
+        // repo (`#c` en topes.ts).
         KeyConditionExpression: desde ? "conversationId = :cid AND #orden > :desde" : "conversationId = :cid",
         ExpressionAttributeNames: desde ? { "#orden": "orden" } : undefined,
         ExpressionAttributeValues: {
@@ -98,6 +99,12 @@ export async function pendientesDesdeUltimaRespuesta(deps: Deps, conversationId:
         KeyConditionExpression: "conversationId = :cid",
         ExpressionAttributeValues: { ":cid": { S: conversationId } },
         ScanIndexForward: false, // descendente: recorremos desde el mensaje más nuevo
+        // El tope por sesión (40) hace inalcanzable un backlog mayor; el
+        // Limit es defensa barata contra el corte de página de 1MB (sin esto,
+        // ese corte se confundiría con "no hay assistant en la partición").
+        // Si se recorren los 100 sin toparse con un assistant, igual
+        // devolvemos lo acumulado: el Limit acota el costo, no la semántica.
+        Limit: 100,
       }),
     );
     const pendientes: Mensaje[] = [];
@@ -125,6 +132,9 @@ export async function ultimoMsgIdUsuario(deps: Deps, conversationId: string): Pr
         KeyConditionExpression: "conversationId = :cid",
         ExpressionAttributeValues: { ":cid": { S: conversationId } },
         ScanIndexForward: false, // descendente: el primer `user` que aparece es el más reciente
+        // El tope por sesión (40) hace inalcanzable un backlog mayor; el
+        // Limit es defensa barata contra el corte de página de 1MB.
+        Limit: 100,
       }),
     );
     for (const raw of out.Items ?? []) {
