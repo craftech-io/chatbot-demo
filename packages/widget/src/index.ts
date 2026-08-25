@@ -5,8 +5,13 @@ import { MENSAJES_LIMITE } from "@craftech-ai-chat/shared/mensajes";
 
 // Registro de textos visibles: el producto es en español y los literales no se
 // dispersan por el código.
+//
+// Nota: no hay más un texto propio para "agente caído" — en la arquitectura
+// async (spec §8 v2) esa falla la maneja el worker, que escribe su propio
+// mensaje de assistant (MENSAJES_WORKER.error) directo al store. El widget lo
+// recibe por polling como cualquier otra respuesta; no hay código de error que
+// distinguirlo acá.
 const MENSAJES = {
-  agenteCaido: "El asistente no está disponible en este momento. Probá de nuevo en unos minutos.",
   errorGenerico: "Hubo un problema al responder. Probá de nuevo.",
 } as const;
 
@@ -105,12 +110,20 @@ function inyectarEstilos(): void {
   document.head.append(estilo);
 }
 
+// Cuánto se espera entre polls y cuánto se tolera sin respuesta antes de
+// rendirse (spec §8 v2: 1500ms / 90s). Inyectables SOLO para que los tests
+// sean determinísticos y rápidos — el default es el real.
+const POLL_MS_DEFECTO = 1500;
+const POLL_TIMEOUT_MS_DEFECTO = 90_000;
+
 export function mount(
   el: HTMLElement,
-  opts: { tokenUrl: string; chatUrl: string },
+  opts: { tokenUrl: string; apiUrl: string; _pollMs?: number; _pollTimeoutMs?: number },
 ): { send: (texto: string) => Promise<void> } {
   inyectarEstilos();
   const tokens = new TokenSource(opts.tokenUrl);
+  const pollMs = opts._pollMs ?? POLL_MS_DEFECTO;
+  const pollTimeoutMs = opts._pollTimeoutMs ?? POLL_TIMEOUT_MS_DEFECTO;
   const hilo = document.createElement("div");
   hilo.className = "cc-hilo";
   el.append(hilo);
@@ -133,7 +146,8 @@ export function mount(
   }
 
   // Nace con el indicador de "escribiendo" (3 puntos por DOM, sin innerHTML):
-  // se quita en cuanto llega el primer frame de la respuesta.
+  // vive hasta que el polling trae la respuesta del asistente o se da por
+  // vencido (error o timeout) — ya no hay deltas que lo corten antes.
   function crearBurbujaRespuesta(): HTMLParagraphElement {
     const burbuja = document.createElement("p");
     burbuja.className = "cc-respuesta cc-escribiendo";
@@ -147,8 +161,6 @@ export function mount(
     return burbuja;
   }
 
-  // Al primer frame (delta, done o error) se apaga el indicador y se vacían los
-  // puntos: de ahí en más la burbuja se escribe como texto normal.
   function apagarEscribiendo(burbuja: HTMLElement): void {
     if (burbuja.classList.contains("cc-escribiendo")) {
       burbuja.classList.remove("cc-escribiendo");
@@ -156,67 +168,127 @@ export function mount(
     }
   }
 
+  function mostrarError(burbuja: HTMLElement, texto: string): void {
+    apagarEscribiendo(burbuja);
+    burbuja.textContent = texto;
+    autoScroll();
+  }
+
+  // Body de una Response que puede no ser JSON (ej. un 5xx de un proxy
+  // devolviendo texto plano): nunca tira, para que el catch de enviar() no se
+  // coma un error de parseo confundiéndolo con uno de red.
+  async function leerJson(r: Response): Promise<Record<string, unknown> | null> {
+    try {
+      return (await r.json()) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  // Un solo poll: GET .../mensajes?hilo=&desde= y busca un rol=assistant en la
+  // respuesta. El store ya filtra `orden > desde` server-side (Task 2/3), así
+  // que cualquier assistant en la lista es la respuesta que se espera.
+  // Cualquier falla (red, status no-ok, JSON roto) se trata como "todavía no
+  // hay respuesta" — un poll transitoriamente fallido no aborta el polling; el
+  // timeout de afuera es la única salida por error.
+  async function unPoll(idHilo: string, desde: string): Promise<string | null> {
+    try {
+      const r = await fetch(
+        `${opts.apiUrl}/mensajes?hilo=${encodeURIComponent(idHilo)}&desde=${encodeURIComponent(desde)}`,
+        { headers: { authorization: `Bearer ${await tokens.get()}` } },
+      );
+      if (!r.ok) return null;
+      const cuerpo = await leerJson(r);
+      const mensajes = Array.isArray(cuerpo?.mensajes) ? (cuerpo!.mensajes as Array<Record<string, unknown>>) : [];
+      const respuesta = mensajes.find((m) => m?.rol === "assistant");
+      return respuesta ? String(respuesta.texto ?? "") : null;
+    } catch (e) {
+      console.error("fallo un poll de mensajes del chat", e);
+      return null;
+    }
+  }
+
+  function esperar(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // El número de intentos se deriva de pollTimeoutMs/pollMs en vez de medir
+  // reloj de pared: determinístico bajo tests con intervalos cortos (no
+  // depende de que Date.now() avance realmente esos ms), y equivalente en
+  // producción con los defaults reales.
+  async function preguntarHastaRespuesta(burbuja: HTMLElement, idHilo: string, desde: string): Promise<void> {
+    const intentos = Math.max(1, Math.ceil(pollTimeoutMs / pollMs));
+    for (let i = 0; i < intentos; i++) {
+      await esperar(pollMs);
+      const texto = await unPoll(idHilo, desde);
+      if (texto !== null) {
+        apagarEscribiendo(burbuja);
+        burbuja.textContent = texto;
+        autoScroll();
+        return;
+      }
+    }
+    mostrarError(burbuja, MENSAJES.errorGenerico);
+  }
+
   async function enviar(texto: string, reintentado = false): Promise<void> {
     const burbuja = crearBurbujaRespuesta();
+    const idHilo = sesion();
 
     try {
-      const r = await fetch(opts.chatUrl, {
+      const r = await fetch(`${opts.apiUrl}/mensajes`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${await tokens.get()}`,
         },
-        body: JSON.stringify({ message: texto, sessionId: sesion() }),
+        body: JSON.stringify({ texto, hilo: idHilo }),
       });
+      const cuerpo = await leerJson(r);
+      const error = cuerpo?.error as { code?: string; motivo?: string } | undefined;
 
-      // Nota: NO se corta por r.ok — el 401 del BFF trae frames SSE parseables
-      // (expired_token viaja ahí). La guarda correcta es "ningún frame llegó".
-      let huboEventos = false;
-      for await (const ev of leerSse(r)) {
-        huboEventos = true;
-        apagarEscribiendo(burbuja);
-        if (ev.type === "delta") {
-          burbuja.textContent += String(ev.text ?? "");
-          autoScroll();
-        } else if (ev.type === "done") {
-          // El texto del done es el autoritativo: reconcilia la burbuja por si
-          // los deltas y el texto final divergieran (renormalización, retries).
-          if (typeof ev.text === "string") burbuja.textContent = ev.text;
-          autoScroll();
-        } else if (ev.type === "error") {
-          // El token venció mientras el usuario escribía: se renueva y se reintenta
-          // UNA vez. Más de una sería un loop ante un token mal emitido.
-          if (ev.code === "expired_token" && !reintentado) {
-            tokens.invalidate();
-            burbuja.remove();
-            return enviar(texto, true);
-          } else if (ev.code === "limit_reached") {
-            burbuja.textContent =
-              ev.motivo === "sesion"
-                ? MENSAJES_LIMITE.sesionAlcanzada
-                : MENSAJES_LIMITE.diarioAlcanzado;
-          } else {
-            burbuja.textContent =
-              ev.code === "agent_unavailable" ? MENSAJES.agenteCaido : MENSAJES.errorGenerico;
-          }
-          autoScroll();
+      if (r.status === 401) {
+        // El token venció mientras el usuario escribía: se renueva y se
+        // reintenta UNA vez. Más de una sería un loop ante un token mal
+        // emitido. Cualquier otro 401 (ej. invalid_token) no tiene retry
+        // posible — es genérico.
+        if (error?.code === "expired_token" && !reintentado) {
+          tokens.invalidate();
+          burbuja.remove();
+          return enviar(texto, true);
         }
+        mostrarError(burbuja, MENSAJES.errorGenerico);
+        return;
       }
-      if (!huboEventos) {
-        // Una respuesta sin ni un frame SSE (el 5xx de un proxy, un body vacío)
-        // no puede dejar la burbuja vacía para siempre.
-        apagarEscribiendo(burbuja);
-        burbuja.textContent = MENSAJES.errorGenerico;
-        autoScroll();
+
+      if (r.status === 429) {
+        mostrarError(
+          burbuja,
+          error?.motivo === "sesion" ? MENSAJES_LIMITE.sesionAlcanzada : MENSAJES_LIMITE.diarioAlcanzado,
+        );
+        return;
       }
+
+      if (!r.ok) {
+        mostrarError(burbuja, MENSAJES.errorGenerico);
+        return;
+      }
+
+      const orden = cuerpo?.orden;
+      if (typeof orden !== "string") {
+        // Contrato incumplido (200 sin `orden`): no hay desde donde arrancar
+        // el polling.
+        mostrarError(burbuja, MENSAJES.errorGenerico);
+        return;
+      }
+
+      await preguntarHastaRespuesta(burbuja, idHilo, orden);
     } catch (e) {
       // La red cayó, el fetch rechazó, o algo de lo anterior tiró: sin este
       // catch, la promesa de enviar() rechaza sin manejar y el usuario se
       // queda mirando una burbuja vacía para siempre.
       if (burbuja.isConnected) {
-        apagarEscribiendo(burbuja);
-        burbuja.textContent = MENSAJES.errorGenerico;
-        autoScroll();
+        mostrarError(burbuja, MENSAJES.errorGenerico);
       }
       console.error("fallo al enviar el mensaje del chat", e);
     }
@@ -240,28 +312,4 @@ function sesion(): string {
     sessionStorage.setItem(clave, id);
   }
   return id;
-}
-
-async function* leerSse(r: Response): AsyncIterable<Record<string, unknown>> {
-  const reader = r.body?.getReader();
-  if (!reader) return;
-  const dec = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += dec.decode(value, { stream: true });
-    let corte: number;
-    while ((corte = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, corte);
-      buffer = buffer.slice(corte + 2);
-      if (frame.startsWith("data: ")) {
-        try {
-          yield JSON.parse(frame.slice(6)) as Record<string, unknown>;
-        } catch {
-          yield { type: "error", code: "frame_ilegible" };
-        }
-      }
-    }
-  }
 }
