@@ -18,7 +18,8 @@ uno a otro es reimplementar esta lista, nada más.
 | SessionsTable (DynamoDB) | índice de hilos por usuario | pk: userId, sk: sessionId |
 | LimitsTable (DynamoDB) | contadores de tope por usuario y período | pk: userId, sk: periodo |
 | MessagesTable (DynamoDB) | fuente de verdad de la transcripción (spec §8 v2) | pk: conversationId, sk: orden (`${ts ISO}#${msgId}` — el orden lexicográfico ES el cronológico) |
-| MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver nota de mapeo abajo); DLQ propia (también FIFO — SQS lo exige) con `maxReceiveCount` 3 |
+| MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver nota de mapeo abajo); redirige a MensajesDlq tras 3 intentos |
+| MensajesDlq (SQS FIFO) | destino de mensajes que MensajesCola no pudo entregar tras 3 intentos | también FIFO — SQS no permite que una cola FIFO redirija a una DLQ estándar (ni al revés) |
 
 ## Variables que recibe el core (contenedor)
 
@@ -173,15 +174,23 @@ para `MensajesCola`. Ese nombre NO es lo que produce el código: `QueueArgs`
 fijar un nombre físico explícito es `transform.queue.name` (el `name` de
 `sqs.QueueArgs` de Pulumi), que ni el plan ni esta implementación usan. Sin
 esa transform, `physicalName()` (`.sst/platform/src/components/naming.ts:8-21`)
-genera `${app}-${stage}-MensajesCola-${random8}.fifo` (prefijo app+stage +
-nombre lógico del componente + sufijo aleatorio de 8 chars + `.fifo`), no el
-nombre determinístico del brief. Se implementó tal como aparece el Step 2 del
-plan (sin `name`/`transform`, autoname) porque es el mismo patrón que ya usan
-`MessagesTableDb`/`SessionsTableDb`/`LimitsTableDb` en este repo (ningún
-recurso de este proyecto fija nombres físicos a mano) y porque el BFF/worker
-nunca hardcodean el nombre: lo obtienen del Linkable (`Resource.MensajesCola.url`),
-así que el nombre físico real es irrelevante para el código del producto. Si
-en el futuro se necesita el nombre determinístico del brief (p. ej. para
-referenciarlo desde fuera de SST), hay que agregar
-`transform: { queue: { name: <literal>+".fifo" } }` a mano — SST no agrega el
-sufijo cuando el nombre viene explícito.
+genera `${app}-${stage}-<nombre-lógico-del-componente>-${random8}.fifo` (prefijo
+app+stage + nombre lógico del componente + sufijo aleatorio de 8 chars +
+`.fifo`), no el nombre determinístico del brief. Se implementó tal como
+aparece el Step 2 del plan (sin `name`/`transform`, autoname) porque es el
+mismo patrón que ya usan `MessagesTableDb`/`SessionsTableDb`/`LimitsTableDb`
+en este repo (ningún recurso de este proyecto fija nombres físicos a mano) y
+porque el BFF/worker nunca hardcodean el nombre: lo obtienen del Linkable
+(`Resource.MensajesCola.url`), así que el nombre físico real es irrelevante
+para el código del producto. Si en el futuro se necesita el nombre
+determinístico del brief (p. ej. para referenciarlo desde fuera de SST), hay
+que agregar `transform: { queue: { name: <literal>+".fifo" } }` a mano — SST
+no agrega el sufijo cuando el nombre viene explícito.
+
+**Fix round 1:** el componente pasó a llamarse `MensajesColaQueue` (no
+`MensajesCola`) porque colisionaba con `sst.Linkable("MensajesCola", ...)` —
+los nombres de componentes SST son únicos en toda la app (misma lección que
+el sufijo `Db` de `MessagesTableDb`/`SessionsTableDb`/`LimitsTableDb`, y el
+mismo tipo de bug que un fix de deploy de 2b). El nombre físico autogenerado
+ahora usa `MensajesColaQueue` como parte lógica (`...-MensajesColaQueue-${random8}.fifo`);
+la clave del Linkable (`Resource.MensajesCola`) no cambió.

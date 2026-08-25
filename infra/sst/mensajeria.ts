@@ -2,6 +2,9 @@
 // transcripción para UIs y canales; la cola FIFO serializa por conversación.
 // El orden lexicográfico de `orden` (`${ts ISO}#${msgId}`) ES el cronológico:
 // no hace falta un GSI ni ordenar en memoria para paginar la transcripción.
+// Sufijo Db: los nombres de componentes SST son únicos entre sí en toda la
+// app, y el Linkable de abajo ya usa "MessagesTable" (la clave de Resource) —
+// mismo patrón que SessionsTableDb/LimitsTableDb en infra/sst/tablas.ts.
 export const messagesTable = new sst.aws.Dynamo("MessagesTableDb", {
   fields: { conversationId: "string", orden: "string" },
   primaryIndex: { hashKey: "conversationId", rangeKey: "orden" },
@@ -11,7 +14,13 @@ export const messagesTable = new sst.aws.Dynamo("MessagesTableDb", {
 // DLQ estándar (ni al revés) — deben coincidir en tipo (verificado más abajo).
 const dlq = new sst.aws.Queue("MensajesDlq", { fifo: true });
 
-export const mensajesCola = new sst.aws.Queue("MensajesCola", {
+// Sufijo Queue: mismo motivo que MessagesTableDb arriba — el nombre de
+// componente SST tiene que ser único en toda la app, y el Linkable de abajo
+// ya usa "MensajesCola" (la clave de Resource). Sin el sufijo, el componente
+// y el Linkable colisionan (`VisibleError: Component name MensajesCola is
+// not unique`) recién en runtime de Pulumi en el primer deploy — ningún
+// typecheck lo detecta.
+export const mensajesCola = new sst.aws.Queue("MensajesColaQueue", {
   fifo: true,
   // FIFO no soporta delay POR MENSAJE: el delay de la cola ES la ventana de
   // debounce — todo mensaje espera estos segundos antes de ser visible. El
