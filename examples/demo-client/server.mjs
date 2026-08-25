@@ -90,11 +90,6 @@ const historialPorConversacion = new Map();
 // widget por polling, incluidos los de "bloqueado".
 const mensajesPorConversacion = new Map();
 
-// conversationId → msgId del ÚLTIMO mensaje de usuario posteado. Es cómo el
-// worker fake sabe si "todavía es el último" cuando dispara su timer — la
-// misma pregunta que hace `ultimoMsgIdUsuario` en el store real (Task 2).
-const ultimoMsgIdPorConversacion = new Map();
-
 let secuenciaGlobal = 0;
 
 function leerCuerpo(req) {
@@ -175,15 +170,33 @@ function pendientesDesdeUltimaRespuesta(conversationId) {
   return pendientes;
 }
 
+// msgId del último mensaje de usuario de la conversación: se DERIVA
+// escaneando la transcripción hacia atrás (primer rol=user desde el final) —
+// igual que `ultimoMsgIdUsuario` del store real (Task 2). A propósito no se
+// cachea en un Map aparte: un Map solo se actualiza en el camino que se
+// acuerda de tocarlo, y el camino "bloqueado" escribe directo a la
+// transcripción sin pasar por el debounce — un cache así queda
+// desincronizado. Escanear la transcripción hace que CUALQUIER escritura
+// (normal, bloqueada, la que venga) cuente sola, sin coordinación extra.
+function ultimoMsgIdUsuario(conversationId) {
+  const mensajes = mensajesPorConversacion.get(conversationId) ?? [];
+  for (let i = mensajes.length - 1; i >= 0; i--) {
+    if (mensajes[i].rol === "user") return mensajes[i].msgId;
+  }
+  return null;
+}
+
 // El "worker" fake: dispara DEBOUNCE_MS después de CADA mensaje, pero si para
 // entonces ya llegó uno más nuevo de la misma conversación, no hace nada — el
 // timer del ÚLTIMO mensaje es el único que efectivamente agrega y responde a
 // todos los pendientes. Así se ve el debounce en el mock: dos mensajes
 // rápidos producen una sola respuesta.
 function procesarComoWorker(conversationId, msgId, sub) {
-  if (ultimoMsgIdPorConversacion.get(conversationId) !== msgId) return;
+  if (ultimoMsgIdUsuario(conversationId) !== msgId) return;
 
   const pendientes = pendientesDesdeUltimaRespuesta(conversationId);
+  if (pendientes.length === 0) return; // nada pendiente — otro camino ya respondió
+
   const textoAgregado = pendientes.map((m) => m.texto).join("\n");
   const { demoraMs, frames, persistible } = planificarRespuesta(
     textoAgregado,
@@ -249,9 +262,10 @@ async function manejarMensajesPost(req, res) {
   }
 
   // Camino normal (incluye "memoria"/"lento"/"error"): se persiste el mensaje
-  // del usuario y se programa el worker fake con debounce.
+  // del usuario y se programa el worker fake con debounce. El "último msgId"
+  // que va a chequear ese timer se deriva de la transcripción cuando dispare
+  // (ver `ultimoMsgIdUsuario`) — acá no hace falta anotar nada aparte.
   const userMsg = agregarMensaje(conversationId, "user", texto);
-  ultimoMsgIdPorConversacion.set(conversationId, userMsg.msgId);
   setTimeout(() => procesarComoWorker(conversationId, userMsg.msgId, sub), DEBOUNCE_MS);
   responderJson(res, 200, { msgId: userMsg.msgId, conversationId, orden: userMsg.orden });
 }

@@ -155,4 +155,39 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     expect(mensajes.filter((m) => m.rol === "user")).toHaveLength(2);
     expect(mensajes.filter((m) => m.rol === "assistant")).toHaveLength(1);
   });
+
+  it("un 'bloqueado' durante la ventana de debounce de un mensaje normal no deja un assistant espurio", async () => {
+    const hilo = "hilo-normal-mas-bloqueado";
+
+    const postNormal = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "hola, ¿cómo va?", hilo }),
+    });
+    expect(postNormal.status).toBe(200);
+
+    // Sin esperar nada: el timer del mensaje normal (1200ms) todavía no
+    // disparó. El "bloqueado" escribe user+assistant de una, por fuera del
+    // debounce.
+    const postBloqueado = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "bloqueado por favor", hilo }),
+    });
+    expect(postBloqueado.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(`${base}/mensajes?hilo=${encodeURIComponent(hilo)}`);
+    const { mensajes } = await get.json();
+
+    // 2 mensajes de usuario (el normal + el bloqueado) y UN SOLO assistant:
+    // el de política. Cuando el timer del mensaje normal dispara, el último
+    // usuario de la transcripción ya no es el suyo (es el del bloqueado) —
+    // se tiene que descartar, no generar una segunda respuesta espuria sobre
+    // un intercambio que ya cerró.
+    expect(mensajes.filter((m) => m.rol === "user")).toHaveLength(2);
+    expect(mensajes.filter((m) => m.rol === "assistant")).toHaveLength(1);
+    expect(mensajes.at(-1).rol).toBe("assistant");
+  });
 });
