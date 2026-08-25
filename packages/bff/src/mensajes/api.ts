@@ -102,26 +102,49 @@ export async function postMensaje(
       // escribe la respuesta de política como si fuera del assistant, NO se
       // encola (no hay turno de agente que correr), y el widget la ve por
       // polling como cualquier otro mensaje.
-      const userMsg = await deps.store.escribir({
-        conversationId,
-        msgId,
-        rol: "user",
-        texto: input.texto,
-        ts,
-      });
-      await deps.store.escribir({
-        conversationId,
-        msgId: randomUUID(),
-        rol: "assistant",
-        texto: MENSAJES_GUARDRAIL.entradaBloqueada,
-        ts: new Date().toISOString(),
-      });
-      return { status: 200, body: { msgId: userMsg.msgId, conversationId, orden: userMsg.orden } };
+      try {
+        const userMsg = await deps.store.escribir({
+          conversationId,
+          msgId,
+          rol: "user",
+          texto: input.texto,
+          ts,
+        });
+        // Estrictamente posterior al del usuario: un empate de milisegundo dejaría el
+        // orden a merced de dos UUIDs aleatorios y la respuesta podría listar ANTES
+        // que la pregunta.
+        const tsAssistant = new Date(Date.parse(ts) + 1).toISOString();
+        await deps.store.escribir({
+          conversationId,
+          msgId: randomUUID(),
+          rol: "assistant",
+          texto: MENSAJES_GUARDRAIL.entradaBloqueada,
+          ts: tsAssistant,
+        });
+        return { status: 200, body: { msgId: userMsg.msgId, conversationId, orden: userMsg.orden } };
+      } catch (e) {
+        console.error("escritura del mensaje bloqueado falló", e);
+        return { status: 500, body: { error: { code: "error_interno" } } };
+      }
     }
   }
 
-  const userMsg = await deps.store.escribir({ conversationId, msgId, rol: "user", texto: input.texto, ts });
-  await deps.encolar({ conversationId, msgId, userId: auth.userId });
+  let userMsg: Mensaje;
+  try {
+    userMsg = await deps.store.escribir({ conversationId, msgId, rol: "user", texto: input.texto, ts });
+  } catch (e) {
+    console.error("escritura del mensaje del usuario falló", e);
+    return { status: 500, body: { error: { code: "error_interno" } } };
+  }
+  try {
+    await deps.encolar({ conversationId, msgId, userId: auth.userId });
+  } catch (e) {
+    // Si el encolado falla DESPUÉS de escribir el mensaje del usuario, NO se
+    // reintenta acá: el diseño se auto-repara — el job del PRÓXIMO mensaje agrega
+    // todos los pendientes desde la última respuesta, este huérfano incluido.
+    console.error("encolado del turno falló (el mensaje ya quedó escrito; se autorepara con el próximo turno)", e);
+    return { status: 500, body: { error: { code: "error_interno" } } };
+  }
   if (deps.registrarTurno) {
     deps.registrarTurno(auth.userId, conversationId, input.texto).catch((e) =>
       console.error("registrarTurnoEnIndice falló (fire-and-forget)", e),

@@ -144,6 +144,74 @@ describe("postMensaje", () => {
     );
     expect(guard).not.toHaveBeenCalled();
   });
+
+  it("si el encolado falla DESPUÉS de escribir, responde 500 error_interno pero el user msg queda escrito (auto-reparación)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = storeFalso();
+    const encolar = vi.fn(async () => {
+      throw new Error("sqs caída");
+    });
+    const r = await postMensaje({ token: await token(), texto: "hola" }, { cfg, store, encolar });
+    expect(r.status).toBe(500);
+    expect(r.body.error?.code).toBe("error_interno");
+    // El mensaje del usuario SÍ quedó escrito: no se reintenta el encolado
+    // acá, el job del PRÓXIMO turno lo recoge como pendiente huérfano.
+    expect(store.mensajes).toHaveLength(1);
+    expect(store.mensajes[0]).toMatchObject({ rol: "user", texto: "hola" });
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("si escribir el mensaje del usuario lanza de entrada, responde 500 y no encola nada", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = storeFalso();
+    store.escribir.mockImplementationOnce(async () => {
+      throw new Error("dynamo caída");
+    });
+    const { encolar, encolados } = encolarFalso();
+    const r = await postMensaje({ token: await token(), texto: "hola" }, { cfg, store, encolar });
+    expect(r.status).toBe(500);
+    expect(r.body.error?.code).toBe("error_interno");
+    expect(encolados).toHaveLength(0);
+    err.mockRestore();
+  });
+
+  it("en el camino bloqueado, el orden del assistant es estrictamente mayor al del user (desempate de ts)", async () => {
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    const r = await postMensaje(
+      { token: await token(), texto: "algo horrible" },
+      { cfg, store, encolar, guard: async () => ({ bloqueada: true }) },
+    );
+    expect(r.status).toBe(200);
+    const [user, assistant] = store.mensajes;
+    expect(user!.orden < assistant!.orden).toBe(true);
+  });
+
+  it("dispara registrarTurno con (userId, conversationId, texto) en el POST normal exitoso", async () => {
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    const registrarTurno = vi.fn(async () => 1);
+    const r = await postMensaje(
+      { token: await token({ sub: "4821" }), texto: "hola" },
+      { cfg, store, encolar, registrarTurno },
+    );
+    expect(registrarTurno).toHaveBeenCalledWith("4821", r.body.conversationId, "hola");
+  });
+
+  it("un registrarTurno que rechaza no altera el 200 (fire-and-forget de verdad)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    const registrarTurno = vi.fn(async () => {
+      throw new Error("índice caído");
+    });
+    const r = await postMensaje({ token: await token(), texto: "hola" }, { cfg, store, encolar, registrarTurno });
+    expect(r.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
 });
 
 describe("getMensajes", () => {
