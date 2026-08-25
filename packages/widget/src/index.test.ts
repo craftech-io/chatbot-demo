@@ -169,6 +169,52 @@ describe("mount", () => {
     expect(mock.getCount()).toBe(3);
   });
 
+  it("dos sends concurrentes (el debounce del server los agrega) no abren un segundo poller ni duplican la respuesta", async () => {
+    const mock = crearFetchMock({
+      // Ambos POST salen bien (el server los necesita a los dos para agregar
+      // el turno) — pero solo debe existir UN poller.
+      post: (n) => json({ msgId: `m${n}`, conversationId: "c1", orden: `o${n}` }),
+      get: (n) =>
+        n < 2 ? json({ mensajes: [] }) : json({ mensajes: [{ rol: "assistant", texto: "Hola a los dos", orden: "o3" }] }),
+    });
+    vi.stubGlobal("fetch", mock.fn);
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    const widget = mount(el, { tokenUrl: "/chat-token", apiUrl: "/api", _pollMs: 1 });
+
+    // Sin await entre medio: el segundo send() se dispara mientras el primero
+    // todavía no resolvió su POST.
+    const p1 = widget.send("hola");
+    const p2 = widget.send("qué tal");
+    await Promise.all([p1, p2]);
+
+    expect(mock.postCount()).toBe(2);
+    expect(el.querySelectorAll(".cc-usuario").length).toBe(2);
+    expect(el.querySelectorAll(".cc-respuesta").length).toBe(1);
+    expect(el.querySelector(".cc-respuesta")?.textContent).toBe("Hola a los dos");
+    expect(el.querySelectorAll(".cc-punto").length).toBe(0);
+  });
+
+  it("ante 401 persistente en el polling renueva el token UNA vez y, si sigue fallando, corta con el error genérico sin esperar el timeout", async () => {
+    const mock = crearFetchMock({
+      post: () => json({ msgId: "m1", conversationId: "c1", orden: "o1" }),
+      get: () => json({ error: { code: "expired_token" } }, 401), // siempre 401, incluso tras renovar
+    });
+    vi.stubGlobal("fetch", mock.fn);
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    // pollTimeoutMs alto a propósito: si el 401 se tratara como "todavía no",
+    // este test tardaría en agotar el timeout. El corte debe ser inmediato.
+    await mount(el, { tokenUrl: "/chat-token", apiUrl: "/api", _pollMs: 1, _pollTimeoutMs: 1000 }).send("hola");
+
+    expect(el.textContent).toMatch(/problema al responder/i);
+    // Un solo ciclo del loop: el GET original + el reintento tras renovar
+    // token — muy por debajo del máximo (1000/1 = 1000 intentos).
+    expect(mock.getCount()).toBe(2);
+  });
+
   it("renderiza la burbuja del usuario con el texto enviado", async () => {
     const mock = crearFetchMock({
       post: () => json({ msgId: "m1", conversationId: "c1", orden: "o1" }),

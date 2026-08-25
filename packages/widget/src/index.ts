@@ -174,6 +174,17 @@ export function mount(
     autoScroll();
   }
 
+  // El error de un send CONCURRENTE (mientras ya hay un poller dueño
+  // esperando) no tiene burbuja de "escribiendo" propia — nace directo con el
+  // texto final, sin indicador, y no toca la burbuja del dueño.
+  function mostrarErrorSuelto(texto: string): void {
+    const burbuja = document.createElement("p");
+    burbuja.className = "cc-respuesta";
+    burbuja.textContent = texto;
+    hilo.append(burbuja);
+    autoScroll();
+  }
+
   // Body de una Response que puede no ser JSON (ej. un 5xx de un proxy
   // devolviendo texto plano): nunca tira, para que el catch de enviar() no se
   // coma un error de parseo confundiéndolo con uno de red.
@@ -185,26 +196,51 @@ export function mount(
     }
   }
 
+  // Poller ÚNICO por mount (fix round 1): el server colapsa por debounce
+  // varios mensajes rápidos en UNA sola respuesta assistant. Si cada send()
+  // abriera su propio loop de polling, dos sends concurrentes matchearían esa
+  // misma respuesta y la pintarían dos veces. `pollerActivo` es el mutex
+  // síncrono que decide, en el momento de llamar a enviar() (antes de
+  // cualquier await), si ESTE send es el "dueño" del poller; `cursorInicial`
+  // es el `orden` del primer mensaje sin responder — el cursor que usa el
+  // poller del dueño, sin importar cuántos sends concurrentes se agreguen
+  // después.
+  let pollerActivo = false;
+  let cursorInicial: string | null = null;
+
+  type ResultadoPoll = { tipo: "respuesta"; texto: string } | { tipo: "todavia_no" } | { tipo: "fatal" };
+
   // Un solo poll: GET .../mensajes?hilo=&desde= y busca un rol=assistant en la
   // respuesta. El store ya filtra `orden > desde` server-side (Task 2/3), así
   // que cualquier assistant en la lista es la respuesta que se espera.
-  // Cualquier falla (red, status no-ok, JSON roto) se trata como "todavía no
-  // hay respuesta" — un poll transitoriamente fallido no aborta el polling; el
-  // timeout de afuera es la única salida por error.
-  async function unPoll(idHilo: string, desde: string): Promise<string | null> {
+  //
+  // Un 401 NO es "todavía no": es simétrico al POST — se renueva el token UNA
+  // vez y se reintenta; si el reintento TAMBIÉN da 401, no tiene sentido
+  // seguir esperando el timeout completo (la sesión no va a poder leer
+  // nunca), así que corta como "fatal". Cualquier otro !ok (red, 5xx, JSON
+  // roto) sí es transitorio y se sigue polleando — el timeout de afuera es la
+  // única salida por ese tipo de error.
+  async function unPoll(idHilo: string, desde: string, reintentado = false): Promise<ResultadoPoll> {
     try {
       const r = await fetch(
         `${opts.apiUrl}/mensajes?hilo=${encodeURIComponent(idHilo)}&desde=${encodeURIComponent(desde)}`,
         { headers: { authorization: `Bearer ${await tokens.get()}` } },
       );
-      if (!r.ok) return null;
+      if (r.status === 401) {
+        if (!reintentado) {
+          tokens.invalidate();
+          return unPoll(idHilo, desde, true);
+        }
+        return { tipo: "fatal" };
+      }
+      if (!r.ok) return { tipo: "todavia_no" };
       const cuerpo = await leerJson(r);
       const mensajes = Array.isArray(cuerpo?.mensajes) ? (cuerpo!.mensajes as Array<Record<string, unknown>>) : [];
       const respuesta = mensajes.find((m) => m?.rol === "assistant");
-      return respuesta ? String(respuesta.texto ?? "") : null;
+      return respuesta ? { tipo: "respuesta", texto: String(respuesta.texto ?? "") } : { tipo: "todavia_no" };
     } catch (e) {
       console.error("fallo un poll de mensajes del chat", e);
-      return null;
+      return { tipo: "todavia_no" };
     }
   }
 
@@ -215,25 +251,60 @@ export function mount(
   // El número de intentos se deriva de pollTimeoutMs/pollMs en vez de medir
   // reloj de pared: determinístico bajo tests con intervalos cortos (no
   // depende de que Date.now() avance realmente esos ms), y equivalente en
-  // producción con los defaults reales.
+  // producción con los defaults reales. Al terminar (éxito, fatal o
+  // timeout) SIEMPRE libera el poller: un send() posterior puede volver a
+  // ser dueño.
   async function preguntarHastaRespuesta(burbuja: HTMLElement, idHilo: string, desde: string): Promise<void> {
     const intentos = Math.max(1, Math.ceil(pollTimeoutMs / pollMs));
     for (let i = 0; i < intentos; i++) {
       await esperar(pollMs);
-      const texto = await unPoll(idHilo, desde);
-      if (texto !== null) {
+      const resultado = await unPoll(idHilo, desde);
+      if (resultado.tipo === "respuesta") {
+        pollerActivo = false;
+        cursorInicial = null;
         apagarEscribiendo(burbuja);
-        burbuja.textContent = texto;
+        burbuja.textContent = resultado.texto;
         autoScroll();
         return;
       }
+      if (resultado.tipo === "fatal") {
+        pollerActivo = false;
+        cursorInicial = null;
+        mostrarError(burbuja, MENSAJES.errorGenerico);
+        return;
+      }
+      // "todavia_no": sigue polleando.
     }
+    pollerActivo = false;
+    cursorInicial = null;
     mostrarError(burbuja, MENSAJES.errorGenerico);
   }
 
+  // Resuelve un error de POST según quién lo disparó: el dueño lo muestra en
+  // SU burbuja (con indicador que se apaga) y libera el poller; un send
+  // concurrente no tiene burbuja propia — el suyo va suelto, sin tocar al
+  // dueño, que sigue esperando la respuesta agregada.
+  function resolverErrorDePost(esDueño: boolean, burbuja: HTMLElement | null, texto: string): void {
+    if (esDueño) {
+      pollerActivo = false;
+      cursorInicial = null;
+      mostrarError(burbuja!, texto);
+    } else {
+      mostrarErrorSuelto(texto);
+    }
+  }
+
   async function enviar(texto: string, reintentado = false): Promise<void> {
-    const burbuja = crearBurbujaRespuesta();
+    // Claim SÍNCRONO, antes de cualquier await: si dos send() se llaman
+    // seguidos sin await entre medio (el caso del debounce del server), el
+    // primero en ejecutar esta línea es el dueño y el segundo ya lo ve
+    // tomado — no hay ventana de carrera porque nada de esto cede el hilo
+    // todavía.
+    const esDueño = !pollerActivo;
+    if (esDueño) pollerActivo = true;
+
     const idHilo = sesion();
+    const burbuja = esDueño ? crearBurbujaRespuesta() : null;
 
     try {
       const r = await fetch(`${opts.apiUrl}/mensajes`, {
@@ -251,18 +322,23 @@ export function mount(
         // El token venció mientras el usuario escribía: se renueva y se
         // reintenta UNA vez. Más de una sería un loop ante un token mal
         // emitido. Cualquier otro 401 (ej. invalid_token) no tiene retry
-        // posible — es genérico.
+        // posible — es genérico. El retry aplica igual seas dueño o no: es
+        // por-POST, no por-poller.
         if (error?.code === "expired_token" && !reintentado) {
           tokens.invalidate();
-          burbuja.remove();
+          if (esDueño) {
+            burbuja!.remove();
+            pollerActivo = false; // el reintento de abajo reclama el poller de nuevo
+          }
           return enviar(texto, true);
         }
-        mostrarError(burbuja, MENSAJES.errorGenerico);
+        resolverErrorDePost(esDueño, burbuja, MENSAJES.errorGenerico);
         return;
       }
 
       if (r.status === 429) {
-        mostrarError(
+        resolverErrorDePost(
+          esDueño,
           burbuja,
           error?.motivo === "sesion" ? MENSAJES_LIMITE.sesionAlcanzada : MENSAJES_LIMITE.diarioAlcanzado,
         );
@@ -270,7 +346,14 @@ export function mount(
       }
 
       if (!r.ok) {
-        mostrarError(burbuja, MENSAJES.errorGenerico);
+        resolverErrorDePost(esDueño, burbuja, MENSAJES.errorGenerico);
+        return;
+      }
+
+      if (!esDueño) {
+        // El server ya tiene el mensaje para agregarlo al turno en curso — no
+        // hay nada más que hacer acá: el poller del dueño va a encontrar la
+        // respuesta agregada.
         return;
       }
 
@@ -278,17 +361,22 @@ export function mount(
       if (typeof orden !== "string") {
         // Contrato incumplido (200 sin `orden`): no hay desde donde arrancar
         // el polling.
-        mostrarError(burbuja, MENSAJES.errorGenerico);
+        resolverErrorDePost(true, burbuja, MENSAJES.errorGenerico);
         return;
       }
 
-      await preguntarHastaRespuesta(burbuja, idHilo, orden);
+      cursorInicial = orden;
+      await preguntarHastaRespuesta(burbuja!, idHilo, cursorInicial);
     } catch (e) {
       // La red cayó, el fetch rechazó, o algo de lo anterior tiró: sin este
       // catch, la promesa de enviar() rechaza sin manejar y el usuario se
       // queda mirando una burbuja vacía para siempre.
-      if (burbuja.isConnected) {
-        mostrarError(burbuja, MENSAJES.errorGenerico);
+      if (esDueño) {
+        pollerActivo = false;
+        cursorInicial = null;
+        if (burbuja!.isConnected) mostrarError(burbuja!, MENSAJES.errorGenerico);
+      } else {
+        mostrarErrorSuelto(MENSAJES.errorGenerico);
       }
       console.error("fallo al enviar el mensaje del chat", e);
     }
