@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { planificarRespuesta } from "./mock.mjs";
+import { crearServer } from "./server.mjs";
 
 describe("planificarRespuesta", () => {
   it("mensaje normal: termina en done, el done concatena los deltas y el primer delta saluda por el sub", () => {
@@ -79,5 +80,114 @@ describe("escenarios de la fase 2b", () => {
     expect(tope.persistible).toBe(false);
     expect(bloqueado.persistible).toBe(false);
     expect(normal.persistible).toBeUndefined();
+  });
+});
+
+// Contrato REST del mock (fase 2c): server real, levantado en un puerto
+// efímero, contra el que se le pega con fetch — no se testea con dobles
+// porque lo que hay que probar es justamente la orquestación entre el POST,
+// el timer del debounce y el GET (server.mjs completo).
+describe("contrato /mensajes (server real, puerto efímero)", () => {
+  let server;
+  let base;
+
+  beforeAll(async () => {
+    server = crearServer();
+    await new Promise((resolve) => server.listen(0, resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it("flujo normal: POST guarda el mensaje del usuario y, pasado el debounce, GET trae la respuesta del assistant", async () => {
+    const hilo = "hilo-flujo-normal";
+    const post = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "hola, ¿qué tal?", hilo }),
+    });
+    expect(post.status).toBe(200);
+    const { msgId, conversationId, orden } = await post.json();
+    expect(msgId).toBeTruthy();
+    expect(conversationId).toBeTruthy();
+    expect(orden).toBeTruthy();
+
+    // El debounce (1200ms) todavía no debería haber generado nada.
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(
+      `${base}/mensajes?hilo=${encodeURIComponent(hilo)}&desde=${encodeURIComponent(orden)}`,
+    );
+    expect(get.status).toBe(200);
+    const { mensajes } = await get.json();
+
+    expect(mensajes).toHaveLength(1);
+    expect(mensajes[0].rol).toBe("assistant");
+  });
+
+  it("debounce: dos POST seguidos a la misma conversación producen UNA sola respuesta que agrega a ambos pendientes", async () => {
+    const hilo = "hilo-debounce";
+
+    const post1 = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "primer mensaje", hilo }),
+    });
+    expect(post1.status).toBe(200);
+
+    const post2 = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "segundo mensaje, justo después", hilo }),
+    });
+    expect(post2.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(`${base}/mensajes?hilo=${encodeURIComponent(hilo)}`);
+    const { mensajes } = await get.json();
+
+    // Dos mensajes de usuario, pero el timer del primero se descartó porque
+    // para cuando disparó ya no era el último — solo el del segundo procesó,
+    // y agregó a los dos pendientes en una única respuesta.
+    expect(mensajes.filter((m) => m.rol === "user")).toHaveLength(2);
+    expect(mensajes.filter((m) => m.rol === "assistant")).toHaveLength(1);
+  });
+
+  it("un 'bloqueado' durante la ventana de debounce de un mensaje normal no deja un assistant espurio", async () => {
+    const hilo = "hilo-normal-mas-bloqueado";
+
+    const postNormal = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "hola, ¿cómo va?", hilo }),
+    });
+    expect(postNormal.status).toBe(200);
+
+    // Sin esperar nada: el timer del mensaje normal (1200ms) todavía no
+    // disparó. El "bloqueado" escribe user+assistant de una, por fuera del
+    // debounce.
+    const postBloqueado = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "bloqueado por favor", hilo }),
+    });
+    expect(postBloqueado.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(`${base}/mensajes?hilo=${encodeURIComponent(hilo)}`);
+    const { mensajes } = await get.json();
+
+    // 2 mensajes de usuario (el normal + el bloqueado) y UN SOLO assistant:
+    // el de política. Cuando el timer del mensaje normal dispara, el último
+    // usuario de la transcripción ya no es el suyo (es el del bloqueado) —
+    // se tiene que descartar, no generar una segunda respuesta espuria sobre
+    // un intercambio que ya cerró.
+    expect(mensajes.filter((m) => m.rol === "user")).toHaveLength(2);
+    expect(mensajes.filter((m) => m.rol === "assistant")).toHaveLength(1);
+    expect(mensajes.at(-1).rol).toBe("assistant");
   });
 });
