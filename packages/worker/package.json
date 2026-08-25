@@ -1,0 +1,22 @@
+{
+  "name": "@craftech-ai-chat/worker",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1116.0",
+    "@aws-sdk/client-dynamodb": "3.1116.0",
+    "@craftech-ai-chat/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
