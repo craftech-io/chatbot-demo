@@ -123,6 +123,12 @@ export async function postMensaje(
         });
         return { status: 200, body: { msgId: userMsg.msgId, conversationId, orden: userMsg.orden } };
       } catch (e) {
+        // Si la política no se pudo escribir tras el mensaje del usuario, ese mensaje
+        // BLOQUEADO queda pendiente y el job del próximo turno lo agregaría SIN
+        // re-evaluar el guardrail — una fuga estrecha (exige una falla de Dynamo entre
+        // dos escrituras consecutivas) aceptada por la postura fail-open del spec §9:
+        // el guardrail de SALIDA del core sigue siendo la segunda red. Documentado
+        // como riesgo conocido, no como omisión.
         console.error("escritura del mensaje bloqueado falló", e);
         return { status: 500, body: { error: { code: "error_interno" } } };
       }
