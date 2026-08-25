@@ -17,8 +17,9 @@ específico de cada cliente (orígenes de CORS, textos, branding) vive en un
 | Carpeta | Qué es |
 |---|---|
 | `core/` | El agente (Python/LlamaIndex Workflows), su contrato HTTP BYOC (`/ping`, `/invocations`) y su Dockerfile ARM64 |
-| `packages/bff/` | El BFF (TypeScript): verifica el token del cliente, invoca el AgentCore Runtime y relaya el streaming |
-| `packages/widget/` | El widget que el cliente monta en su página, sin framework |
+| `packages/bff/` | El BFF (TypeScript): verifica el token del cliente, encolá los mensajes en MensajesCola e índexalos en MessagesTable |
+| `packages/worker/` | El worker (TypeScript) que consume MensajesCola en background: agrega mensajes pendientes, invoca el AgentCore Runtime (con streaming SSE interno), parsea la respuesta y la escribe en MessagesTable |
+| `packages/widget/` | El widget que el cliente monta en su página, sin framework; hace polling a `/mensajes` GET para ver las respuestas |
 | `infra/` | El IaC. `infra/CONTRACT.md` es el contrato entre el producto y CUALQUIER sabor de IaC (SST, Terraform, Pulumi); `infra/sst/` es el primer sabor implementado |
 | `examples/demo-client/` | Una app mínima que integra el widget, para probar el flujo completo sin un cliente real |
 
