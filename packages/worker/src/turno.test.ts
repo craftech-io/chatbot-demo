@@ -133,4 +133,42 @@ describe("procesarMensaje", () => {
     expect(deps.escribir).toHaveBeenCalledTimes(2);
     err.mockRestore();
   });
+
+  // I1 (fix-wave fase 2c): redelivery post-crash o fail-open del store — no
+  // hay nada que responder, el assistant ya está o lo trae otro job. Restaura
+  // la paridad con el mock (examples/demo-client/server.mjs:198, que ya tiene
+  // esta guarda).
+  it("I1: si no hay pendientes, descarta el turno sin invocar ni escribir", async () => {
+    const deps = depsBase({
+      store: {
+        ultimoMsgIdUsuario: vi.fn(async () => "m1"),
+        pendientesDesdeUltimaRespuesta: vi.fn(async () => []),
+      },
+    });
+
+    const resultado = await procesarMensaje(evento, deps);
+
+    expect(resultado).toBe("descartado");
+    expect(deps.invocar).not.toHaveBeenCalled();
+    expect(deps.escribir).not.toHaveBeenCalled();
+  });
+
+  // I2 (fix-wave fase 2c): `ultimoMsgIdUsuario` devolviendo `null` solo puede
+  // ser un fallo de lectura del store (el evento implica que el mensaje del
+  // usuario existe) — ante la duda, responder: un descarte acá sería silencio
+  // para el usuario. Con I1 puesto, si además el store no puede leer
+  // pendientes, degrada a "descartado" en vez de a un invoke con mensaje vacío.
+  it("I2: si ultimoMsgIdUsuario devuelve null, procesa el turno igual (no descarta)", async () => {
+    const deps = depsBase({
+      store: {
+        ultimoMsgIdUsuario: vi.fn(async () => null),
+        pendientesDesdeUltimaRespuesta: vi.fn(async () => [mensaje("m1", "hola")]),
+      },
+    });
+
+    const resultado = await procesarMensaje(evento, deps);
+
+    expect(resultado).toBe("procesado");
+    expect(deps.invocar).toHaveBeenCalledWith({ message: "hola", userId: "u1", sessionId: "c1" });
+  });
 });

@@ -69,7 +69,13 @@ async function escribirRespuesta(
 
 export async function procesarMensaje(evento: EventoTurno, deps: Deps): Promise<ResultadoTurno> {
   const ultimo = await deps.store.ultimoMsgIdUsuario(evento.conversationId);
-  if (ultimo !== evento.msgId) {
+  // I2 (fix-wave fase 2c): `null` solo puede ser un fallo de lectura del
+  // store — el evento implica que el mensaje del usuario existe (se acaba de
+  // encolar). Ante la duda, responder: un descarte acá sería silencio para el
+  // usuario. Solo se descarta cuando SÍ hay un último msgId y no coincide con
+  // el de este evento (con I1 puesto, el caso patológico null+sin-pendientes
+  // degrada a "descartado" igual, coherente).
+  if (ultimo !== null && ultimo !== evento.msgId) {
     // No es el último: el usuario mandó otro mensaje durante la ventana de
     // debounce. Ese evento más nuevo (o el que YA se procesó si llegó primero)
     // es quien agrega este turno como pendiente — nada que hacer acá.
@@ -81,10 +87,14 @@ export async function procesarMensaje(evento: EventoTurno, deps: Deps): Promise<
     return "descartado";
   }
 
-  // Es el último: agrega TODOS los mensajes de usuario sin responder (incluido
-  // el propio) en orden cronológico. Como `ultimo === evento.msgId`, siempre
-  // hay al menos un pendiente (este mismo mensaje).
+  // Es el último (o `ultimo` vino null por I2): agrega TODOS los mensajes de
+  // usuario sin responder (incluido el propio) en orden cronológico.
   const pendientes = await deps.store.pendientesDesdeUltimaRespuesta(evento.conversationId);
+  // I1 (fix-wave fase 2c): redelivery post-crash o fail-open del store: no hay
+  // nada que responder — el assistant ya está o lo traerá otro job. Restaura
+  // la paridad con el mock (examples/demo-client/server.mjs), que SÍ tiene
+  // esta guarda.
+  if (pendientes.length === 0) return "descartado";
   const message = pendientes.map((m) => m.texto).join("\n");
 
   try {
