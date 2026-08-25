@@ -15,6 +15,11 @@ export type BffConfig = {
   tablas?: { sesiones: string; limites: string };
   // Topes de uso (spec §12): con default si el sabor no los trae seteados.
   topes?: { diario: number; porSesion: number };
+  // Mensajería asíncrona (spec §8 v2, Task 1/2/3 fase 2c): tabla de
+  // transcripción y cola FIFO de debounce. Opcional por el mismo motivo que
+  // `tablas` arriba: sabores/mocks viejos sin este linkeo corren sin la API
+  // de mensajes.
+  mensajes?: { tabla: string; colaUrl: string; debounceSegundos: number };
 };
 
 export async function loadConfig(): Promise<BffConfig> {
