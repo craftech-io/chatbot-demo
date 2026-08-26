@@ -351,9 +351,17 @@ cliente que paga su propio Bedrock quiere verlo desde el día 1.
   - **2c** *(v2, 2026-08-25)* Mensajería asíncrona: Messages Backend + SQS FIFO +
     worker con debounce; primera tanda con el widget (polling) como único canal;
     los canales (WhatsApp, Facebook) entran después como adapters, cada uno su fase corta.
+    ✔ desplegada. *(mini-fase 2026-08-26: verificación OIDC con Cognito en vivo —
+    JWKS con issuer/audience pineados; ledger propio.)*
   - **2d** Tools de tenant vía Gateway y tools de usuario vía HTTP con `actToken`.
-  - **2e** RAG: KB sobre S3 Vectors, con citas.
-  - **2f** Standalone y docs de instalación.
+    *(decisión 2026-08-26: el `actToken` viaja como campo del mensaje de SQS —
+    cifrado en reposo por la cola, NUNCA persistido en MessagesTable; el worker lo
+    releva al runtime en el payload confiable. Riesgo aceptado: un mensaje que agote
+    reintentos cae a la DLQ con un token ya vencido o por vencer.)*
+  - **2e** Standalone y docs de instalación *(reordenada 2026-08-26; antes 2f)*:
+    la app propia con login sobre pool Cognito del template — el camino OIDC ya
+    quedó pavimentado por la mini-fase Cognito.
+  - **2f** RAG: KB sobre S3 Vectors, con citas *(reordenada 2026-08-26; antes 2e)*.
 - **Fase 3**: sabor Terraform, que es lo que realmente valida el contrato.
 
 Cada fase de la 2 es desplegable y demostrable por sí sola.
