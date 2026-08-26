@@ -42,3 +42,21 @@ def test_falla_con_model_id_vacio():
 def test_memory_id_es_opcional():
     assert load_config({"MODEL_ID": "m"}).memory_id is None
     assert load_config({"MODEL_ID": "m", "MEMORY_ID": "mem-1"}).memory_id == "mem-1"
+
+
+def test_las_urls_de_tools_son_opcionales():
+    cfg = load_config({"MODEL_ID": "m"})
+    assert cfg.gateway_url is None
+    assert cfg.client_api_url is None
+    # Vacía cuenta como ausente (mismo criterio que el guardrail y la memoria).
+    cfg = load_config({"MODEL_ID": "m", "GATEWAY_URL": "", "CLIENT_API_URL": ""})
+    assert cfg.gateway_url is None
+    assert cfg.client_api_url is None
+
+
+def test_lee_las_urls_de_tools_del_entorno():
+    cfg = load_config(
+        {"MODEL_ID": "m", "GATEWAY_URL": "https://gw/mcp", "CLIENT_API_URL": "http://api"}
+    )
+    assert cfg.gateway_url == "https://gw/mcp"
+    assert cfg.client_api_url == "http://api"
