@@ -147,7 +147,14 @@ Tres notas del entorno demo:
 
 - El User Pool es **compartido de la cuenta de demos** (lo creó el POC de
   betwarrior y tiene DeletionProtection): un usuario demo sirve para todas
-  las demos, no hace falta crear uno por proyecto.
+  las demos, no hace falta crear uno por proyecto. Alta de un usuario nuevo:
+
+  ```bash
+  aws cognito-idp admin-create-user --user-pool-id us-east-1_kLcJsB3IG \
+    --username <usuario> --message-action SUPPRESS
+  aws cognito-idp admin-set-user-password --user-pool-id us-east-1_kLcJsB3IG \
+    --username <usuario> --password '<password>' --permanent
+  ```
 - Dos pestañas del mismo browser **comparten la cookie de sesión** — también
   en modo mock, donde la cookie `cc_user` le gana al `?user=` de la URL. Para
   el momento "aislamiento entre usuarios" de la demo, en cualquiera de los dos
