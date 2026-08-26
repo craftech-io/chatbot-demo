@@ -157,6 +157,9 @@ function cookiesDe(req) {
 // La cookie de sesión del demo: HttpOnly (el JS de la página nunca la ve),
 // SameSite=Lax y Max-Age 3300 (un toque menos que la hora de vida del ID
 // token de Cognito, para no servir un token ya vencido).
+// Va SIN `Secure` y /login no tiene protección CSRF: solo vale porque esto es
+// un demo en localhost http (Secure rompería la cookie ahí, y SameSite=Lax no
+// frena un login-CSRF). En producción real: Secure + CSRF. No copiar tal cual.
 function cookieSesion(nombre, valor) {
   return `${nombre}=${encodeURIComponent(valor)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=3300`;
 }
@@ -213,9 +216,11 @@ async function manejarLogin(req, res, config) {
       "set-cookie": cookieSesion("cc_id", idToken),
     });
     res.end(JSON.stringify({ usuario }));
-  } catch {
+  } catch (e) {
     // Cognito inalcanzable (red caída, DNS): mismo 401 humano — el detalle
-    // técnico queda en el server, no en la pantalla del usuario.
+    // técnico queda en el server (el log de abajo; NUNCA loguear credenciales)
+    // para que el operador distinga "Cognito caído" de "password incorrecta".
+    console.error("login: fallo hablando con Cognito", e);
     responderJson(res, 401, { error: { code: "login_invalido" } });
   }
 }

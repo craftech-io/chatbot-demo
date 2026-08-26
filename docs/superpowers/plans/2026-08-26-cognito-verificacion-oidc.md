@@ -175,7 +175,7 @@ y la nota de que el pool es compartido de la cuenta demos (un usuario para todas
 
 **Files:** ninguno (operación).
 
-- [ ] Secrets de staging (`sst secret set --stage staging`): `ClientJwksUrl` = JWKS del pool, `ClientTokenIssuer` = issuer, `ClientTokenAudience` = client_id (valores en Global Constraints).
+- [ ] Secrets de staging (`sst secret set --stage staging`): `ClientJwksUrl` = JWKS del pool, `ClientTokenIssuer` = issuer, `ClientTokenAudience` = client_id (valores en Global Constraints), **y vaciar el HMAC: `sst secret set ClientHmacSecret "" --stage staging`** — si ambos emisores quedan seteados gana HMAC (deliberado en `resource.ts`), la migración sería un no-op y el secreto compartido seguiría emitiendo identidades válidas (hallazgo I1 del review).
 - [ ] Push `fase-2a` → `staging`, CI verde.
 - [ ] Smoke: (1) login real con `demo-craftech` desde el demo local en modo cognito → turno completo contra staging; (2) negativo: un token HMAC firmado con `.secreto-demo.local` ahora responde 401 (staging quedó en JWKS); (3) negativo: token de OTRO app client del mismo pool (el de betwarrior, si se puede emitir) o con `aud` adulterada → 401; (4) browser real: login + mensaje + respuesta.
 - [ ] Actualizar artifact (sección seguridad/identidad), memoria de estado y runbook (pool compartido, DeletionProtection, cómo dar de alta usuarios demo).

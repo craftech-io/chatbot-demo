@@ -7,3 +7,8 @@ dist/
 .env
 *.local
 .superpowers/
+.cognito-demo.local
+wt/
+sst.pyi
+packages/*/sst-env.d.ts
+examples/*/sst-env.d.ts

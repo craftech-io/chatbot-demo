@@ -92,7 +92,10 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
   let base;
 
   beforeAll(async () => {
-    server = crearServer();
+    // Entorno vacío explícito: sin esto, una shell con API_URL exportada (el
+    // flujo del README de modo Cognito) cambiaría el server de modo y estos
+    // tests fallarían confuso (M8, review mini-fase Cognito).
+    server = crearServer({});
     await new Promise((resolve) => server.listen(0, resolve));
     base = `http://127.0.0.1:${server.address().port}`;
   });

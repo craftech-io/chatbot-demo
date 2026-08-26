@@ -143,12 +143,16 @@ Con `COGNITO_CLIENT_ID` seteado el server entra en modo cognito y
 `CHAT_HMAC_SECRET` ya no hace falta (`COGNITO_REGION` es opcional, default
 `us-east-1`).
 
-Dos notas del entorno demo:
+Tres notas del entorno demo:
 
 - El User Pool es **compartido de la cuenta de demos** (lo creó el POC de
   betwarrior y tiene DeletionProtection): un usuario demo sirve para todas
   las demos, no hace falta crear uno por proyecto.
-- Dos pestañas del mismo browser **comparten la cookie de sesión** (a
-  diferencia del modo mock con `?user=`): para el momento "aislamiento entre
-  usuarios" de la demo, abrí una ventana de incógnito y entrá con otro
-  usuario del pool.
+- Dos pestañas del mismo browser **comparten la cookie de sesión** — también
+  en modo mock, donde la cookie `cc_user` le gana al `?user=` de la URL. Para
+  el momento "aislamiento entre usuarios" de la demo, en cualquiera de los dos
+  modos, abrí una ventana de incógnito y entrá con otro usuario.
+- La sesión dura **~55 minutos** (la vida del ID token). Al vencer, el chat
+  muestra el error genérico ("Hubo un problema al responder"): recargá la
+  página y volvé a loguearte. El manejo fino de sesión vencida en el widget
+  queda para una fase futura.

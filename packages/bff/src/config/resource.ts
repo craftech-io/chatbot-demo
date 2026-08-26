@@ -16,6 +16,18 @@ export function fromResource(): BffConfig {
       "Falta configurar el emisor de tokens: seteá ClientJwksUrl o ClientHmacSecret.",
     );
   }
+
+  // Half-pin: con JWKS activo y solo UNO de issuer/audience configurado, lo
+  // más probable es un secret olvidado — y con un emisor multi-app (Cognito)
+  // eso deja pasar tokens de OTRAS apps del mismo pool. Aviso, no corte:
+  // pinear solo issuer es legítimo para emisores cuyos tokens no traen `aud`.
+  if (!hmacSecret && jwksUrl && !!issuer !== !!audience) {
+    console.warn(
+      `auth: pineo JWKS incompleto — falta ${issuer ? "ClientTokenAudience" : "ClientTokenIssuer"}; ` +
+        "tokens de otras apps del mismo emisor podrían pasar la verificación.",
+    );
+  }
+
   return {
     // Ojo: NO leer Resource.AgentRuntime acá. T4 (fase 2c) quitó `runtimeLink`
     // de la Function del Chat a propósito — el invoke al Runtime ahora lo hace

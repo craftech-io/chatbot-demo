@@ -239,8 +239,8 @@
         __MODO__
       </div>
       <p class="quien" id="linea-quien" hidden>
-        Conversando como <b id="quien"></b> ·
-        <a href="?user=Ana">Ana</a> · <a href="?user=Bruno">Bruno</a>
+        Conversando como <b id="quien"></b><span id="atajos-usuario"> ·
+        <a href="?user=Ana">Ana</a> · <a href="?user=Bruno">Bruno</a></span>
       </p>
       __MOCK_HINT__
     </header>
@@ -317,6 +317,9 @@
       const errorLogin = document.getElementById("login-error");
 
       if (AUTH_MODO === "mock") document.getElementById("login-hint").hidden = false;
+      // Con Cognito los atajos ?user=Ana/Bruno solo prefillean usuarios que no
+      // existen en el pool: puro ruido en la demo.
+      if (AUTH_MODO === "cognito") document.getElementById("atajos-usuario").hidden = true;
       if (userQuery) inputUsuario.value = userQuery;
       inputUsuario.focus();
 
