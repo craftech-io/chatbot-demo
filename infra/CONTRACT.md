@@ -31,6 +31,8 @@ uno a otro es reimplementar esta lista, nada más.
 | `GUARDRAIL_ID` | no | si falta, el core corre sin guardrail — las inyecta la infra desde 2b |
 | `GUARDRAIL_VERSION` | no | requerida si hay `GUARDRAIL_ID` — las inyecta la infra desde 2b |
 | `MEMORY_ID` | no | sin ella, el core usa el history del payload (modo local/tests) |
+| `GATEWAY_URL` | no (2d) | endpoint MCP del AgentCore Gateway (`gatewayUrl` del recurso). Vacía o ausente ⇒ el agente corre sin tools de tenant. El core firma cada request con SigV4 (rol del Runtime), así que el rol necesita `bedrock-agentcore:InvokeGateway` |
+| `CLIENT_API_URL` | no (2d) | base URL de la API del cliente para las tools de usuario (sin barra final). Vacía o ausente ⇒ el agente corre sin tools de usuario. **Es una frontera de confianza:** a esta URL se le manda el `actToken` del usuario final como `Authorization: Bearer` en cada llamada de tool, así que solo puede apuntar a la API del cliente — una URL mal apuntada exfiltra credenciales de usuarios |
 
 ## Variables que recibe el BFF
 

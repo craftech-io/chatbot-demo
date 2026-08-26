@@ -13,9 +13,10 @@
 //   .credentialProviderType` (enum incluye "GATEWAY_IAM_ROLE").
 import { apiClienteDemoUrl } from "./api-cliente";
 
-// El nombre físico exige `([0-9a-zA-Z][-]?){1,100}` (alfanumérico con guiones
+// El nombre físico exige `([0-9a-zA-Z][-]?){1,48}` (alfanumérico con guiones
 // no consecutivos, distinto del alfabeto del Runtime que acepta `_`): se
-// sanitiza el stage a ese alfabeto.
+// sanitiza el stage a ese alfabeto. Ojo con el largo: el prefijo se come 16 de
+// los 48, así que un stage de preview muy largo haría fallar el create.
 const stageSaneado = $app.stage
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "-")
@@ -37,8 +38,9 @@ const gatewayRole = new aws.iam.Role("GatewayRole", {
   }),
 });
 // Sin policy de permisos a propósito: el único target es la Function URL
-// pública de la demo API (auth NONE) — GATEWAY_IAM_ROLE firma el request
-// outbound con este rol, pero no hay ninguna API de AWS que autorizar.
+// pública de la demo API (auth NONE) y el target va sin credencial outbound
+// (ver GatewayTarget abajo), así que no hay ninguna API de AWS que autorizar.
+// El rol existe porque CreateGateway lo exige.
 
 export const gateway = new awsnative.bedrockagentcore.Gateway("Gateway", {
   name: `craftech-ai-chat-gw-${stageSaneado}`,
@@ -112,6 +114,16 @@ new awsnative.bedrockagentcore.GatewayTarget("GatewayTarget", {
   targetConfiguration: {
     mcp: { openApiSchema: { inlinePayload: openApiCatalogo } },
   },
-  // Credencial POR TARGET: el gateway firma el outbound con su propio rol.
-  credentialProviderConfigurations: [{ credentialProviderType: "GATEWAY_IAM_ROLE" }],
+  // SIN credencial outbound ("no authorization", que la tabla de outbound-auth
+  // de AgentCore permite para targets OpenAPI): el target es la Function URL
+  // pública de la demo API (authType NONE), no hay nada que autenticar.
+  //
+  // Ojo, acá había un bug que el review final cazó antes del deploy: un
+  // `credentialProviderType: "GATEWAY_IAM_ROLE"` pelado NO es válido sobre un
+  // target OpenAPI — ahí ese tipo significa "firmá el outbound con SigV4" y la
+  // API exige además `credentialProvider.iamCredentialProvider.service`; sin
+  // eso CreateGatewayTarget responde ValidationException. GATEWAY_IAM_ROLE
+  // pelado solo aplica a targets Lambda/ApiGateway/Smithy/Connector.
+  // Cuando un cliente real tenga su API detrás de auth, va por acá: OAUTH o
+  // API_KEY con su ProviderArn (AgentCore Identity).
 });

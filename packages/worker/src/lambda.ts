@@ -81,7 +81,14 @@ export async function handler(event: SqsEvent): Promise<void> {
       // procesarMensaje ya jamás lanza (ver turno.ts) — esto solo atrapa un
       // body malformado (JSON.parse) u otro fallo imprevisto antes de
       // llegar ahí. Igual no debe reventar el batch: se loguea y se sigue.
-      console.error("registro del batch SQS no se pudo procesar (se descarta, no se relanza)", e);
+      //
+      // Se loguea SOLO el nombre del error, nunca el objeto: el SyntaxError de
+      // JSON.parse incluye un fragmento del texto que no pudo parsear, y el
+      // body de la cola lleva el actToken del usuario (fase 2d) — volcar ese
+      // fragmento a CloudWatch sería filtrar una credencial.
+      console.error("registro del batch SQS no se pudo procesar (se descarta, no se relanza)", {
+        error: (e as Error)?.name ?? "desconocido",
+      });
     }
   }
 }

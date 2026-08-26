@@ -118,11 +118,20 @@ async def tools_de_gateway(
     falla, el chat sigue sin tools de tenant (lista vacía + log), nunca una
     excepción al turno.
     """
+    http_client = None
     try:
         credenciales = credenciales or boto3.Session().get_credentials()
         http_client = httpx2.AsyncClient(auth=SigV4Auth(credenciales, region))
         cliente = cliente_factory(gateway_url, http_client=http_client)
         return await spec_factory(cliente).to_tool_list_async()
     except Exception as exc:
+        # El cliente del intento fallido se cierra a mano: la lista vacía NO se
+        # cachea (se reintenta al turno siguiente), así que un gateway caído
+        # mucho tiempo acumularía clientes sin cerrar en la microVM.
+        if http_client is not None:
+            try:
+                await http_client.aclose()
+            except Exception:  # noqa: BLE001 - cerrar nunca puede tumbar el turno
+                pass
         logger.error("No se pudieron listar las tools del gateway: %s", exc)
         return []
