@@ -30,6 +30,14 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "ClientTokenAudience": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "ClientTokenIssuer": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "Guardrail": {
       "id": string
       "type": "sst.sst.Linkable"
