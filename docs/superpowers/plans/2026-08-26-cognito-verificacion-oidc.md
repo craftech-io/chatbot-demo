@@ -46,7 +46,7 @@
 - Produces: `Verifier` = `{ kind: "hmac"; secret: string } | { kind: "jwks"; url: string; issuer?: string; audience?: string }`. Secrets SST nuevos: `ClientTokenIssuer`, `ClientTokenAudience` (default `""`); Linkable `ClientAuth` suma props `issuer` y `audience`. `""` en el secret ⇒ `undefined` en config ⇒ no se exige ese claim (compat con emisores sin OIDC estricto).
 - Consumes: nada de otras tareas.
 
-- [ ] **Step 1: Tests en rojo.** En `verify.test.ts`, junto a los tests jwks existentes (seguir su patrón de emisión local de tokens RS256), agregar:
+- [ ] **Step 1: Tests en rojo.** En `verify.test.ts`, agregar los casos de abajo. Mecanismo (corregido en origen — el plan citaba un "patrón RS256 existente" que no existe; los tests actuales son todos HS256): generar un par con `generateKeyPair("RS256")` de jose, firmar con la privada (`SignJWT` + `setProtectedHeader({ alg: "RS256" })`), y stubear `globalThis.fetch` con `vi.stubGlobal("fetch", ...)` para que la URL del JWKS devuelva `{ keys: [await exportJWK(publicKey)] }` — así se ejercita el camino real de `createRemoteJWKSet` sin red. Ojo: `verify.ts` cachea el JWKSet por URL a nivel módulo — usar la MISMA URL y el MISMO par de claves en todos los casos del describe (el caché reusa la clave; el stub de fetch se llama una sola vez).
 
 ```ts
 // dado un token RS256 firmado con la clave local, emitido con
