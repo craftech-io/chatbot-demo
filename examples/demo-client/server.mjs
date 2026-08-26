@@ -14,30 +14,37 @@ import { signChatToken } from "./sign.mjs";
 import { planificarRespuesta } from "./mock.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
-// API_URL reemplaza a CHAT_URL (el Messages Backend ya no habla SSE, habla
-// POST/GET /mensajes). Fallback al nombre viejo por si algún script externo
-// todavía lo exporta así — retirar cuando nadie dependa de CHAT_URL.
-const API_URL = process.env.API_URL || process.env.CHAT_URL;
-const MOCK = !API_URL;
 
-let SECRETO = process.env.CHAT_HMAC_SECRET;
+// Modos del server (plan de la mini-fase Cognito, decisión cerrada):
+// - COGNITO_CLIENT_ID seteado (+ API_URL) → "cognito": login real contra el
+//   User Pool; /chat-token devuelve el ID token guardado en la cookie cc_id.
+// - Sin API_URL → "mock": todo local como siempre, PERO con el mismo
+//   mini-login simulado (cookie cc_user) — regla del proyecto: toda capacidad
+//   se entrega con su modo local para UI/UX.
+// - API_URL + CHAT_HMAC_SECRET sin COGNITO_CLIENT_ID → "hmac": el modo real
+//   de siempre, sin login (no romper lo que ya anda).
+//
+// Recibe el entorno como parámetro (default process.env) para que los tests
+// puedan levantar un server en cada modo sin pisar el entorno del proceso.
+function configDe(entorno) {
+  // API_URL reemplaza a CHAT_URL (el Messages Backend ya no habla SSE, habla
+  // POST/GET /mensajes). Fallback al nombre viejo por si algún script externo
+  // todavía lo exporta así — retirar cuando nadie dependa de CHAT_URL.
+  const apiUrl = entorno.API_URL || entorno.CHAT_URL || "";
+  const cognitoClientId = entorno.COGNITO_CLIENT_ID || "";
+  const cognitoRegion = entorno.COGNITO_REGION || "us-east-1";
+  const modo = !apiUrl ? "mock" : cognitoClientId ? "cognito" : "hmac";
 
-if (!MOCK && !SECRETO) {
-  // Modo real sin cambios: ambos env siguen siendo obligatorios juntos.
-  console.error(
-    "Faltan CHAT_HMAC_SECRET (el mismo que ClientHmacSecret del stage) y API_URL " +
-      "(la Function URL del deploy).",
-  );
-  process.exit(1);
-}
+  let secreto = entorno.CHAT_HMAC_SECRET || "";
+  let secretoGenerado = false;
+  if (modo === "mock" && !secreto) {
+    // Nadie tiene por qué generar un secreto compartido solo para probar la UI:
+    // alcanza con uno aleatorio de esta corrida (firma y verifica en el mismo proceso).
+    secreto = randomBytes(32).toString("base64");
+    secretoGenerado = true;
+  }
 
-if (MOCK && !SECRETO) {
-  // Nadie tiene por qué generar un secreto compartido solo para probar la UI:
-  // alcanza con uno aleatorio de esta corrida (firma y verifica en el mismo proceso).
-  SECRETO = randomBytes(32).toString("base64");
-  console.log(
-    "Modo mock: no hay CHAT_HMAC_SECRET, se generó uno aleatorio para esta corrida.",
-  );
+  return { modo, apiUrl, cognitoClientId, cognitoRegion, secreto, secretoGenerado };
 }
 
 // El worker fake espera esto antes de "procesar" los mensajes pendientes de
@@ -66,10 +73,13 @@ const MOCK_HINT_HTML =
   "</div>";
 
 // __MODO__ en el HTML: el badge del header. En mock, aclara que no hay AWS
-// detrás; en real, indica el ambiente contra el que efectivamente se habla.
-const MODO_HTML = MOCK
-  ? '<span class="badge mock">modo local</span>'
-  : '<span class="badge live">● staging</span>';
+// detrás; en real (hmac o cognito), indica el ambiente contra el que
+// efectivamente se habla.
+function badgeDe(modo) {
+  return modo === "mock"
+    ? '<span class="badge mock">modo local</span>'
+    : '<span class="badge live">● staging</span>';
+}
 
 // Estado mínimo del escenario "vencido": la PRIMERA vez que una (conversación,
 // texto) contiene "vencido" se responde 401 expired_token; la segunda (el
@@ -126,6 +136,88 @@ function subDelBearer(header) {
 function responderJson(res, status, cuerpo) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(cuerpo));
+}
+
+// Cookies parseadas a mano del header (sin dependencia nueva): "a=1; b=2" →
+// { a: "1", b: "2" }. Los valores viajan URL-encodeados (ver cookieSesion).
+function cookiesDe(req) {
+  const jar = {};
+  for (const parte of String(req.headers.cookie || "").split(";")) {
+    const i = parte.indexOf("=");
+    if (i === -1) continue;
+    try {
+      jar[parte.slice(0, i).trim()] = decodeURIComponent(parte.slice(i + 1).trim());
+    } catch {
+      // Un valor malformado no tira el request: esa cookie simplemente no está.
+    }
+  }
+  return jar;
+}
+
+// La cookie de sesión del demo: HttpOnly (el JS de la página nunca la ve),
+// SameSite=Lax y Max-Age 3300 (un toque menos que la hora de vida del ID
+// token de Cognito, para no servir un token ya vencido).
+function cookieSesion(nombre, valor) {
+  return `${nombre}=${encodeURIComponent(valor)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=3300`;
+}
+
+// POST /login. En mock es simulado: cualquier usuario/contraseña no vacíos
+// entran y la cookie cc_user pasa a ser la identidad del /chat-token. En
+// cognito es real: InitiateAuth USER_PASSWORD_AUTH por HTTP plano (sin SDK,
+// spec x-amz-json-1.1) y el ID token queda en la cookie cc_id.
+async function manejarLogin(req, res, config) {
+  const cuerpo = await leerCuerpo(req);
+  const usuario = String(cuerpo.usuario ?? "").trim();
+  const contrasena = String(cuerpo.contrasena ?? "");
+
+  if (!usuario || !contrasena) {
+    responderJson(res, 401, { error: { code: "login_invalido" } });
+    return;
+  }
+
+  if (config.modo === "mock") {
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "set-cookie": cookieSesion("cc_user", usuario),
+    });
+    res.end(JSON.stringify({ usuario }));
+    return;
+  }
+
+  try {
+    const r = await fetch(`https://cognito-idp.${config.cognitoRegion}.amazonaws.com/`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-amz-json-1.1",
+        "x-amz-target": "AWSCognitoIdentityProviderService.InitiateAuth",
+      },
+      body: JSON.stringify({
+        ClientId: config.cognitoClientId,
+        AuthFlow: "USER_PASSWORD_AUTH",
+        AuthParameters: { USERNAME: usuario, PASSWORD: contrasena },
+      }),
+    });
+
+    // Sin IdToken también es login fallido (p. ej. Cognito devolvió un
+    // challenge tipo NEW_PASSWORD_REQUIRED, que este demo no maneja).
+    const idToken = r.ok ? (await r.json())?.AuthenticationResult?.IdToken : undefined;
+    if (!idToken) {
+      // El detalle del error de Cognito no se filtra al browser: al usuario
+      // le alcanza con saber que no entró.
+      responderJson(res, 401, { error: { code: "login_invalido" } });
+      return;
+    }
+
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "set-cookie": cookieSesion("cc_id", idToken),
+    });
+    res.end(JSON.stringify({ usuario }));
+  } catch {
+    // Cognito inalcanzable (red caída, DNS): mismo 401 humano — el detalle
+    // técnico queda en el server, no en la pantalla del usuario.
+    responderJson(res, 401, { error: { code: "login_invalido" } });
+  }
 }
 
 // El conversationId se deriva SIEMPRE del principal autenticado + el hilo que
@@ -299,28 +391,52 @@ function manejarMensajesGet(req, res, url) {
 
 // Fábrica del server: no llama a .listen() — así los tests lo levantan en un
 // puerto efímero (`.listen(0)`) sin pisar al server real de `npm run dev`.
-export function crearServer() {
+// `entorno` permite que cada test elija el modo sin tocar process.env.
+export function crearServer(entorno = process.env) {
+  const config = configDe(entorno);
+  const esMock = config.modo === "mock";
+
   return createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
 
-    if (MOCK && req.method === "POST" && url.pathname === "/mensajes") {
+    if (esMock && req.method === "POST" && url.pathname === "/mensajes") {
       await manejarMensajesPost(req, res);
       return;
     }
 
-    if (MOCK && req.method === "GET" && url.pathname === "/mensajes") {
+    if (esMock && req.method === "GET" && url.pathname === "/mensajes") {
       manejarMensajesGet(req, res, url);
       return;
     }
 
+    // El mini-login existe en mock (simulado) y en cognito (real). En hmac no
+    // hay login: la ruta ni se registra y el HTML tampoco muestra el form.
+    if (config.modo !== "hmac" && req.method === "POST" && url.pathname === "/login") {
+      await manejarLogin(req, res, config);
+      return;
+    }
+
     if (url.pathname === "/chat-token") {
-      // DEMO ONLY: sin auth — firma para cualquiera que lo pida; en producción
-      // este endpoint vive detrás del login del cliente.
-      // En una app real, el usuario sale de la sesión. Acá viene por query para poder
-      // probar el aislamiento entre usuarios: ?user=A y ?user=B.
-      const userId = url.searchParams.get("user") || "demo";
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ token: signChatToken(userId, SECRETO) }));
+      if (config.modo === "cognito") {
+        // El token es el ID token de Cognito que dejó el login en la cookie
+        // HttpOnly — el JS de la página nunca lo tuvo en la mano.
+        const idToken = cookiesDe(req).cc_id;
+        if (!idToken) {
+          responderJson(res, 401, { error: { code: "login_requerido" } });
+          return;
+        }
+        responderJson(res, 200, { token: idToken });
+        return;
+      }
+
+      // DEMO ONLY: sin auth real — firma para cualquiera que lo pida; en
+      // producción este endpoint vive detrás del login del cliente.
+      // En mock la identidad sale del login simulado (cookie cc_user); el
+      // ?user= queda de fallback para poder probar el aislamiento entre
+      // usuarios sin loguearse (?user=A y ?user=B en dos pestañas).
+      const userId =
+        (esMock && cookiesDe(req).cc_user) || url.searchParams.get("user") || "demo";
+      responderJson(res, 200, { token: signChatToken(userId, config.secreto) });
       return;
     }
 
@@ -336,10 +452,14 @@ export function crearServer() {
     const html = await readFile(new URL("./public/index.html", import.meta.url), "utf8");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
+      // replaceAll: si un placeholder aparece más de una vez (p. ej. citado en
+      // un comentario del HTML), un replace simple dejaría el del script sin
+      // reemplazar — bug real que ya pasó con el de auth.
       html
-        .replace("__API_URL__", MOCK ? "" : API_URL)
-        .replace("__MOCK_HINT__", MOCK ? MOCK_HINT_HTML : "")
-        .replace("__MODO__", MODO_HTML),
+        .replaceAll("__API_URL__", esMock ? "" : config.apiUrl)
+        .replaceAll("__MOCK_HINT__", esMock ? MOCK_HINT_HTML : "")
+        .replaceAll("__MODO__", badgeDe(config.modo))
+        .replaceAll("__AUTH_MODO__", config.modo),
     );
   });
 }
@@ -351,9 +471,32 @@ const esEjecutadoDirectamente =
   process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 
 if (esEjecutadoDirectamente) {
-  crearServer().listen(PORT, () =>
+  const config = configDe(process.env);
+
+  if (config.modo === "hmac" && !config.secreto) {
+    // Modo real por HMAC sin cambios: ambos env siguen siendo obligatorios
+    // juntos (o, si el stage ya habla OIDC, setear COGNITO_CLIENT_ID).
+    console.error(
+      "Faltan CHAT_HMAC_SECRET (el mismo que ClientHmacSecret del stage) y API_URL " +
+        "(la Function URL del deploy).",
+    );
+    process.exit(1);
+  }
+
+  if (config.secretoGenerado) {
     console.log(
-      `demo-client en http://localhost:${PORT}` + (MOCK ? " (modo mock, sin AWS)" : ""),
+      "Modo mock: no hay CHAT_HMAC_SECRET, se generó uno aleatorio para esta corrida.",
+    );
+  }
+
+  crearServer(process.env).listen(PORT, () =>
+    console.log(
+      `demo-client en http://localhost:${PORT}` +
+        (config.modo === "mock"
+          ? " (modo mock, sin AWS)"
+          : config.modo === "cognito"
+            ? " (modo cognito: login real contra el User Pool)"
+            : ""),
     ),
   );
 }
