@@ -39,7 +39,7 @@ function storeFalso() {
 }
 
 function encolarFalso() {
-  const encolados: { conversationId: string; msgId: string; userId: string }[] = [];
+  const encolados: { conversationId: string; msgId: string; userId: string; actToken?: string }[] = [];
   return { encolados, encolar: vi.fn(async (p: (typeof encolados)[number]) => void encolados.push(p)) };
 }
 
@@ -129,7 +129,8 @@ describe("postMensaje", () => {
   it("un mensaje normal escribe 1 user y encola con groupId/dedupId correctos, devuelve msgId y orden", async () => {
     const store = storeFalso();
     const { encolar, encolados } = encolarFalso();
-    const r = await postMensaje({ token: await token({ sub: "4821" }), texto: "hola" }, { cfg, store, encolar });
+    const jwt = await token({ sub: "4821" });
+    const r = await postMensaje({ token: jwt, texto: "hola" }, { cfg, store, encolar });
 
     expect(r.status).toBe(200);
     expect(store.mensajes).toHaveLength(1);
@@ -139,9 +140,68 @@ describe("postMensaje", () => {
       conversationId: r.body.conversationId,
       msgId: store.mensajes[0]!.msgId,
       userId: "4821",
+      // Sin claim act_token, viaja el mismo token que el usuario presentó
+      // (spec §6, caso común — 2d opción A).
+      actToken: jwt,
     });
     expect(r.body.msgId).toBe(store.mensajes[0]!.msgId);
     expect(r.body.orden).toBe(store.mensajes[0]!.orden);
+  });
+
+  // Fase 2d (opción A): el actToken viaja por la cola hasta el runtime.
+  it("encola con actToken = claim act_token cuando el emisor lo manda", async () => {
+    const store = storeFalso();
+    const { encolar, encolados } = encolarFalso();
+    const jwt = await token({ sub: "4821", act_token: "token-de-la-api-del-cliente" });
+    const r = await postMensaje({ token: jwt, texto: "hola" }, { cfg, store, encolar });
+
+    expect(r.status).toBe(200);
+    expect(encolados).toHaveLength(1);
+    expect(encolados[0]!.actToken).toBe("token-de-la-api-del-cliente");
+  });
+
+  it("encola con actToken = token crudo presentado cuando NO hay claim act_token", async () => {
+    const store = storeFalso();
+    const { encolar, encolados } = encolarFalso();
+    const jwt = await token({ sub: "4821" });
+    await postMensaje({ token: jwt, texto: "hola" }, { cfg, store, encolar });
+
+    expect(encolados[0]!.actToken).toBe(jwt);
+  });
+
+  // PIN de seguridad (2d): el actToken va SOLO en el body de la cola — JAMÁS
+  // en MessagesTable. Se revisa el argumento de CADA escritura y el contenido
+  // serializado completo: ni la clave `actToken` ni el valor del token (claim
+  // o crudo) pueden aparecer en lo que se persiste en Dynamo.
+  it("el item escrito en MessagesTable NO contiene el actToken (ni clave ni valor)", async () => {
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    const jwt = await token({ sub: "4821", act_token: "token-de-la-api-del-cliente" });
+    await postMensaje({ token: jwt, texto: "hola" }, { cfg, store, encolar });
+
+    expect(store.mensajes.length).toBeGreaterThan(0);
+    for (const llamada of store.escribir.mock.calls) {
+      expect(llamada[0]).not.toHaveProperty("actToken");
+    }
+    const serializado = JSON.stringify(store.mensajes);
+    expect(serializado).not.toContain("actToken");
+    expect(serializado).not.toContain("token-de-la-api-del-cliente");
+    expect(serializado).not.toContain(jwt);
+  });
+
+  it("tampoco en el camino bloqueado: los dos items escritos (user+assistant) van sin actToken", async () => {
+    const store = storeFalso();
+    const { encolar } = encolarFalso();
+    const jwt = await token({ sub: "4821", act_token: "token-de-la-api-del-cliente" });
+    await postMensaje(
+      { token: jwt, texto: "algo horrible" },
+      { cfg, store, encolar, guard: async () => ({ bloqueada: true }) },
+    );
+
+    expect(store.mensajes).toHaveLength(2);
+    const serializado = JSON.stringify(store.mensajes);
+    expect(serializado).not.toContain("actToken");
+    expect(serializado).not.toContain("token-de-la-api-del-cliente");
   });
 
   it("sin guard ni limites configurados, el flujo normal sigue intacto", async () => {
