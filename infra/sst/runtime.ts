@@ -11,6 +11,8 @@
 import * as dockerbuild from "@pulumi/docker-build";
 import { guardrail } from "./guardrail";
 import { memoria } from "./memoria";
+import { gateway } from "./gateway";
+import { apiClienteDemoUrl } from "./api-cliente";
 
 // `.name` en GetRegionResult está deprecado a favor de `.region` (mismo valor).
 const region = aws.getRegionOutput().region;
@@ -106,6 +108,16 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
         Action: ["bedrock-agentcore:CreateEvent", "bedrock-agentcore:ListEvents"],
         Resource: [$interpolate`${memoria.memoryArn}*`],
       },
+      {
+        // Tools de tenant (2d): el core firma los requests MCP al Gateway con
+        // SigV4 (inbound AWS_IAM). Además del ARN pelado va el wildcard de
+        // sub-recursos: misma lección que el runtime-endpoint/* de 2a (el
+        // authz puede evaluar el target como sub-recurso del gateway) — sigue
+        // acotado al gateway PROPIO, no sobre-otorga.
+        Effect: "Allow",
+        Action: ["bedrock-agentcore:InvokeGateway"],
+        Resource: [gateway.gatewayArn, $interpolate`${gateway.gatewayArn}/*`],
+      },
     ],
   }),
 });
@@ -133,6 +145,12 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
     GUARDRAIL_VERSION: guardrail.version,
     // Memoria de conversación gestionada (AgentCore Memory, ver ./memoria.ts).
     MEMORY_ID: memoria.memoryId,
+    // Tools (2d). GATEWAY_URL: el endpoint MCP del gateway — el recurso lo
+    // expone como atributo `gatewayUrl` (verificado en gateway.d.ts, 1.68.0).
+    // CLIENT_API_URL: base de la API del cliente (acá, la demo) SIN barra
+    // final. Vacías/ausentes ⇒ el core corre sin esas tools (contrato 2d).
+    GATEWAY_URL: gateway.gatewayUrl,
+    CLIENT_API_URL: apiClienteDemoUrl,
   },
 });
 

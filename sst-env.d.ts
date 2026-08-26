@@ -10,6 +10,11 @@ declare module "sst" {
       "arn": string
       "type": "sst.sst.Linkable"
     }
+    "ApiClienteDemo": {
+      "name": string
+      "type": "sst.aws.Function"
+      "url": string
+    }
     "Chat": {
       "name": string
       "type": "sst.aws.Function"
