@@ -18,7 +18,9 @@ export type Principal = {
 
 export type Verifier =
   | { kind: "hmac"; secret: string }
-  | { kind: "jwks"; url: string };
+  // issuer/audience opcionales: si están, se exigen como claims `iss`/`aud`
+  // del token. Ausentes ⇒ solo firma (compat con emisores sin OIDC estricto).
+  | { kind: "jwks"; url: string; issuer?: string; audience?: string };
 
 export class AuthError extends Error {
   constructor(
@@ -60,7 +62,13 @@ export async function verifyUserToken(
         ? await jwtVerify(token, new TextEncoder().encode(v.secret), {
             algorithms: HMAC_ALGS,
           })
-        : await jwtVerify(token, jwks(v.url), { algorithms: JWKS_ALGS }));
+        : await jwtVerify(token, jwks(v.url), {
+            algorithms: JWKS_ALGS,
+            // Con emisor OIDC real (Cognito) se pinean emisor y audiencia: la
+            // firma sola no alcanza si el mismo emisor firma para varias apps.
+            ...(v.issuer ? { issuer: v.issuer } : {}),
+            ...(v.audience ? { audience: v.audience } : {}),
+          }));
   } catch (e) {
     // jose marca sus errores con .code (estable ante minificación, a diferencia
     // de .name). Lo que no venga de jose (red, DNS, URL malformada) se loguea

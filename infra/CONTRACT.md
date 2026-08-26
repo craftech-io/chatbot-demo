@@ -38,6 +38,8 @@ uno a otro es reimplementar esta lista, nada más.
 |---|---|---|
 | `CLIENT_JWKS_URL` | una de las dos | JWKS del emisor de tokens del cliente |
 | `CLIENT_HMAC_SECRET` | una de las dos | secreto compartido, si el cliente no tiene OIDC |
+| `CLIENT_TOKEN_ISSUER` | no | `iss` exigido al token en modo JWKS (OIDC estricto, p. ej. Cognito). `""` ⇒ no se exige el claim. En SST: secret `ClientTokenIssuer`, vía linkable (`Resource.ClientAuth.issuer`) |
+| `CLIENT_TOKEN_AUDIENCE` | no | `aud` exigido al token en modo JWKS (el client_id de la app). `""` ⇒ no se exige el claim. En SST: secret `ClientTokenAudience`, vía linkable (`Resource.ClientAuth.audience`) |
 | `GUARDRAIL_ID` | no (2b) | id del Guardrail, vía linkable en SST (`Resource.Guardrail.id`) |
 | `GUARDRAIL_VERSION` | no (2b) | versión del Guardrail, vía linkable en SST (`Resource.Guardrail.version`) |
 | `SESSIONS_TABLE` | sí (2b) | nombre de la tabla de sesiones, vía linkable en SST (`Resource.SessionsTable.name`) |

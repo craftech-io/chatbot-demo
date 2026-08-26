@@ -7,11 +7,17 @@ import { messagesTableLink, mensajesColaLink } from "./mensajeria";
 // En el paquete final esto sale de client.config.ts.
 const clientJwksUrl = new sst.Secret("ClientJwksUrl", "");
 const clientHmacSecret = new sst.Secret("ClientHmacSecret", "");
+// Con emisor OIDC real (Cognito) se pinean `iss` y `aud` del token. Default ""
+// = no exigir ese claim (compat con emisores JWKS sin OIDC estricto).
+const clientTokenIssuer = new sst.Secret("ClientTokenIssuer", "");
+const clientTokenAudience = new sst.Secret("ClientTokenAudience", "");
 
 export const clientAuth = new sst.Linkable("ClientAuth", {
   properties: {
     jwksUrl: clientJwksUrl.value,
     hmacSecret: clientHmacSecret.value,
+    issuer: clientTokenIssuer.value,
+    audience: clientTokenAudience.value,
   },
 });
 

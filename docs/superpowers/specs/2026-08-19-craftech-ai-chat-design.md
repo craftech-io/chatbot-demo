@@ -132,12 +132,16 @@ el caso especial: solo hacen falta si su API usa otro esquema de auth.
 
 El widget pide ese token y lo envía al BFF, que lo valida:
 
-- **Con OIDC:** por firma pública contra el JWKS del cliente (`CLIENT_JWKS_URL`). Es
-  el camino preferido: no hay secreto compartido.
+- **Con OIDC:** por firma pública contra el JWKS del cliente (`CLIENT_JWKS_URL`),
+  pineando además `iss` y `aud` (`CLIENT_TOKEN_ISSUER`/`CLIENT_TOKEN_AUDIENCE`): la
+  firma sola no alcanza si el mismo emisor firma para varias apps. Es el camino
+  preferido: no hay secreto compartido.
 - **Sin OIDC:** por HMAC con un secreto en Secrets Manager (`CLIENT_HMAC_SECRET_ARN`).
 
 El standalone usa Cognito propio y produce un principal equivalente. El BFF tiene así
-**un solo concepto de principal con dos emisores**.
+**un solo concepto de principal con dos emisores**. La cuenta de demos usa el User
+Pool compartido de Cognito (`us-east-1_kLcJsB3IG`, un usuario sirve para todas las
+demos) con un app client propio por demo.
 
 Implementar `/chat-token` es la única tarea de desarrollo que se le pide al cliente.
 

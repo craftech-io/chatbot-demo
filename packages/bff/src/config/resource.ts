@@ -10,7 +10,7 @@ export function fromResource(): BffConfig {
   // JWKS es el preferido para clientes con OIDC (sin secreto compartido). Si
   // el cliente no tiene OIDC, usa HMAC. Si ambos están configurados gana HMAC
   // (deliberado: es el modo del demo y del primer arranque, no un descuido).
-  const { jwksUrl, hmacSecret } = Resource.ClientAuth;
+  const { jwksUrl, hmacSecret, issuer, audience } = Resource.ClientAuth;
   if (!jwksUrl && !hmacSecret) {
     throw new Error(
       "Falta configurar el emisor de tokens: seteá ClientJwksUrl o ClientHmacSecret.",
@@ -25,7 +25,14 @@ export function fromResource(): BffConfig {
     // POST/GET del Messages Backend en el primer deploy (C1, fix-wave fase 2c).
     verifier: hmacSecret
       ? { kind: "hmac", secret: hmacSecret }
-      : { kind: "jwks", url: jwksUrl },
+      : {
+          kind: "jwks",
+          url: jwksUrl,
+          // "" en el secret ⇒ undefined ⇒ no se exige ese claim (compat con
+          // emisores JWKS sin OIDC estricto). Con Cognito van los dos seteados.
+          issuer: issuer || undefined,
+          audience: audience || undefined,
+        },
     // El linkable Guardrail existe siempre en el sabor SST desde la fase 2b:
     // no hace falta try/catch. El campo es opcional en BffConfig por otros
     // sabores/mocks, no por este.
