@@ -20,8 +20,18 @@ const RESTO_DE_LA_RESPUESTA =
 // se limita a sostener el mismo espíritu (una respuesta de política, en
 // español, no un error) con su propio texto.
 const TEXTO_ENTRADA_BLOQUEADA =
-  "No puedo ayudarte con ese pedido tal como lo planteás. Probá reformularlo " +
+  "No puedo ayudarte con esa consulta tal como la planteás. Probá reformularla " +
   "y seguimos conversando (esto emula al mensaje real de MENSAJES_GUARDRAIL).";
+
+// Fase 2d: el modo local de las tools. Estos textos responden como si el
+// agente real hubiera usado sus tools (mis_pedidos vía HTTP con el actToken,
+// listar_catalogo vía el Gateway MCP) y citan los DATOS FIJOS de la demo API
+// (examples/api-cliente, contrato del plan 2d) — mock y realidad cuentan la
+// misma historia. Si cambian los datos de la demo API, cambiar acá también.
+const TEXTO_MIS_PEDIDOS =
+  "Consulté tus pedidos: A-1001 está en camino (llega mañana) y A-0997 ya fue entregado.";
+const TEXTO_LISTAR_CATALOGO =
+  "Tenemos 3 productos: Casco MTB ($45.000), Luz trasera USB ($12.000) y Kit de parches ($3.500).";
 
 /**
  * Decide qué le contesta el mock a un mensaje. No sabe nada de sockets ni de
@@ -81,6 +91,27 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
     return {
       demoraMs,
       frames: [{ type: "done", text: textoMemoria }],
+    };
+  }
+
+  // Escenarios de tools (fase 2d): turnos normales del agente — un solo
+  // `done`, pasan por el debounce y se persisten como cualquier respuesta.
+  // Lección del escenario "error500": el matching por inclusión puede pisarse
+  // entre palabras; "pedido" y "catalogo" no son substring de ninguna otra
+  // keyword ni la contienen, así que acá no hace falta un orden especial.
+  if (minusculas.includes("pedido")) {
+    return {
+      demoraMs,
+      frames: [{ type: "done", text: TEXTO_MIS_PEDIDOS }],
+    };
+  }
+
+  // "catálogo" y "catalogo" valen igual: toLowerCase() no saca tildes, así
+  // que se aceptan las dos grafías a mano.
+  if (minusculas.includes("catalogo") || minusculas.includes("catálogo")) {
+    return {
+      demoraMs,
+      frames: [{ type: "done", text: TEXTO_LISTAR_CATALOGO }],
     };
   }
 

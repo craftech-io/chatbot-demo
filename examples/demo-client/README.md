@@ -92,6 +92,22 @@ los hace visibles sin AWS con tres escenarios más:
   espíritu del mensaje canónico, no lo importa — no hay build en este
   ejemplo).
 
+#### Tools en modo local (fase 2d)
+
+El agente real puede usar herramientas; el mock lo hace visible con dos
+escenarios más, que responden con los mismos datos fijos que sirve la demo
+API (`examples/api-cliente`):
+
+- `pedido` → responde como si el agente hubiera usado la tool `mis_pedidos`
+  (tus pedidos A-1001 y A-0997). Es un turno normal: pasa por el debounce.
+- `catalogo` (o `catálogo`, da igual) → ídem con `listar_catalogo`: los 3
+  productos del catálogo demo.
+
+En modo real esas tools no las simula nadie: las ejecuta el agente en AWS —
+`listar_catalogo` vía el AgentCore Gateway (MCP) y `mis_pedidos` llamando a
+la API del cliente por HTTP con el token del usuario (Gateway + API demo,
+fase 2d).
+
 ### Modo real: contra un deploy
 
 Primero, generar el secreto compartido (una sola vez por stage) y guardarlo
