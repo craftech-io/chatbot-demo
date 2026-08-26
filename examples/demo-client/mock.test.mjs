@@ -83,6 +83,37 @@ describe("escenarios de la fase 2b", () => {
   });
 });
 
+// Fase 2d: el modo local de las tools. El mock responde como si el agente
+// hubiera usado las tools reales (mis_pedidos / listar_catalogo), citando los
+// DATOS FIJOS de la demo API (contrato del plan 2d): pedidos A-1001/A-0997 y
+// los 3 productos del catálogo. Los textos se pinean exactos a propósito —
+// mock y realidad tienen que contar la misma historia.
+describe("escenarios de tools (fase 2d)", () => {
+  it("'pedido' responde como si hubiera usado mis_pedidos: cita A-1001 y A-0997, turno normal (persistible)", () => {
+    const plan = planificarRespuesta("¿dónde está mi pedido?", "A", ctx);
+
+    expect(plan.frames).toEqual([
+      {
+        type: "done",
+        text: "Consulté tus pedidos: A-1001 está en camino (llega mañana) y A-0997 ya fue entregado.",
+      },
+    ]);
+    // Es un turno del agente, no un corte: pasa por el debounce y se persiste.
+    expect(plan.persistible).toBeUndefined();
+  });
+
+  it("'catalogo' y 'catálogo' matchean ambos y citan los 3 productos del catálogo demo", () => {
+    const textoEsperado =
+      "Tenemos 3 productos: Casco MTB ($45.000), Luz trasera USB ($12.000) y Kit de parches ($3.500).";
+
+    const sinTilde = planificarRespuesta("mostrame el catalogo", "A", ctx);
+    const conTilde = planificarRespuesta("mostrame el CATÁLOGO", "A", ctx);
+
+    expect(sinTilde.frames).toEqual([{ type: "done", text: textoEsperado }]);
+    expect(conTilde.frames).toEqual([{ type: "done", text: textoEsperado }]);
+  });
+});
+
 // Contrato REST del mock (fase 2c): server real, levantado en un puerto
 // efímero, contra el que se le pega con fetch — no se testea con dobles
 // porque lo que hay que probar es justamente la orquestación entre el POST,
@@ -192,6 +223,57 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     expect(mensajes.filter((m) => m.rol === "user")).toHaveLength(2);
     expect(mensajes.filter((m) => m.rol === "assistant")).toHaveLength(1);
     expect(mensajes.at(-1).rol).toBe("assistant");
+  });
+
+  // Fase 2d: los escenarios de tools son turnos normales del agente — pasan
+  // por el debounce como cualquier respuesta (POST + esperar + GET), no son
+  // un corte síncrono como "tope"/"error500".
+  it("'pedido': pasado el debounce, el assistant responde con los pedidos fijos de la demo API", async () => {
+    const hilo = "hilo-tools-pedido";
+    const post = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "¿dónde está mi pedido?", hilo }),
+    });
+    expect(post.status).toBe(200);
+    const { orden } = await post.json();
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(
+      `${base}/mensajes?hilo=${encodeURIComponent(hilo)}&desde=${encodeURIComponent(orden)}`,
+    );
+    const { mensajes } = await get.json();
+
+    expect(mensajes).toHaveLength(1);
+    expect(mensajes[0].rol).toBe("assistant");
+    expect(mensajes[0].texto).toBe(
+      "Consulté tus pedidos: A-1001 está en camino (llega mañana) y A-0997 ya fue entregado.",
+    );
+  });
+
+  it("'catálogo' (con tilde): pasado el debounce, el assistant responde con los 3 productos fijos", async () => {
+    const hilo = "hilo-tools-catalogo";
+    const post = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "mostrame el catálogo", hilo }),
+    });
+    expect(post.status).toBe(200);
+    const { orden } = await post.json();
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(
+      `${base}/mensajes?hilo=${encodeURIComponent(hilo)}&desde=${encodeURIComponent(orden)}`,
+    );
+    const { mensajes } = await get.json();
+
+    expect(mensajes).toHaveLength(1);
+    expect(mensajes[0].rol).toBe("assistant");
+    expect(mensajes[0].texto).toBe(
+      "Tenemos 3 productos: Casco MTB ($45.000), Luz trasera USB ($12.000) y Kit de parches ($3.500).",
+    );
   });
 
   // M4 (fix-wave fase 2c): "error500" emula una falla temprana y síncrona del

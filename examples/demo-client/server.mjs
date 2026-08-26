@@ -67,7 +67,10 @@ const TEXTO_WORKER_ERROR = "Tuve un problema para responderte. Probá de nuevo e
 const MOCK_HINT_HTML =
   '<div class="chips-hint">' +
   '<span class="chips-label">Modo local — probá:</span>' +
-  ["error", "error500", "vencido", "lento", "memoria", "tope", "bloqueado"]
+  // "pedido"/"catálogo" (fase 2d): el mock responde como si el agente hubiera
+  // usado sus tools (mis_pedidos / listar_catalogo). El chip lleva la tilde
+  // porque así se escribe; el mock acepta las dos grafías.
+  ["error", "error500", "vencido", "lento", "memoria", "tope", "bloqueado", "pedido", "catálogo"]
     .map((palabra) => `<button type="button" class="chip-esc">${palabra}</button>`)
     .join("") +
   "</div>";
