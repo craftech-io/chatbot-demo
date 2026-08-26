@@ -45,6 +45,10 @@
 
   * { box-sizing: border-box; }
 
+  /* Las reglas de abajo pisan display en varios elementos (form, section):
+     sin esto, `hidden` dejaría de funcionar justo donde más se usa. */
+  [hidden] { display: none !important; }
+
   body {
     margin: 0;
     min-height: 100vh;
@@ -150,7 +154,8 @@
     border-top: 1px solid var(--linea);
   }
 
-  input[type="text"] {
+  input[type="text"],
+  input[type="password"] {
     flex: 1;
     padding: .6rem .95rem;
     border-radius: 999px;
@@ -158,6 +163,53 @@
     background: var(--bg);
     color: var(--texto);
     font: inherit;
+  }
+
+  /* El mini-login: centrado en el lugar del chat hasta que la sesión arranca. */
+  #login-seccion {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .35rem;
+    padding: 1.5rem;
+  }
+
+  #login-titulo {
+    margin: 0 0 .5rem;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  #login {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    width: 100%;
+    max-width: 320px;
+    padding: 0;
+    border-top: none;
+  }
+
+  #login input { width: 100%; }
+
+  #login-error {
+    margin: .5rem 0 0;
+    font-size: .85rem;
+    color: #B4483E;
+    text-align: center;
+  }
+
+  #login-hint {
+    margin: .75rem 0 0;
+    font-size: .8rem;
+    opacity: .65;
+    text-align: center;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    #login-error { color: #F0968D; }
   }
 
   button {
@@ -186,12 +238,26 @@
         <h1>craftech-ai-chat</h1>
         __MODO__
       </div>
-      <p class="quien">
+      <p class="quien" id="linea-quien" hidden>
         Conversando como <b id="quien"></b> ·
         <a href="?user=Ana">Ana</a> · <a href="?user=Bruno">Bruno</a>
       </p>
       __MOCK_HINT__
     </header>
+
+    <!-- El mini-login: visible en mock (simulado) y cognito (real); en hmac
+         no existe login y el chat aparece directo. Lo decide el script según
+         el modo de auth que el server inyecta al servir la página. -->
+    <section id="login-seccion" hidden aria-label="Iniciar sesión">
+      <h2 id="login-titulo">Iniciá sesión para chatear</h2>
+      <form id="login">
+        <input id="login-usuario" type="text" placeholder="Usuario" autocomplete="username" />
+        <input id="login-contrasena" type="password" placeholder="Contraseña" autocomplete="current-password" />
+        <button id="login-boton" type="submit">Entrar</button>
+      </form>
+      <p id="login-error" role="alert" hidden></p>
+      <p id="login-hint" hidden>modo local: cualquier usuario y contraseña sirven</p>
+    </section>
 
     <div id="chat" role="log" aria-label="Historial de la conversación"></div>
 
@@ -203,21 +269,97 @@
 
   <script src="/widget.js"></script>
   <script>
-    const user = new URLSearchParams(location.search).get("user") || "demo";
-    document.getElementById("quien").textContent = user;
+    // "cognito" | "mock" | "hmac" — lo reemplaza el server al servir la página.
+    const AUTH_MODO = "__AUTH_MODO__";
+    const userQuery = new URLSearchParams(location.search).get("user");
 
-    const chat = CraftechChat.mount(document.getElementById("chat"), {
-      tokenUrl: `/chat-token?user=${encodeURIComponent(user)}`,
-      apiUrl: "__API_URL__",
-    });
-
+    const lineaQuien = document.getElementById("linea-quien");
+    const seccionLogin = document.getElementById("login-seccion");
+    const contenedorChat = document.getElementById("chat");
     const form = document.getElementById("f");
     const input = document.getElementById("m");
     const boton = document.getElementById("btn");
     const textoBoton = boton.textContent;
 
+    // El chat recién se monta cuando hay identidad: en hmac de una (la trae
+    // el query), en mock/cognito después del 200 de /login.
+    let chat = null;
+
+    function iniciarChat(usuario) {
+      document.getElementById("quien").textContent = usuario;
+      lineaQuien.hidden = false;
+      seccionLogin.hidden = true;
+      contenedorChat.hidden = false;
+      form.hidden = false;
+
+      chat = CraftechChat.mount(contenedorChat, {
+        // En cognito el token sale de la cookie HttpOnly y el query se
+        // ignora; en mock manda la cookie del login y ?user= queda de
+        // fallback; en hmac es la identidad, como siempre.
+        tokenUrl: `/chat-token?user=${encodeURIComponent(usuario)}`,
+        apiUrl: "__API_URL__",
+      });
+      input.focus();
+    }
+
+    if (AUTH_MODO === "hmac") {
+      iniciarChat(userQuery || "demo");
+    } else {
+      // Chat oculto hasta el login (simulado en mock, real en cognito).
+      contenedorChat.hidden = true;
+      form.hidden = true;
+      seccionLogin.hidden = false;
+
+      const formLogin = document.getElementById("login");
+      const inputUsuario = document.getElementById("login-usuario");
+      const inputContrasena = document.getElementById("login-contrasena");
+      const botonLogin = document.getElementById("login-boton");
+      const errorLogin = document.getElementById("login-error");
+
+      if (AUTH_MODO === "mock") document.getElementById("login-hint").hidden = false;
+      if (userQuery) inputUsuario.value = userQuery;
+      inputUsuario.focus();
+
+      function mostrarErrorLogin(mensaje) {
+        errorLogin.textContent = mensaje;
+        errorLogin.hidden = false;
+      }
+
+      formLogin.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        errorLogin.hidden = true;
+
+        const usuario = inputUsuario.value.trim();
+        const contrasena = inputContrasena.value;
+        if (!usuario || !contrasena) {
+          mostrarErrorLogin("Completá usuario y contraseña para entrar.");
+          return;
+        }
+
+        botonLogin.disabled = true;
+        try {
+          const r = await fetch("/login", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ usuario, contrasena }),
+          });
+          if (!r.ok) {
+            mostrarErrorLogin("Usuario o contraseña incorrectos. Probá de nuevo.");
+            return;
+          }
+          const datos = await r.json();
+          iniciarChat(datos.usuario);
+        } catch {
+          mostrarErrorLogin("No pudimos conectarnos. Probá de nuevo en un momento.");
+        } finally {
+          botonLogin.disabled = false;
+        }
+      });
+    }
+
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      if (!chat) return;
       const texto = input.value.trim();
       if (!texto) return;
       input.value = "";

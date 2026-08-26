@@ -44,7 +44,14 @@ respuestas simuladas por el propio server:
 npm run dev
 ```
 
-Abrir http://localhost:3000. Desde la fase 2c el chat es asíncrono (spec §8
+Abrir http://localhost:3000. La página arranca con un mini-login simulado
+(cualquier usuario y contraseña no vacíos sirven — la propia página lo
+aclara): es la versión local del login real del modo Cognito, para poder
+probar el flujo completo de UI/UX sin AWS. El usuario con el que entrás queda
+en una cookie y es la identidad que firma el `/chat-token` (los links
+`?user=Ana` / `?user=Bruno` prefillean el campo usuario).
+
+Desde la fase 2c el chat es asíncrono (spec §8
 v2): al mandar un mensaje el widget hace `POST /mensajes` y después hace
 polling con `GET /mensajes` hasta que aparece la respuesta — no hay más
 streaming palabra por palabra, la respuesta llega entera cuando está lista.
@@ -115,3 +122,33 @@ dudas de que algún script externo lo siga exportando así.)
 
 Abrir http://localhost:3000. Con `?user=A` y `?user=B` en dos pestañas se ve que cada
 usuario tiene su propia conversación.
+
+### Modo Cognito: login real contra el User Pool
+
+Cuando el stage está configurado para validar tokens de Cognito (JWKS con
+issuer y audience pineados), el demo ya no firma tokens por HMAC: muestra un
+login real. `POST /login` habla con Cognito (`InitiateAuth`, sin SDK), guarda
+el ID token en una cookie HttpOnly y `/chat-token` devuelve ese token — el JS
+de la página nunca lo tiene en la mano.
+
+Las credenciales del entorno demo viven en `.cognito-demo.local` (en el root
+del repo, gitignoreado, claves `COGNITO_*`). Desde el root:
+
+```bash
+set -a; source .cognito-demo.local; set +a
+API_URL="<function url de staging>" npm start -w @craftech-ai-chat/demo-client
+```
+
+Con `COGNITO_CLIENT_ID` seteado el server entra en modo cognito y
+`CHAT_HMAC_SECRET` ya no hace falta (`COGNITO_REGION` es opcional, default
+`us-east-1`).
+
+Dos notas del entorno demo:
+
+- El User Pool es **compartido de la cuenta de demos** (lo creó el POC de
+  betwarrior y tiene DeletionProtection): un usuario demo sirve para todas
+  las demos, no hace falta crear uno por proyecto.
+- Dos pestañas del mismo browser **comparten la cookie de sesión** (a
+  diferencia del modo mock con `?user=`): para el momento "aislamiento entre
+  usuarios" de la demo, abrí una ventana de incógnito y entrá con otro
+  usuario del pool.
