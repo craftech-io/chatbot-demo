@@ -154,7 +154,7 @@ Implementar `/chat-token` es la única tarea de desarrollo que se le pide al cli
 |---|---|---|
 | Devuelven | lo mismo para todos: docs, catálogo, FAQ, cálculos | datos del usuario final: sus pedidos, su cuenta |
 | Camino | **AgentCore Gateway** (MCP), target OpenAPI o Lambda | el core las llama **directo por HTTP** |
-| Credencial | fija, de nivel gateway | `actToken` del usuario, propagado en el payload confiable |
+| Credencial | fija, configurada por target del gateway *(corregido 2026-08-26: la API real la ata al target, no al gateway)* | `actToken` del usuario, propagado en el payload confiable |
 
 La razón de no mandar todo al Gateway: su auth outbound es por gateway, no por
 request. Meter ahí datos per-usuario es una fuga entre usuarios esperando a pasar.
