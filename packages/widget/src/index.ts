@@ -122,6 +122,10 @@ export function mount(
 ): { send: (texto: string) => Promise<void> } {
   inyectarEstilos();
   const tokens = new TokenSource(opts.tokenUrl);
+  // La Function URL de Lambda se suele copiar con barra final: sin esto,
+  // `${apiUrl}/mensajes` armaría //mensajes y el router del BFF devolvería
+  // 404 en todos los mensajes.
+  const apiUrl = opts.apiUrl.replace(/\/+$/, "");
   const pollMs = opts._pollMs ?? POLL_MS_DEFECTO;
   const pollTimeoutMs = opts._pollTimeoutMs ?? POLL_TIMEOUT_MS_DEFECTO;
   const hilo = document.createElement("div");
@@ -230,7 +234,7 @@ export function mount(
   async function unPoll(idHilo: string, desde: string, reintentado = false): Promise<ResultadoPoll> {
     try {
       const r = await fetch(
-        `${opts.apiUrl}/mensajes?hilo=${encodeURIComponent(idHilo)}&desde=${encodeURIComponent(desde)}`,
+        `${apiUrl}/mensajes?hilo=${encodeURIComponent(idHilo)}&desde=${encodeURIComponent(desde)}`,
         { headers: { authorization: `Bearer ${await tokens.get()}` } },
       );
       if (r.status === 401) {
@@ -314,7 +318,7 @@ export function mount(
     const burbuja = esDueño ? crearBurbujaRespuesta() : null;
 
     try {
-      const r = await fetch(`${opts.apiUrl}/mensajes`, {
+      const r = await fetch(`${apiUrl}/mensajes`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

@@ -67,6 +67,29 @@ describe("mount", () => {
     expect(mock.llamadasGet[0]).toContain("desde=o1");
   });
 
+  it("normaliza la barra final de apiUrl: nunca pide //mensajes", async () => {
+    // Bug real: la Function URL de Lambda se copia con barra final
+    // (https://….on.aws/). Sin normalizar, `${apiUrl}/mensajes` arma
+    // //mensajes, que el router del BFF no matchea (404) — y el usuario ve el
+    // error genérico en todos los mensajes.
+    const mock = crearFetchMock({
+      post: () => json({ msgId: "m1", conversationId: "c1", orden: "o1" }),
+      get: () => json({ mensajes: [{ rol: "assistant", texto: "ok", orden: "o2" }] }),
+    });
+    vi.stubGlobal("fetch", mock.fn);
+
+    const el = document.createElement("div");
+    document.body.append(el);
+    await mount(el, { tokenUrl: "/chat-token", apiUrl: "/api/", _pollMs: 1 }).send("hola");
+
+    const urls = mock.fn.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("mensajes"));
+    expect(urls.length).toBeGreaterThan(0);
+    for (const u of urls) {
+      expect(u).toContain("/api/mensajes");
+      expect(u).not.toContain("//mensajes");
+    }
+  });
+
   it("ante expired_token renueva el token y reintenta UNA vez", async () => {
     const mock = crearFetchMock({
       post: (n) => (n === 1 ? json({ error: { code: "expired_token" } }, 401) : json({ msgId: "m1", conversationId: "c1", orden: "o1" })),
