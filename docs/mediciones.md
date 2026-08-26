@@ -84,3 +84,32 @@ No ejercido en vivo: la falla forzada del worker (requeriría deployar
 configuración rota a staging). La rama está pineada por unit tests — el worker
 nunca lanza: escribe `MENSAJES_WORKER.error` como mensaje del assistant y el
 grupo FIFO sigue fluyendo. La DLQ vacía tras el smoke es consistente.
+
+## Smoke de la fase 2d (staging, 2026-08-26) — tools
+
+| Qué | Resultado |
+|---|---|
+| Tool de usuario ("¿dónde está mi pedido?") con login Cognito | ✓ 31 s — el agente llamó la API del cliente con el `actToken` del usuario y devolvió los pedidos reales (A-1001 en camino, A-0997 entregado) |
+| Tool de tenant ("¿qué productos tienen?") por AgentCore Gateway (MCP + SigV4) | ✓ 31 s — catálogo real de la demo API vía `api-cliente___listar_catalogo` |
+| Las dos tools en un mismo turno | ✓ 33 s — el loop de function calling encadena ambas y responde una sola vez |
+| Turno simple sin tools (control de regresión) | ✓ 27 s |
+| `actToken` en MessagesTable | ✓ ausente — 31 items escaneados, ni la clave ni ningún JWT (`eyJ`) |
+| `actToken` en logs (worker + runtime) | ✓ 0 ocurrencias de `eyJ` |
+| Errores de listado del gateway tras el fix | ✓ 0 |
+| DLQ | ✓ vacía |
+
+**Latencias:** el turno con tools ronda los 31-33 s contra los 8-13 s de un
+turno simple en 2c. La diferencia NO es el gateway: es que `achat_with_tools`
+no streamea y el loop hace 2 llamadas al modelo (una para decidir la tool, otra
+para redactar con el resultado), más la llamada HTTP intermedia. El turno de
+control también subió a 27 s porque con `CLIENT_API_URL` seteada TODO turno
+pasa por el camino con tools (observación M6 del review): si en el futuro
+molesta, el corte es decidir por heurística o por un primer paso barato si
+conviene ofrecer tools a ese mensaje.
+
+**Bug de librería encontrado acá** (ver ledger 2d): `llama-index-tools-mcp`
+0.5.0 es incompatible con `mcp` 2.x (desempaca 3 valores del transporte
+streamable-http, que yieldea 2). Se reemplazó por el cliente MCP oficial. La
+lección de proceso: el spike verificó que las versiones *resolvían*, no que
+*funcionaran* — un `tools/list` real contra un servidor lo hubiera cazado antes
+del deploy.
