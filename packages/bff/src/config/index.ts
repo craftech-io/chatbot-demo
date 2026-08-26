@@ -3,6 +3,8 @@
 import type { Verifier } from "../auth/verify";
 
 export type BffConfig = {
+  // En modo jwks puede traer `issuer`/`audience` pineados (OIDC estricto,
+  // p. ej. Cognito); ausentes ⇒ solo se valida la firma. Ver auth/verify.ts.
   verifier: Verifier;
   // Opcional: sabores/mocks viejos pueden no tener el Guardrail linkeado
   // (Task 2, fase 2b). Si falta, lambda.ts no construye el dep `guard` y el

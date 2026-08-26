@@ -16,7 +16,9 @@ declare module "sst" {
       "url": string
     }
     "ClientAuth": {
+      "audience": string
       "hmacSecret": string
+      "issuer": string
       "jwksUrl": string
       "type": "sst.sst.Linkable"
     }
