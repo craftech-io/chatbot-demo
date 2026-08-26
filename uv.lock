@@ -419,8 +419,8 @@ dependencies = [
     { name = "httpx" },
     { name = "httpx2" },
     { name = "llama-index-llms-bedrock-converse" },
-    { name = "llama-index-tools-mcp" },
     { name = "llama-index-workflows" },
+    { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -437,8 +437,8 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx2", specifier = ">=2.12.0" },
     { name = "llama-index-llms-bedrock-converse", specifier = ">=0.14.18" },
-    { name = "llama-index-tools-mcp", specifier = ">=0.5.0" },
     { name = "llama-index-workflows", specifier = ">=2.23.2" },
+    { name = "mcp", specifier = ">=2.1.1" },
     { name = "starlette", specifier = ">=1.6.0" },
     { name = "uvicorn", specifier = ">=0.52.4" },
 ]
@@ -938,20 +938,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/47/1d/e4400d0fa5f96638ee8555edaaab7110f028f3007101a36c611679ef7b5c/llama_index_llms_bedrock_converse-0.14.18.tar.gz", hash = "sha256:0b1e2dc9220c03bc058d4f98ea169b57d12e7956f7f2929ca3082de9edee221e", size = 20332, upload-time = "2026-08-04T15:51:35.939Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2d/2b/50b58dc3c00522e771f7a6688fd532773b634772258b48e7100376853184/llama_index_llms_bedrock_converse-0.14.18-py3-none-any.whl", hash = "sha256:e1a128e0901f9e1b88545967f9da47c4f7bc27c070addfc79d8362dda4ecda76", size = 20774, upload-time = "2026-08-04T15:51:34.738Z" },
-]
-
-[[package]]
-name = "llama-index-tools-mcp"
-version = "0.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "llama-index-core" },
-    { name = "mcp" },
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/fc/959f66fc51d3fcb0f13c0c446a43bc3954cb468f21cb6f5aaa0e022ec52c/llama_index_tools_mcp-0.5.0.tar.gz", hash = "sha256:184b939f9c2dff966304c658a5865fd7a8bb03652b483c57c57ae61a97a646bd", size = 13784, upload-time = "2026-08-11T15:00:14.288Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/39/443ca2c41d2dac43e76ad406f15fcff2aafb94936bfe8d63be7d27b77e1d/llama_index_tools_mcp-0.5.0-py3-none-any.whl", hash = "sha256:f71dca944979874405c7803b91a113116be76c22b2748ea0c83de3dbc821d46b", size = 14916, upload-time = "2026-08-11T15:00:13.32Z" },
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ from botocore.credentials import Credentials
 
 from agent.tools import (
     MENSAJE_ERROR_PEDIDOS,
+    MENSAJE_ERROR_TOOL_TENANT,
     MENSAJE_NO_AUTENTICADO,
     SigV4Auth,
     crear_tools_usuario,
@@ -123,59 +124,133 @@ def test_sigv4_pide_el_cuerpo_del_request_para_firmarlo():
     assert SigV4Auth.requires_request_body is True
 
 
-# --- tools_de_gateway (MCP) ---
+# --- tools_de_gateway (MCP directo contra el Gateway) ---
+#
+# Por qué MCP directo y no llama-index-tools-mcp: esa librería (0.5.0) desempaca
+# 3 valores del transporte streamable-http mientras `mcp` 2.x yieldea 2
+# ("not enough values to unpack") — está rota contra TODA la línea 2.x (probado
+# 2.0.0, 2.0.1, 2.1.0, 2.1.1). El cliente oficial es estable y la superficie que
+# necesitamos es chica: list_tools + call_tool.
 
 
-class SpecFalso:
-    """Doble de McpToolSpec: registra el cliente y devuelve tools fijas."""
+class SesionFalsa:
+    """Doble de ClientSession ya inicializada: registra las llamadas."""
 
-    ultimo: "SpecFalso | None" = None
+    def __init__(self, tools, salida="{}", falla_call=False):
+        self._tools = tools
+        self._salida = salida
+        self._falla_call = falla_call
+        self.llamadas: list[tuple] = []
 
-    def __init__(self, cliente):
-        self.cliente = cliente
-        SpecFalso.ultimo = self
+    async def list_tools(self):
+        class Listado:
+            def __init__(self, tools):
+                self.tools = tools
 
-    async def to_tool_list_async(self):
-        return ["tool-mcp"]
+        return Listado(self._tools)
+
+    async def call_tool(self, nombre, argumentos):
+        self.llamadas.append((nombre, argumentos))
+        if self._falla_call:
+            raise RuntimeError("el gateway cortó la llamada")
+
+        class Contenido:
+            def __init__(self, texto):
+                self.text = texto
+
+        class Salida:
+            def __init__(self, texto):
+                self.content = [Contenido(texto)]
+
+        return Salida(self._salida)
 
 
-class ClienteMCPFalso:
-    """Doble de BasicMCPClient: registra la URL y el http_client firmante."""
-
-    ultimo: "ClienteMCPFalso | None" = None
-
-    def __init__(self, url, http_client=None):
-        self.url = url
-        self.http_client = http_client
-        ClienteMCPFalso.ultimo = self
+class ToolMcpFalsa:
+    def __init__(self, name, description="", input_schema=None):
+        self.name = name
+        self.description = description
+        self.input_schema = input_schema
 
 
-async def test_tools_de_gateway_lista_via_mcp_con_sigv4():
+def factory_de_sesion(sesion):
+    """Devuelve un sesion_factory (async context manager) que rinde `sesion`."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def factory(gateway_url, region, credenciales):
+        factory.vista = (gateway_url, region, credenciales)
+        yield sesion
+
+    factory.vista = None
+    return factory
+
+
+async def test_tools_de_gateway_envuelve_las_tools_del_listado():
+    credenciales = Credentials("AKIAEJEMPLO", "secreto")
+    sesion = SesionFalsa(
+        [
+            ToolMcpFalsa("api-cliente___listar_catalogo", "Lista el catálogo"),
+            ToolMcpFalsa(
+                "api-cliente___buscar",
+                "Busca por nombre",
+                {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
+            ),
+        ]
+    )
+    factory = factory_de_sesion(sesion)
+
     tools = await tools_de_gateway(
-        "https://gw/mcp",
-        "us-east-1",
-        credenciales=Credentials("AKIAEJEMPLO", "secreto"),
-        cliente_factory=ClienteMCPFalso,
-        spec_factory=SpecFalso,
+        "https://gw/mcp", "us-east-1", credenciales=credenciales, sesion_factory=factory
     )
 
-    assert tools == ["tool-mcp"]
-    cliente = ClienteMCPFalso.ultimo
-    assert cliente.url == "https://gw/mcp"
-    # El http_client que se le pasa al cliente MCP firma cada request con SigV4.
-    assert isinstance(cliente.http_client.auth, SigV4Auth)
-    assert SpecFalso.ultimo.cliente is cliente
+    assert [t.metadata.name for t in tools] == [
+        "api-cliente___listar_catalogo",
+        "api-cliente___buscar",
+    ]
+    # El parámetro del schema MCP viaja al schema que ve el LLM.
+    assert "q" in tools[1].metadata.fn_schema.model_fields
+    # Credentials no define igualdad: se compara identidad (mismas credenciales
+    # relevadas al factory, sin re-resolverlas por tool).
+    assert factory.vista == ("https://gw/mcp", "us-east-1", credenciales)
+
+
+async def test_tool_envuelta_llama_al_gateway_y_devuelve_el_texto():
+    sesion = SesionFalsa(
+        [ToolMcpFalsa("api-cliente___listar_catalogo")], salida='{"productos": []}'
+    )
+    tools = await tools_de_gateway(
+        "https://gw/mcp", "us-east-1", credenciales=None, sesion_factory=factory_de_sesion(sesion)
+    )
+
+    resultado = await tools[0].acall()
+
+    assert str(resultado) == '{"productos": []}'
+    assert sesion.llamadas == [("api-cliente___listar_catalogo", {})]
+
+
+async def test_tool_envuelta_falla_abierto_con_mensaje_humano():
+    sesion = SesionFalsa([ToolMcpFalsa("api-cliente___listar_catalogo")], falla_call=True)
+    tools = await tools_de_gateway(
+        "https://gw/mcp", "us-east-1", credenciales=None, sesion_factory=factory_de_sesion(sesion)
+    )
+
+    # La tool que revienta no tumba el turno: el agente recibe un texto y lo explica.
+    assert str(await tools[0].acall()) == MENSAJE_ERROR_TOOL_TENANT
 
 
 async def test_tools_de_gateway_falla_abierto_con_lista_vacia():
-    def factory_que_falla(url, http_client=None):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def factory_que_falla(gateway_url, region, credenciales):
         raise RuntimeError("gateway caído")
+        yield  # pragma: no cover
 
     tools = await tools_de_gateway(
         "https://gw/mcp",
         "us-east-1",
         credenciales=Credentials("AKIAEJEMPLO", "secreto"),
-        cliente_factory=factory_que_falla,
+        sesion_factory=factory_que_falla,
     )
     # El chat sigue sin tools de tenant, como los reads fail-open del bff.
     assert tools == []
