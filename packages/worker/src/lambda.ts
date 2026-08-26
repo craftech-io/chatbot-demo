@@ -26,10 +26,14 @@ const ddb = new DynamoDBClient({});
 // "viejos" sin mensajería que soportar — nace ya en la fase 2c.
 const tabla = Resource.MessagesTable.name;
 
+// El payload completo (actToken incluido, si vino en el evento — fase 2d) se
+// serializa al body del invoke: es el único destino del token además de la
+// cola. NUNCA se loguea (el console.log de handler solo emite ids).
 async function invocar(payload: {
   message: string;
   userId: string;
   sessionId: string;
+  actToken?: string;
 }): Promise<AsyncIterable<Uint8Array>> {
   const out = await client.send(
     new InvokeAgentRuntimeCommand({

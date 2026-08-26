@@ -30,7 +30,11 @@ import { MENSAJES_WORKER } from "@craftech-ai-chat/shared/mensajes";
 import type { Mensaje } from "../../bff/src/mensajes/store";
 import { parseNdjson } from "./ndjson";
 
-export type EventoTurno = { conversationId: string; msgId: string; userId: string };
+// `actToken` (fase 2d, opción A): token para que el core llame a la API del
+// cliente en nombre del usuario. Opcional — un mensaje sin el campo (cola
+// vieja, canal futuro) sigue funcionando. NUNCA se loguea ni se escribe en
+// MessagesTable: solo pasa de acá al payload del invoke.
+export type EventoTurno = { conversationId: string; msgId: string; userId: string; actToken?: string };
 
 // Solo las dos lecturas de mensajes/store.ts (Task 2) que necesita el turno.
 // El caller real (lambda.ts) las ata a {ddb, tabla} — acá no hace falta un
@@ -44,7 +48,12 @@ export type Deps = {
   store: StoreDeps;
   // Invoca al AgentCore Runtime y devuelve el stream crudo (bytes NDJSON/SSE,
   // ver ./ndjson.ts). lambda.ts la implementa con BedrockAgentCoreClient.
-  invocar(payload: { message: string; userId: string; sessionId: string }): Promise<AsyncIterable<Uint8Array>>;
+  invocar(payload: {
+    message: string;
+    userId: string;
+    sessionId: string;
+    actToken?: string;
+  }): Promise<AsyncIterable<Uint8Array>>;
   // Misma forma que StoreDeps.escribir en packages/bff/src/mensajes/api.ts:
   // ya atada a {ddb, tabla} por el caller, un solo argumento (el mensaje sin
   // `orden`) — así los tests de turno.ts no arman un DynamoDBClient falso.
@@ -98,7 +107,16 @@ export async function procesarMensaje(evento: EventoTurno, deps: Deps): Promise<
   const message = pendientes.map((m) => m.texto).join("\n");
 
   try {
-    const stream = await deps.invocar({ message, userId: evento.userId, sessionId: evento.conversationId });
+    // El actToken es el del EVENTO que se procesa: si el turno agrupó varios
+    // mensajes pendientes (debounce), este job es el del ÚLTIMO mensaje del
+    // usuario — su token es el más fresco de la ráfaga. Sin el campo, el
+    // invoke va sin él (el core corre sin tools de usuario, no rompe).
+    const stream = await deps.invocar({
+      message,
+      userId: evento.userId,
+      sessionId: evento.conversationId,
+      ...(evento.actToken !== undefined ? { actToken: evento.actToken } : {}),
+    });
 
     let texto: string | undefined;
     for await (const frame of parseNdjson(stream)) {

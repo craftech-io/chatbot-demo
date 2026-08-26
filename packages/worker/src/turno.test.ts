@@ -153,6 +153,44 @@ describe("procesarMensaje", () => {
     expect(deps.escribir).not.toHaveBeenCalled();
   });
 
+  // Fase 2d (opción A): el actToken llega en el evento SQS y viaja al invoke.
+  it("pasa el actToken del evento al invocar (payload del runtime)", async () => {
+    const deps = depsBase();
+
+    await procesarMensaje({ ...evento, actToken: "token-de-la-api-del-cliente" }, deps);
+
+    expect(deps.invocar).toHaveBeenCalledWith({
+      message: "hola",
+      userId: "u1",
+      sessionId: "c1",
+      actToken: "token-de-la-api-del-cliente",
+    });
+  });
+
+  it("un evento SIN actToken (cola vieja, canal futuro) invoca sin el campo, sin romper", async () => {
+    const deps = depsBase();
+
+    const resultado = await procesarMensaje(evento, deps);
+
+    expect(resultado).toBe("procesado");
+    const payload = (deps.invocar as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Record<string, unknown>;
+    expect("actToken" in payload).toBe(false);
+  });
+
+  // PIN de seguridad (2d): la respuesta del assistant que el worker escribe en
+  // MessagesTable JAMÁS contiene el actToken — ni la clave ni el valor.
+  it("lo que el worker escribe en MessagesTable no contiene el actToken", async () => {
+    const deps = depsBase();
+
+    await procesarMensaje({ ...evento, actToken: "token-de-la-api-del-cliente" }, deps);
+
+    const escrituras = (deps.escribir as ReturnType<typeof vi.fn>).mock.calls;
+    expect(escrituras.length).toBeGreaterThan(0);
+    const serializado = JSON.stringify(escrituras);
+    expect(serializado).not.toContain("actToken");
+    expect(serializado).not.toContain("token-de-la-api-del-cliente");
+  });
+
   // I2 (fix-wave fase 2c): `ultimoMsgIdUsuario` devolviendo `null` solo puede
   // ser un fallo de lectura del store (el evento implica que el mensaje del
   // usuario existe) — ante la duda, responder: un descarte acá sería silencio

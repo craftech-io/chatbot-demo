@@ -27,8 +27,14 @@ type Deps = {
   store: StoreDeps;
   // Publica el turno en la cola FIFO. groupId=conversationId serializa los
   // turnos de una misma conversación; dedupId=msgId evita duplicar el turno
-  // si SQS reintrega el mensaje.
-  encolar: (payload: { conversationId: string; msgId: string; userId: string }) => Promise<void>;
+  // si SQS reintrega el mensaje. `actToken` (fase 2d, opción A) viaja SOLO por
+  // acá: cola → payload del invoke — JAMÁS a MessagesTable ni a los logs.
+  encolar: (payload: {
+    conversationId: string;
+    msgId: string;
+    userId: string;
+    actToken?: string;
+  }) => Promise<void>;
   // Opcional: igual que en handler.ts, sabores/mocks viejos sin Guardrail
   // linkeado corren sin filtro de entrada.
   guard?: (texto: string) => Promise<{ bloqueada: boolean }>;
@@ -60,11 +66,11 @@ export type GetMensajesResult = {
 async function autenticar(
   token: string | undefined,
   cfg: BffConfig,
-): Promise<{ userId: string } | { error: ErrorBody }> {
+): Promise<{ userId: string; actToken?: string } | { error: ErrorBody }> {
   if (!token) return { error: { code: "invalid_token" } };
   try {
     const principal = await verifyUserToken(token, cfg.verifier);
-    return { userId: principal.userId };
+    return { userId: principal.userId, actToken: principal.actToken };
   } catch (e) {
     const code = e instanceof AuthError ? e.code : "invalid_token";
     return { error: { code } };
@@ -147,8 +153,14 @@ export async function postMensaje(
     console.error("escritura del mensaje del usuario falló", e);
     return { status: 500, body: { error: { code: "error_interno" } } };
   }
+  // Regla del actToken (spec §6, 2d opción A): si el emisor mandó el claim
+  // `act_token`, ese es el token para la API del cliente; si no, viaja el
+  // MISMO token que el usuario presentó (su API ya lo consume). El token crudo
+  // ya está en `input.token` — es el que `autenticar` acaba de verificar, no
+  // hace falta pasarlo por otro camino.
+  const actToken = auth.actToken ?? input.token;
   try {
-    await deps.encolar({ conversationId, msgId, userId: auth.userId });
+    await deps.encolar({ conversationId, msgId, userId: auth.userId, actToken });
   } catch (e) {
     // Si el encolado falla DESPUÉS de escribir el mensaje del usuario, NO se
     // reintenta acá: el diseño se auto-repara — el job del PRÓXIMO mensaje agrega

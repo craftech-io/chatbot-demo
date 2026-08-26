@@ -71,6 +71,31 @@ request, TODO POST/GET del Messages Backend moría en el primer deploy. Fix en
 el fix-wave de fase 2c (C1): se borró `runtimeArn` de `BffConfig` y esta fila
 se movió acá, que es donde el dato realmente se usa hoy.
 
+## El viaje del actToken (fase 2d, opción A — spec §6 y §18)
+
+Token con el que el core llama a la API del cliente EN NOMBRE del usuario
+final. El BFF lo resuelve en `postMensaje` como `actToken = principal.actToken
+?? tokenCrudo`: si el emisor mandó el claim `act_token` en el chat-token, gana
+ese; si no, viaja el mismo token que el usuario presentó (el caso común — su
+API ya lo consume).
+
+Contratos de forma (los produce/consume esta cadena, nadie más los renegocia):
+
+| Tramo | Forma |
+|---|---|
+| Body del mensaje en MensajesCola (BFF → worker) | `{ conversationId, msgId, userId, actToken? }` — el campo es opcional: un mensaje sin él (cola vieja, canal futuro) sigue funcionando |
+| Payload de `InvokeAgentRuntime` (worker → core) | `{ message, userId, sessionId, actToken? }` — el worker hace passthrough del campo del evento; si el evento no lo trae, el payload va SIN el campo |
+
+Reglas duras:
+
+- El `actToken` vive SOLO en el body de la cola (cifrado en reposo en SQS) y
+  en el payload del invoke. **NUNCA se escribe en DynamoDB** (MessagesTable ni
+  ninguna otra tabla) y **NUNCA se loguea** — hay tests que lo pinean en
+  `packages/bff/src/mensajes/api.test.ts` y `packages/worker/src/turno.test.ts`.
+- Si el turno agrupa varios mensajes pendientes (debounce), vale el `actToken`
+  del evento del job que se procesa — el del último mensaje del usuario, que
+  es el más fresco de la ráfaga.
+
 ## Mapeo de nombres reales (Step 0, sabor SST)
 
 El plan original de esta tarea escribió los nombres de recursos de Pulumi de

@@ -84,7 +84,14 @@ const store = {
 // Publica el turno en la cola FIFO (Task 1, fase 2c). MessageGroupId serializa
 // los turnos de una misma conversación; MessageDeduplicationId evita duplicar
 // el turno si SQS reintrega el mensaje (at-least-once).
-async function encolar(payload: { conversationId: string; msgId: string; userId: string }): Promise<void> {
+// `actToken` (fase 2d): va en el body del mensaje (cifrado en reposo en SQS) y
+// de ahí al payload del invoke — NUNCA se loguea ni se escribe en Dynamo.
+async function encolar(payload: {
+  conversationId: string;
+  msgId: string;
+  userId: string;
+  actToken?: string;
+}): Promise<void> {
   const c = await cfg();
   if (!c.mensajes) throw new Error("mensajería no configurada: falta cfg.mensajes");
   await sqs.send(
