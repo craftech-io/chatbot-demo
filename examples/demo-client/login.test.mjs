@@ -99,7 +99,7 @@ describe("el HTML servido inyecta el modo de auth", () => {
 });
 
 describe("modo cognito: login real contra Cognito (fetch stubbeado)", () => {
-  const ID_TOKEN_FAKE = "cabecera.eyJzdWIiOiJkZW1vLWNyYWZ0ZWNoIn0.firma";
+  const ID_TOKEN_FAKE = "cabecera.eyJzdWIiOiJ1c3VhcmlvLWRlLXBydWViYSJ9.firma";
   const fetchOriginal = globalThis.fetch;
   let llamadasCognito;
   let server;
@@ -108,7 +108,7 @@ describe("modo cognito: login real contra Cognito (fetch stubbeado)", () => {
   beforeAll(async () => {
     server = crearServer({
       API_URL: "https://api.ejemplo.test",
-      COGNITO_CLIENT_ID: "747e12f5l0kkg7pmpmp8rt4mim",
+      COGNITO_CLIENT_ID: "cliente-de-prueba",
       COGNITO_REGION: "us-east-1",
     });
     await new Promise((resolve) => server.listen(0, resolve));
@@ -141,11 +141,11 @@ describe("modo cognito: login real contra Cognito (fetch stubbeado)", () => {
     const login = await fetch(`${base}/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ usuario: "demo-craftech", contrasena: "s3creta!" }),
+      body: JSON.stringify({ usuario: "usuario-de-prueba", contrasena: "s3creta!" }),
     });
 
     expect(login.status).toBe(200);
-    expect(await login.json()).toEqual({ usuario: "demo-craftech" });
+    expect(await login.json()).toEqual({ usuario: "usuario-de-prueba" });
 
     // La llamada a Cognito: endpoint regional, target InitiateAuth y el flow
     // con las credenciales tal cual las mandó el form.
@@ -156,9 +156,9 @@ describe("modo cognito: login real contra Cognito (fetch stubbeado)", () => {
       "AWSCognitoIdentityProviderService.InitiateAuth",
     );
     expect(JSON.parse(llamada.opciones.body)).toEqual({
-      ClientId: "747e12f5l0kkg7pmpmp8rt4mim",
+      ClientId: "cliente-de-prueba",
       AuthFlow: "USER_PASSWORD_AUTH",
-      AuthParameters: { USERNAME: "demo-craftech", PASSWORD: "s3creta!" },
+      AuthParameters: { USERNAME: "usuario-de-prueba", PASSWORD: "s3creta!" },
     });
 
     const cookie = login.headers.get("set-cookie");
@@ -200,7 +200,7 @@ describe("modo cognito: login real contra Cognito (fetch stubbeado)", () => {
       const login = await fetch(`${base}/login`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ usuario: "demo-craftech", contrasena: "mala" }),
+        body: JSON.stringify({ usuario: "usuario-de-prueba", contrasena: "mala" }),
       });
 
       expect(login.status).toBe(401);
