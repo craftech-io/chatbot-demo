@@ -1,13 +1,12 @@
 // Deriva el id de conversación a partir del principal ya verificado y el hilo
-// opcional que manda el browser. Vive acá (y no en chat/handler.ts, su lugar
-// original) porque el mismo id cumple DOS roles desde la fase 2c: es el
-// runtimeSessionId con el que AgentCore Runtime provisiona la microVM (spec
-// v1) Y el conversationId con el que se particiona MessagesTable (spec §8
-// v2) — postMensaje/getMensajes (mensajes/api.ts) y handleChat (chat/handler.ts)
-// tienen que llegar al MISMO id para compartir conversación. No puede venir
+// opcional que manda el browser. El mismo id cumple DOS roles: es el
+// runtimeSessionId con el que AgentCore Runtime provisiona la microVM Y el
+// conversationId con el que se particiona MessagesTable — todo lo que atienda
+// una conversación (postMensaje/getMensajes en mensajes/api.ts, el invoke del
+// worker) tiene que derivar el MISMO id o deja de compartirla. No puede venir
 // crudo del browser: quien adivinara el id de otro leería sus mensajes o
-// caería en su microVM caliente. Se deriva del principal y se hashea para no
-// filtrar el userId en un identificador que viaja fuera del BFF.
+// caería en su microVM caliente. Se hashea para no filtrar el userId en un
+// identificador que viaja fuera del BFF.
 import { createHash } from "node:crypto";
 
 export function runtimeSessionId(userId: string, hiloDelBrowser?: string): string {

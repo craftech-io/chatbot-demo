@@ -1,9 +1,9 @@
-// I2 (review mini-fase Cognito): con JWKS activo y solo UNO de
-// issuer/audience configurado ("half-pin"), lo más probable es un secret
-// olvidado — y con un emisor multi-app (Cognito) eso deja pasar tokens de
-// OTRAS apps del mismo pool. fromResource() avisa por console.warn; no corta,
-// porque pinear solo issuer es legítimo para emisores cuyos tokens no traen
-// `aud`. Acá el proxy Resource de sst se reemplaza por un objeto plano.
+// Con JWKS activo y solo UNO de issuer/audience configurado ("half-pin"), lo
+// más probable es un secret olvidado — y con un emisor multi-app (Cognito) eso
+// deja pasar tokens de OTRAS apps del mismo pool. fromResource() avisa por
+// console.warn; no corta, porque pinear solo issuer es legítimo para emisores
+// cuyos tokens no traen `aud`. Acá el proxy Resource de sst se reemplaza por un
+// objeto plano.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("sst", () => ({

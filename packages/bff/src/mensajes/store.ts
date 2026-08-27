@@ -1,4 +1,4 @@
-// Store de MessagesTable (spec §8/§10 v2): fuente de verdad de la transcripción
+// Store de MessagesTable: fuente de verdad de la transcripción
 // para las UIs y los canales (WhatsApp, Facebook, widget) — independiente de
 // AgentCore Memory, que es la memoria DEL AGENTE. pk `conversationId`, sk
 // `orden` (`${ts}#${msgId}`): el orden lexicográfico ES el cronológico, porque

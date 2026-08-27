@@ -1,5 +1,5 @@
 /// <reference path="../../../sst-env.d.ts" />
-// Entrypoint SQS del worker (spec §8 v2): consume el batch (size 1, ver
+// Entrypoint SQS del worker: consume el batch (size 1, ver
 // infra/sst/worker.ts) y corre turno.ts por cada registro. Todo lo testeable
 // vive en turno.ts; acá solo está el pegamento con Lambda y los SDKs (Dynamo,
 // AgentCore).
@@ -22,13 +22,13 @@ const client = new BedrockAgentCoreClient({});
 const ddb = new DynamoDBClient({});
 
 // MessagesTable y el Runtime están linkeados siempre en el sabor SST
-// (infra/sst/worker.ts): a diferencia del BFF, este worker no tiene sabores
-// "viejos" sin mensajería que soportar — nace ya en la fase 2c.
+// (infra/sst/worker.ts): a diferencia del BFF, el worker no soporta sabores sin
+// mensajería, así que lee los recursos sin guardas.
 const tabla = Resource.MessagesTable.name;
 
-// El payload completo (actToken incluido, si vino en el evento — fase 2d) se
-// serializa al body del invoke: es el único destino del token además de la
-// cola. NUNCA se loguea (el console.log de handler solo emite ids).
+// El payload completo (actToken incluido, si vino en el evento) se serializa al
+// body del invoke: es el único destino del token además de la cola. NUNCA se
+// loguea (el console.log de handler solo emite ids).
 async function invocar(payload: {
   message: string;
   userId: string;
@@ -84,8 +84,8 @@ export async function handler(event: SqsEvent): Promise<void> {
       //
       // Se loguea SOLO el nombre del error, nunca el objeto: el SyntaxError de
       // JSON.parse incluye un fragmento del texto que no pudo parsear, y el
-      // body de la cola lleva el actToken del usuario (fase 2d) — volcar ese
-      // fragmento a CloudWatch sería filtrar una credencial.
+      // body de la cola lleva el actToken del usuario — volcar ese fragmento a
+      // CloudWatch sería filtrar una credencial.
       console.error("registro del batch SQS no se pudo procesar (se descarta, no se relanza)", {
         error: (e as Error)?.name ?? "desconocido",
       });
