@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prestart": "npm --prefix ../../packages/widget run build",
     "start": "node server.mjs",
+    "pretest": "npm --prefix ../../packages/widget run build",
     "test": "vitest run"
   },
   "devDependencies": {

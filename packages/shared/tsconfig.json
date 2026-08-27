@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
+    "strict": true, "noEmit": true, "lib": ["ES2022"],
+    // skipLibCheck: los .d.ts de vitest referencian tipos DOM que este paquete
+    // de constantes no usa ni declara. Mismo precedente que packages/bff (2a).
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

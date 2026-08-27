@@ -108,7 +108,8 @@ Eso tiene dos consecuencias de diseño:
 | Componente | Responsabilidad | Depende de |
 |---|---|---|
 | `core/` (Python, contenedor) | El harness: workflow de LlamaIndex con un paso por responsabilidad. Es la única pieza que un cliente con otro IaC recibe intacta | Bedrock, AgentCore Memory/Gateway, KB. Config por env/SSM — **nunca `Resource`** |
-| `packages/bff/` (TS, Lambda) | Frontera de confianza: valida el token, resuelve el usuario, aplica topes, audita, invoca el Runtime y hace passthrough del SSE. **Sin lógica de agente** | AgentCore Runtime, Dynamo, guardrail de entrada |
+| `packages/bff/` — Messages Backend (TS, Lambda) | Frontera de confianza: valida el token, aplica topes y guardrail de entrada, escribe y lista mensajes (`MessagesTable`) y encola el turno. **Sin lógica de agente y sin invocar al Runtime** | SQS, Dynamo, guardrail |
+| `packages/worker/` (TS, Lambda) | El único que invoca AgentCore: consume la cola FIFO, hace el debounce contra el store, agrega los mensajes del usuario en un turno, invoca el Runtime y escribe la respuesta en el store | SQS, AgentCore Runtime, MessagesTable |
 | `packages/widget/` (TS) | Bundle embebible: un `<script>` + `mount()`. Sin React expuesto, para no chocar con el stack del cliente | BFF, `/chat-token` del cliente |
 | `packages/web/` (React) | Standalone: misma UI de chat con login propio (Cognito). Demo comercial y entorno de prueba | BFF, Cognito |
 | `packages/shared/` (TS) | Contratos y registros centrales compartidos entre BFF, widget y web | — |
@@ -131,12 +132,16 @@ el caso especial: solo hacen falta si su API usa otro esquema de auth.
 
 El widget pide ese token y lo envía al BFF, que lo valida:
 
-- **Con OIDC:** por firma pública contra el JWKS del cliente (`CLIENT_JWKS_URL`). Es
-  el camino preferido: no hay secreto compartido.
+- **Con OIDC:** por firma pública contra el JWKS del cliente (`CLIENT_JWKS_URL`),
+  pineando además `iss` y `aud` (`CLIENT_TOKEN_ISSUER`/`CLIENT_TOKEN_AUDIENCE`): la
+  firma sola no alcanza si el mismo emisor firma para varias apps. Es el camino
+  preferido: no hay secreto compartido.
 - **Sin OIDC:** por HMAC con un secreto en Secrets Manager (`CLIENT_HMAC_SECRET_ARN`).
 
 El standalone usa Cognito propio y produce un principal equivalente. El BFF tiene así
-**un solo concepto de principal con dos emisores**.
+**un solo concepto de principal con dos emisores**. La cuenta de demos usa el User
+Pool compartido de Cognito (`us-east-1_kLcJsB3IG`, un usuario sirve para todas las
+demos) con un app client propio por demo.
 
 Implementar `/chat-token` es la única tarea de desarrollo que se le pide al cliente.
 
@@ -149,7 +154,7 @@ Implementar `/chat-token` es la única tarea de desarrollo que se le pide al cli
 |---|---|---|
 | Devuelven | lo mismo para todos: docs, catálogo, FAQ, cálculos | datos del usuario final: sus pedidos, su cuenta |
 | Camino | **AgentCore Gateway** (MCP), target OpenAPI o Lambda | el core las llama **directo por HTTP** |
-| Credencial | fija, de nivel gateway | `actToken` del usuario, propagado en el payload confiable |
+| Credencial | fija, configurada por target del gateway *(corregido 2026-08-26: la API real la ata al target, no al gateway)* | `actToken` del usuario, propagado en el payload confiable |
 
 La razón de no mandar todo al Gateway: su auth outbound es por gateway, no por
 request. Meter ahí datos per-usuario es una fuga entre usuarios esperando a pasar.
@@ -157,23 +162,40 @@ request. Meter ahí datos per-usuario es una fuga entre usuarios esperando a pas
 Para las tools de tenant basta el OpenAPI del cliente y las tools salen casi gratis;
 el adaptador Lambda queda como escape hatch cuando su API no es REST limpia.
 
-## 8. Flujo de un mensaje
+## 8. Flujo de un mensaje (arquitectura v2 — mensajería asíncrona, 2026-08-25)
+
+**Decisión que motivó la v2:** el producto es multicanal (WhatsApp y Facebook no
+tienen streaming), así que el streaming web se sacrifica a cambio de una arquitectura
+de mensajes desacoplada: el frontend/backend de mensajes de un lado, el chatbot
+(cola + worker + AgentCore) del otro.
 
 ```
-widget → /chat-token (backend del cliente)     → JWT + actToken
-widget → BFF POST /chat (SSE)                  → valida firma, topes, audita
-BFF    → ApplyGuardrail(INPUT)                 → si bloquea, corta acá: no se paga Runtime
-BFF    → InvokeAgentRuntime (IAM, streaming)   → payload confiable
-core   → Memory: list_events(actorId, sessionId)
-core   → Workflow: agente + tools + retrieve(KB)
-core   → ConverseStream(guardrailConfig sync)  → deltas ya filtrados
-core   → SSE: deltas + pasos de tool + citas   → BFF passthrough → widget
-core   → Memory: create_event(turno)
+widget → /chat-token (backend del cliente)      → JWT + actToken
+widget → Messages Backend POST /mensajes        → valida firma, topes,
+                                                   guardrail de entrada
+       → escribe el mensaje (rol=user) en MessagesTable
+       → encola {conversationId, msgId} en SQS FIFO (delay = ventana de debounce)
+widget → Messages Backend GET /mensajes?desde=… → polling (~1,5 s) hasta que
+                                                   aparece la respuesta
+SQS    → Worker Lambda (grupo FIFO = conversationId → serial por conversación)
+       → debounce: ¿soy el ÚLTIMO mensaje del usuario? si no, descarto
+         (el job del último procesa todos juntos)
+       → agrega los mensajes del usuario desde la última respuesta
+       → InvokeAgentRuntime (IAM, mismo contrato de siempre)
+core   → Memory + Workflow + ConverseStream(guardrail sync)  [SIN CAMBIOS]
+worker → consume el stream completo, escribe la respuesta (rol=assistant)
+         en MessagesTable
 ```
 
-El payload que el BFF arma es **confiable** — lo produce después de validar el
-principal — igual que en el Runtime BYOC de `msp-platform`: la invocación va con IAM,
-no expuesta al browser.
+La frontera de confianza no se mueve: el Messages Backend valida el principal y todo
+lo que entra a la cola es confiable. Los canales nuevos (WhatsApp, Facebook) serán
+adapters que POSTean al mismo Messages Backend — el lado del chatbot no los conoce.
+
+**El debounce**, que es lo que hace viable WhatsApp (la gente escribe en varios
+mensajes seguidos): cola FIFO con `MessageGroupId = conversationId` y delay a nivel
+cola; al consumir, el worker verifica contra el store si su mensaje sigue siendo el
+último del usuario — si llegó uno más nuevo, descarta y deja que el job de ese último
+agregue todo en un solo turno del agente.
 
 ## 9. Guardrails
 
@@ -197,10 +219,12 @@ AgentCore Memory con el par `(actorId, sessionId)` — `actorId` es el usuario,
 v1; los resúmenes long-term quedan como extensión con su punto de enganche en
 `core/src/agent/memory.py`.
 
-Memory guarda los eventos del turno, pero no da un índice de hilos por usuario. Ese
-índice — título del hilo, timestamps, estado del último turno — vive en
-`SESSIONS_TABLE` (Dynamo) y lo escribe el BFF, que es quien necesita listar las
-conversaciones para la UI. La transcripción nunca se duplica ahí: solo metadata.
+**Dos stores con roles distintos (v2):** `MessagesTable` es la fuente de verdad de la
+transcripción para las UIs y los canales (el "listado por conversation_id" que hace
+posible el polling y, a futuro, WhatsApp); AgentCore Memory sigue siendo la memoria
+DEL AGENTE (lo que el modelo ve como historial). Conviven a propósito: la duplicación
+es el precio de que el lado del chatbot y el de mensajes sean independientes.
+`SESSIONS_TABLE` conserva el índice de hilos (metadata).
 
 ## 11. RAG
 
@@ -282,7 +306,8 @@ pueda contarle al usuario.
 | Guardrail bloquea la entrada | mensaje canónico de política del registro — es una respuesta, no un error |
 | Guardrail interviene la salida | se corta el stream con el mensaje de política; el turno queda registrado |
 | Tool del cliente 5xx / timeout | el workflow **no muere**: devuelve al modelo un resultado de error estructurado para que lo explique al usuario. Timeout duro y tope de reintentos por tool |
-| SSE cortado a mitad | el turno parcial se persiste marcado incompleto; el widget muestra lo recibido y reconecta |
+| El worker falla al invocar el Runtime | escribe un mensaje del asistente con el texto humano de error en el store — el usuario ve una respuesta, no un silencio; el turno NO se persiste en Memory *(v2)* |
+| El polling no encuentra respuesta a tiempo | el widget corta a los ~90 s con el mensaje genérico; el mensaje del usuario queda en el store *(v2)* |
 | Throttling de Bedrock | backoff con jitter; si persiste, mensaje al usuario |
 | Guardrail caído | fail-open: se loguea y el chat sigue |
 
@@ -321,11 +346,22 @@ cliente que paga su propio Bedrock quiere verlo desde el día 1.
 
 - **Fase 1** (AER-3): esta propuesta y este spec.
 - **Fase 2** — el template:
-  - **2a** Esqueleto vertical: widget → BFF → Runtime → LLM → stream. Sin tools ni RAG.
-  - **2b** Memoria, guardrails y topes de uso.
-  - **2c** Tools de tenant vía Gateway y tools de usuario vía HTTP con `actToken`.
-  - **2d** RAG: KB sobre S3 Vectors, con citas.
-  - **2e** Standalone, docs de instalación y `CONTRACT.md`.
+  - **2a** Esqueleto vertical (streaming). ✔ desplegada.
+  - **2b** Memoria, guardrails y topes de uso. ✔ desplegada.
+  - **2c** *(v2, 2026-08-25)* Mensajería asíncrona: Messages Backend + SQS FIFO +
+    worker con debounce; primera tanda con el widget (polling) como único canal;
+    los canales (WhatsApp, Facebook) entran después como adapters, cada uno su fase corta.
+    ✔ desplegada. *(mini-fase 2026-08-26: verificación OIDC con Cognito en vivo —
+    JWKS con issuer/audience pineados; ledger propio.)*
+  - **2d** Tools de tenant vía Gateway y tools de usuario vía HTTP con `actToken`.
+    *(decisión 2026-08-26: el `actToken` viaja como campo del mensaje de SQS —
+    cifrado en reposo por la cola, NUNCA persistido en MessagesTable; el worker lo
+    releva al runtime en el payload confiable. Riesgo aceptado: un mensaje que agote
+    reintentos cae a la DLQ con un token ya vencido o por vencer.)*
+  - **2e** Standalone y docs de instalación *(reordenada 2026-08-26; antes 2f)*:
+    la app propia con login sobre pool Cognito del template — el camino OIDC ya
+    quedó pavimentado por la mini-fase Cognito.
+  - **2f** RAG: KB sobre S3 Vectors, con citas *(reordenada 2026-08-26; antes 2e)*.
 - **Fase 3**: sabor Terraform, que es lo que realmente valida el contrato.
 
 Cada fase de la 2 es desplegable y demostrable por sí sola.

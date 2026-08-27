@@ -48,7 +48,3 @@ function parsear(linea: string): Record<string, unknown> | null {
     return { type: "error", error: "evento ilegible del agente" };
   }
 }
-
-export function toSse(event: Record<string, unknown>): string {
-  return `data: ${JSON.stringify(event)}\n\n`;
-}

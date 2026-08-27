@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseNdjson, toSse } from "./ndjson";
+import { parseNdjson } from "./ndjson";
 
 const enc = new TextEncoder();
 
@@ -84,13 +84,5 @@ describe("parseNdjson", () => {
       parseNdjson(fuenteBytes(bytes.slice(0, idx + 1), bytes.slice(idx + 1))),
     );
     expect(evs).toEqual([{ type: "done", text: "á" }]);
-  });
-});
-
-describe("toSse", () => {
-  it("formatea un evento como frame SSE", () => {
-    expect(toSse({ type: "delta", text: "Hola" })).toBe(
-      'data: {"type":"delta","text":"Hola"}\n\n',
-    );
   });
 });

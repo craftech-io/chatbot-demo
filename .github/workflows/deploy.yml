@@ -1,7 +1,7 @@
 name: deploy
 on:
   push:
-    branches: [main, staging]
+    branches: [main]
 
 permissions:
   id-token: write
@@ -21,10 +21,11 @@ jobs:
         with: { node-version: 24, cache: npm }
       - uses: docker/setup-qemu-action@v3   # build ARM64 desde runners x86
       # El driver docker default NO buildea plataformas no nativas ni con QEMU:
-      # hace falta un builder docker-container. Sin esto, el primer CI falla.
+      # hace falta un builder docker-container. Sin esto, el build ARM64 falla.
       - uses: docker/setup-buildx-action@v3
+      # Sin input python-version: no existe en setup-uv@v3, y uv descarga solo
+      # el Python que pide requires-python (3.13) al primer `uv run`.
       - uses: astral-sh/setup-uv@v3
-        with: { python-version: "3.13" }
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
@@ -34,7 +35,7 @@ jobs:
       # resuelve sus globals (`aws`, `awsnative`, `$interpolate`, ...) y el
       # typecheck de infra de abajo falla por scaffolding faltante, no por un
       # error real.
-      - run: npx sst install
+      - run: npx sst install --print-logs
       - run: npm run typecheck && npm test
       # Typecheck de sst.config.ts + infra/ (el de workspaces no los cubre).
       # Filtra el único error preexistente de .sst/platform (vendored, gitignoreado).
@@ -42,4 +43,27 @@ jobs:
       # El core (Python/ARM64) tiene su propia suite, corre acá antes de construir
       # la imagen que empaqueta el Runtime: si esto falla, no tiene sentido desplegar.
       - run: uv run pytest core/tests/ -v
-      - run: npx sst deploy --stage ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      # Un solo ambiente desplegado: este repo es el TEMPLATE, y lo único que
+      # necesita en vivo es el showcase con el que se demuestra y se prueba.
+      # El stage se llama `staging` y se deja fijo: el nombre está incrustado en
+      # el nombre físico de cada recurso (el repo ECR, las URLs), renombrarlo
+      # obliga a recrear el stack entero y nadie lo ve desde afuera. Un clon de
+      # cliente elige los stages que quiera.
+      - run: npx sst deploy --stage staging
+      # Ground truth del contenedor (diagnóstico): correr la imagen recién
+      # pusheada en el runner (QEMU) y exigir /ping. Si esto pasa y AgentCore
+      # igual falla su health check, el problema es de la plataforma, no de la
+      # imagen. FAKE_LLM evita credenciales de Bedrock.
+      - name: smoke de la imagen
+        run: |
+          IMG="776805327629.dkr.ecr.us-east-1.amazonaws.com/craftech-ai-chat-core-staging:latest"
+          aws ecr get-login-password | docker login --username AWS --password-stdin 776805327629.dkr.ecr.us-east-1.amazonaws.com
+          docker pull -q --platform linux/arm64 "$IMG"
+          cid=$(docker run -d -p 8080:8080 -e MODEL_ID=fake -e FAKE_LLM=1 "$IMG")
+          ok=""
+          for i in $(seq 1 60); do
+            if curl -sf localhost:8080/ping; then ok=1; break; fi; sleep 2
+          done
+          echo "--- docker logs ---"
+          docker logs "$cid" || true
+          [ -n "$ok" ] || { echo "PING FALLÓ tras 120s"; exit 1; }
