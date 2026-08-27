@@ -40,7 +40,7 @@ describe("planificarRespuesta", () => {
 
 const ctx = { turnos: 0, historial: [] };
 
-describe("escenarios de la fase 2b", () => {
+describe("escenarios de memoria, topes y guardrail", () => {
   it("'tope' produce el frame de límite con motivo", () => {
     const { frames } = planificarRespuesta("quiero ver el tope", "A", ctx);
     expect(frames).toEqual([{ type: "error", code: "limit_reached", motivo: "dia" }]);
@@ -83,12 +83,12 @@ describe("escenarios de la fase 2b", () => {
   });
 });
 
-// Fase 2d: el modo local de las tools. El mock responde como si el agente
-// hubiera usado las tools reales (mis_pedidos / listar_catalogo), citando los
-// DATOS FIJOS de la demo API (contrato del plan 2d): pedidos A-1001/A-0997 y
-// los 3 productos del catálogo. Los textos se pinean exactos a propósito —
-// mock y realidad tienen que contar la misma historia.
-describe("escenarios de tools (fase 2d)", () => {
+// Modo local de las tools: el mock responde como si el agente hubiera usado
+// las tools reales (mis_pedidos / listar_catalogo), citando los DATOS FIJOS de
+// la demo API: pedidos A-1001/A-0997 y los 3 productos del catálogo. Los
+// textos se pinean exactos a propósito — mock y realidad tienen que decir lo
+// mismo.
+describe("escenarios de tools", () => {
   it("'pedido' responde como si hubiera usado mis_pedidos: cita A-1001 y A-0997, turno normal (persistible)", () => {
     const plan = planificarRespuesta("¿dónde está mi pedido?", "A", ctx);
 
@@ -114,10 +114,10 @@ describe("escenarios de tools (fase 2d)", () => {
   });
 });
 
-// Contrato REST del mock (fase 2c): server real, levantado en un puerto
-// efímero, contra el que se le pega con fetch — no se testea con dobles
-// porque lo que hay que probar es justamente la orquestación entre el POST,
-// el timer del debounce y el GET (server.mjs completo).
+// Contrato REST del mock: server real, levantado en un puerto efímero, contra
+// el que se le pega con fetch — no se testea con dobles porque lo que hay que
+// probar es justamente la orquestación entre el POST, el timer del debounce y
+// el GET (server.mjs completo).
 describe("contrato /mensajes (server real, puerto efímero)", () => {
   let server;
   let base;
@@ -125,7 +125,7 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
   beforeAll(async () => {
     // Entorno vacío explícito: sin esto, una shell con API_URL exportada (el
     // flujo del README de modo Cognito) cambiaría el server de modo y estos
-    // tests fallarían confuso (M8, review mini-fase Cognito).
+    // tests fallarían de forma confusa.
     server = crearServer({});
     await new Promise((resolve) => server.listen(0, resolve));
     base = `http://127.0.0.1:${server.address().port}`;
@@ -225,9 +225,9 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     expect(mensajes.at(-1).rol).toBe("assistant");
   });
 
-  // Fase 2d: los escenarios de tools son turnos normales del agente — pasan
-  // por el debounce como cualquier respuesta (POST + esperar + GET), no son
-  // un corte síncrono como "tope"/"error500".
+  // Los escenarios de tools son turnos normales del agente — pasan por el
+  // debounce como cualquier respuesta (POST + esperar + GET), no son un corte
+  // síncrono como "tope"/"error500".
   it("'pedido': pasado el debounce, el assistant responde con los pedidos fijos de la demo API", async () => {
     const hilo = "hilo-tools-pedido";
     const post = await fetch(`${base}/mensajes`, {
@@ -276,9 +276,8 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     );
   });
 
-  // M4 (fix-wave fase 2c): "error500" emula una falla temprana y síncrona del
-  // BFF real (nada de debounce/worker de por medio) — test de contrato de una
-  // sola aserción.
+  // "error500" emula una falla temprana y síncrona del BFF real (nada de
+  // debounce/worker de por medio) — test de contrato de una sola aserción.
   it("'error500': el POST responde 500 sin escribir nada", async () => {
     const post = await fetch(`${base}/mensajes`, {
       method: "POST",

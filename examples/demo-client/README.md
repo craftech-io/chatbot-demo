@@ -51,10 +51,9 @@ probar el flujo completo de UI/UX sin AWS. El usuario con el que entrás queda
 en una cookie y es la identidad que firma el `/chat-token` (los links
 `?user=Ana` / `?user=Bruno` prefillean el campo usuario).
 
-Desde la fase 2c el chat es asíncrono (spec §8
-v2): al mandar un mensaje el widget hace `POST /mensajes` y después hace
-polling con `GET /mensajes` hasta que aparece la respuesta — no hay más
-streaming palabra por palabra, la respuesta llega entera cuando está lista.
+El chat es asíncrono: al mandar un mensaje el widget hace `POST /mensajes` y
+después hace polling con `GET /mensajes` hasta que aparece la respuesta, que
+llega entera cuando está lista.
 El mock simula el worker real con un `setTimeout` de 1200ms: si mandás dos
 mensajes seguidos antes de que pase ese tiempo, el debounce los agrupa y
 contestás una sola vez (se ve en el chat: dos burbujas de usuario, una sola
@@ -76,7 +75,7 @@ estas palabras (no importan mayúsculas):
 Con `?user=A` y `?user=B` en dos pestañas se ve que cada usuario tiene su
 propia conversación.
 
-La fase 2b agregó memoria, topes de uso y un guardrail de entrada; el mock
+El chat también tiene memoria, topes de uso y un guardrail de entrada; el mock
 los hace visibles sin AWS con tres escenarios más:
 
 - `memoria` → la respuesta dice cuántos turnos lleva la conversación y cuál
@@ -92,7 +91,7 @@ los hace visibles sin AWS con tres escenarios más:
   espíritu del mensaje canónico, no lo importa — no hay build en este
   ejemplo).
 
-#### Tools en modo local (fase 2d)
+#### Tools en modo local
 
 El agente real puede usar herramientas; el mock lo hace visible con dos
 escenarios más, que responden con los mismos datos fijos que sirve la demo
@@ -105,8 +104,7 @@ API (`examples/api-cliente`):
 
 En modo real esas tools no las simula nadie: las ejecuta el agente en AWS —
 `listar_catalogo` vía el AgentCore Gateway (MCP) y `mis_pedidos` llamando a
-la API del cliente por HTTP con el token del usuario (Gateway + API demo,
-fase 2d).
+la API del cliente por HTTP con el token del usuario.
 
 ### Modo real: contra un deploy
 
@@ -132,9 +130,8 @@ API_URL="<la Function URL del Messages Backend>" \
   npm start -w @craftech-ai-chat/demo-client
 ```
 
-(`API_URL` reemplaza al viejo `CHAT_URL` de la fase con streaming; el server
-todavía lee `CHAT_URL` como fallback si `API_URL` no está seteada, por las
-dudas de que algún script externo lo siga exportando así.)
+(El server también acepta `CHAT_URL` como alias de `API_URL`, si esta última
+no está seteada.)
 
 Abrir http://localhost:3000. Con `?user=A` y `?user=B` en dos pestañas se ve que cada
 usuario tiene su propia conversación.
@@ -142,7 +139,7 @@ usuario tiene su propia conversación.
 ### Modo Cognito: login real contra el User Pool
 
 Cuando el stage está configurado para validar tokens de Cognito (JWKS con
-issuer y audience pineados), el demo ya no firma tokens por HMAC: muestra un
+issuer y audience pineados), el demo no firma tokens por HMAC: muestra un
 login real. `POST /login` habla con Cognito (`InitiateAuth`, sin SDK), guarda
 el ID token en una cookie HttpOnly y `/chat-token` devuelve ese token — el JS
 de la página nunca lo tiene en la mano.
@@ -156,14 +153,14 @@ API_URL="<function url de staging>" npm start -w @craftech-ai-chat/demo-client
 ```
 
 Con `COGNITO_CLIENT_ID` seteado el server entra en modo cognito y
-`CHAT_HMAC_SECRET` ya no hace falta (`COGNITO_REGION` es opcional, default
+`CHAT_HMAC_SECRET` no hace falta (`COGNITO_REGION` es opcional, default
 `us-east-1`).
 
 Tres notas del entorno demo:
 
-- El User Pool es **compartido de la cuenta de demos** (lo creó el POC de
-  betwarrior y tiene DeletionProtection): un usuario demo sirve para todas
-  las demos, no hace falta crear uno por proyecto. Alta de un usuario nuevo:
+- El User Pool es **compartido de la cuenta de demos** (y tiene
+  DeletionProtection): un usuario demo sirve para todas las demos, no hace
+  falta crear uno por proyecto. Alta de un usuario nuevo:
 
   ```bash
   aws cognito-idp admin-create-user --user-pool-id us-east-1_kLcJsB3IG \
@@ -177,5 +174,5 @@ Tres notas del entorno demo:
   modos, abrí una ventana de incógnito y entrá con otro usuario.
 - La sesión dura **~55 minutos** (la vida del ID token). Al vencer, el chat
   muestra el error genérico ("Hubo un problema al responder"): recargá la
-  página y volvé a loguearte. El manejo fino de sesión vencida en el widget
-  queda para una fase futura.
+  página y volvé a loguearte. El widget no distingue una sesión vencida de
+  cualquier otro error.

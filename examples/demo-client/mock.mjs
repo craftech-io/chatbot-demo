@@ -1,10 +1,10 @@
 // Escenarios del modo mock: qué le contesta el chat cuando no hay ningún agente
-// real del otro lado. Pura y testeable: no toca timers ni I/O — el server aplica
-// el `demoraMs` del plan con setTimeout entre frames.
+// real del otro lado. Pura y testeable: no toca timers ni I/O — el server es el
+// que aplica el `demoraMs` del plan con setTimeout.
 //
-// El contrato de cada frame es el mismo que habla el BFF real (ver
-// packages/bff/src/chat/ndjson.ts): {type:"delta",text} / {type:"done",text} /
-// {type:"error",code}.
+// El contrato de cada frame es el mismo que emite el core y parsea el worker
+// (ver packages/worker/src/ndjson.ts): {type:"delta",text} /
+// {type:"done",text} / {type:"error",code}.
 
 const DEMORA_LENTA_MS = 400;
 const DEMORA_NORMAL_MS = 40;
@@ -13,7 +13,7 @@ const RESTO_DE_LA_RESPUESTA =
   "Esto es el modo local (mock) del chat: no hay ningún agente real del otro " +
   "lado, esta respuesta se arma de a poco para que veas el streaming en el navegador.";
 
-// Texto de la entrada bloqueada: EMULA al registro compartido de la fase 2b
+// Texto de la entrada bloqueada: EMULA al registro compartido
 // (packages/shared/src/mensajes.ts, MENSAJES_GUARDRAIL.entradaBloqueada). El
 // mock es un .mjs sin build: no puede importar ese .ts, y duplicar el texto
 // real lo dejaría desincronizado en silencio si cambia allá. Por eso el mock
@@ -23,11 +23,11 @@ const TEXTO_ENTRADA_BLOQUEADA =
   "No puedo ayudarte con esa consulta tal como la planteás. Probá reformularla " +
   "y seguimos conversando (esto emula al mensaje real de MENSAJES_GUARDRAIL).";
 
-// Fase 2d: el modo local de las tools. Estos textos responden como si el
-// agente real hubiera usado sus tools (mis_pedidos vía HTTP con el actToken,
+// Modo local de las tools: estos textos responden como si el agente real
+// hubiera usado sus tools (mis_pedidos vía HTTP con el actToken,
 // listar_catalogo vía el Gateway MCP) y citan los DATOS FIJOS de la demo API
-// (examples/api-cliente, contrato del plan 2d) — mock y realidad cuentan la
-// misma historia. Si cambian los datos de la demo API, cambiar acá también.
+// (examples/api-cliente) — mock y realidad dicen lo mismo. Si cambian los
+// datos de la demo API, cambiar acá también.
 const TEXTO_MIS_PEDIDOS =
   "Consulté tus pedidos: A-1001 está en camino (llega mañana) y A-0997 ya fue entregado.";
 const TEXTO_LISTAR_CATALOGO =
@@ -42,7 +42,7 @@ const TEXTO_LISTAR_CATALOGO =
  * @param {string} sub - identidad del usuario (el `sub` del token)
  * @param {{ turnos: number, historial: string[] }} [contexto] - memoria en
  *   proceso de la sesión: cuántos turnos lleva y los mensajes previos. Lo
- *   arma el server (fase 2b: memoria en proceso, sin AWS).
+ *   arma el server (memoria en proceso, sin AWS).
  * @returns {{ demoraMs: number, frames: Array<Record<string, unknown>> }}
  */
 export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, historial: [] }) {
@@ -58,8 +58,8 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
   }
 
   if (minusculas.includes("tope")) {
-    // Emula el 429 de topes de uso del BFF real (Task 7): un único frame de
-    // error, sin done — la conversación no sigue hasta que se libere el tope.
+    // Emula el 429 de topes de uso del BFF real: un único frame de error,
+    // sin done — la conversación no sigue hasta que se libere el tope.
     // persistible:false — el core real nunca persiste turnos rechazados por
     // tope (no llegan a la Memory real); el server no debe pushearlo.
     return {
@@ -70,9 +70,8 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
   }
 
   if (minusculas.includes("bloqueado")) {
-    // Una entrada bloqueada por el guardrail es una RESPUESTA, no un error
-    // (spec §15): termina en `done` con el texto de política, igual que el
-    // BFF real.
+    // Una entrada bloqueada por el guardrail es una RESPUESTA, no un error:
+    // termina en `done` con el texto de política, igual que el BFF real.
     // persistible:false — el core real tampoco persiste turnos bloqueados
     // por el guardrail de entrada (nunca llegan a invocar al modelo/Memory).
     return {
@@ -94,11 +93,12 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
     };
   }
 
-  // Escenarios de tools (fase 2d): turnos normales del agente — un solo
-  // `done`, pasan por el debounce y se persisten como cualquier respuesta.
-  // Lección del escenario "error500": el matching por inclusión puede pisarse
-  // entre palabras; "pedido" y "catalogo" no son substring de ninguna otra
-  // keyword ni la contienen, así que acá no hace falta un orden especial.
+  // Escenarios de tools: turnos normales del agente — un solo `done`, pasan
+  // por el debounce y se persisten como cualquier respuesta. El matching es
+  // por inclusión, así que una keyword contenida en otra necesita orden
+  // explícito ("error" dentro de "error500", ver server.mjs); "pedido" y
+  // "catalogo" no son substring de ninguna otra ni la contienen, así que acá
+  // el orden no importa.
   if (minusculas.includes("pedido")) {
     return {
       demoraMs,

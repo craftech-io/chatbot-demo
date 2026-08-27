@@ -1,12 +1,12 @@
 // Servidor del demo: hace de "app del cliente". Sirve la página, el bundle del
 // widget y el /chat-token. Es solo un ejemplo: no usarlo en producción.
 //
-// Modo mock: si falta API_URL (todavía no hay Messages Backend desplegado),
-// el propio server contesta POST/GET /mensajes hablando el mismo contrato que
-// el BFF real (spec §8 v2: mensajería asíncrona con debounce) — así se puede
-// ver el chat andando en el browser sin AWS (spec §16: toda capacidad se
-// entrega con su modo local mockeado). El worker que agrega mensajes con
-// debounce se simula con un `setTimeout` en vez de la cola SQS FIFO real.
+// Modo mock: si no hay API_URL, el propio server contesta POST/GET /mensajes
+// hablando el mismo contrato que el BFF real (mensajería asíncrona con
+// debounce) — así se puede ver el chat andando en el browser sin AWS, que es la
+// regla del proyecto: toda capacidad se entrega con su modo local. El worker
+// que agrega mensajes con debounce se simula con un `setTimeout` en vez de la
+// cola SQS FIFO real.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
@@ -15,21 +15,19 @@ import { planificarRespuesta } from "./mock.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
 
-// Modos del server (plan de la mini-fase Cognito, decisión cerrada):
+// Modos del server:
 // - COGNITO_CLIENT_ID seteado (+ API_URL) → "cognito": login real contra el
 //   User Pool; /chat-token devuelve el ID token guardado en la cookie cc_id.
-// - Sin API_URL → "mock": todo local como siempre, PERO con el mismo
-//   mini-login simulado (cookie cc_user) — regla del proyecto: toda capacidad
-//   se entrega con su modo local para UI/UX.
-// - API_URL + CHAT_HMAC_SECRET sin COGNITO_CLIENT_ID → "hmac": el modo real
-//   de siempre, sin login (no romper lo que ya anda).
+// - Sin API_URL → "mock": todo local, con el mismo mini-login pero simulado
+//   (cookie cc_user) — toda capacidad se entrega con su modo local para UI/UX.
+// - API_URL + CHAT_HMAC_SECRET sin COGNITO_CLIENT_ID → "hmac": el modo real,
+//   sin login.
 //
 // Recibe el entorno como parámetro (default process.env) para que los tests
 // puedan levantar un server en cada modo sin pisar el entorno del proceso.
 function configDe(entorno) {
-  // API_URL reemplaza a CHAT_URL (el Messages Backend ya no habla SSE, habla
-  // POST/GET /mensajes). Fallback al nombre viejo por si algún script externo
-  // todavía lo exporta así — retirar cuando nadie dependa de CHAT_URL.
+  // API_URL es la URL del Messages Backend, que habla POST/GET /mensajes.
+  // CHAT_URL se acepta como alias.
   const apiUrl = entorno.API_URL || entorno.CHAT_URL || "";
   const cognitoClientId = entorno.COGNITO_CLIENT_ID || "";
   const cognitoRegion = entorno.COGNITO_REGION || "us-east-1";
@@ -49,16 +47,16 @@ function configDe(entorno) {
 
 // El worker fake espera esto antes de "procesar" los mensajes pendientes de
 // una conversación — la misma idea que el `delay` de la cola FIFO real
-// (infra/sst/mensajeria.ts, spec §8 v2), acá con un setTimeout en el propio
-// proceso. 1200ms alcanza para escribir dos mensajes seguidos en el browser
-// y ver que el debounce los agrupa en una sola respuesta.
+// (infra/sst/mensajeria.ts), acá con un setTimeout en el propio proceso.
+// 1200ms alcanza para escribir dos mensajes seguidos en el browser y ver que
+// el debounce los agrupa en una sola respuesta.
 const DEBOUNCE_MS = 1200;
 
-// Emula MENSAJES_WORKER.error (packages/shared/src/mensajes.ts, Task 1 de
-// esta fase): la respuesta que el usuario ve cuando el worker no pudo generar
-// una respuesta real. El demo es un .mjs sin build: no puede importar ese
-// registro, así que sostiene el mismo texto acá (mismo riesgo de
-// desincronización que TEXTO_ENTRADA_BLOQUEADA más abajo, documentado a propósito).
+// Emula MENSAJES_WORKER.error (packages/shared/src/mensajes.ts): la respuesta
+// que el usuario ve cuando el worker no pudo generar una respuesta real. El
+// demo es un .mjs sin build: no puede importar ese registro, así que sostiene
+// el mismo texto acá (mismo riesgo de desincronización que
+// TEXTO_ENTRADA_BLOQUEADA más abajo, asumido a propósito).
 const TEXTO_WORKER_ERROR = "Tuve un problema para responderte. Probá de nuevo en un momento.";
 
 // __MOCK_HINT__ en el HTML: en mock, chips clickeables con las keywords que
@@ -67,9 +65,9 @@ const TEXTO_WORKER_ERROR = "Tuve un problema para responderte. Probá de nuevo e
 const MOCK_HINT_HTML =
   '<div class="chips-hint">' +
   '<span class="chips-label">Modo local — probá:</span>' +
-  // "pedido"/"catálogo" (fase 2d): el mock responde como si el agente hubiera
-  // usado sus tools (mis_pedidos / listar_catalogo). El chip lleva la tilde
-  // porque así se escribe; el mock acepta las dos grafías.
+  // Con "pedido"/"catálogo" el mock responde como si el agente hubiera usado
+  // sus tools (mis_pedidos / listar_catalogo). El chip lleva la tilde porque
+  // así se escribe; el mock acepta las dos grafías.
   ["error", "error500", "vencido", "lento", "memoria", "tope", "bloqueado", "pedido", "catálogo"]
     .map((palabra) => `<button type="button" class="chip-esc">${palabra}</button>`)
     .join("") +
@@ -90,12 +88,12 @@ function badgeDe(modo) {
 // el browser el ciclo completo de renovación de token.
 const vencidoYaMostrado = new Map();
 
-// Memoria en proceso del mock (fase 2b, sigue igual en 2c): conversationId →
-// array de mensajes del usuario ya respondidos, en orden. Es la versión
-// mockeada de la memoria real en AgentCore Memory — por eso NO se llena con
-// turnos bloqueados/rechazados por tope (el core real tampoco los persiste
-// ahí), y por eso vive separada de `mensajesPorConversacion` (que sí es la
-// transcripción completa, igual que MessagesTable).
+// Memoria en proceso del mock: conversationId → array de mensajes del usuario
+// ya respondidos, en orden. Es la versión mockeada de la memoria real en
+// AgentCore Memory — por eso NO se llena con turnos bloqueados/rechazados por
+// tope (el core real tampoco los persiste ahí), y por eso vive separada de
+// `mensajesPorConversacion` (que sí es la transcripción completa, igual que
+// MessagesTable).
 const historialPorConversacion = new Map();
 
 // La transcripción completa por conversación (la versión mockeada de
@@ -230,8 +228,8 @@ async function manejarLogin(req, res, config) {
 
 // El conversationId se deriva SIEMPRE del principal autenticado + el hilo que
 // manda el cliente — nunca de un id que venga directo del query. Emula (sin
-// importarlo: mismo motivo de siempre, este ejemplo no tiene build)
-// `runtimeSessionId` del BFF real (packages/bff/src/mensajes/conversacion.ts).
+// importarlo: este ejemplo no tiene build) `runtimeSessionId` del BFF real
+// (packages/bff/src/mensajes/conversacion.ts).
 function conversationIdDe(sub, hilo) {
   return `${sub}::${hilo}`;
 }
@@ -260,7 +258,7 @@ function agregarMensaje(conversationId, rol, texto) {
 
 // Los mensajes de usuario todavía no respondidos: recorre la transcripción de
 // atrás para adelante y corta en el primer `assistant` — la misma semántica
-// que `pendientesDesdeUltimaRespuesta` del store real (Task 2).
+// que `pendientesDesdeUltimaRespuesta` del store real.
 function pendientesDesdeUltimaRespuesta(conversationId) {
   const mensajes = mensajesPorConversacion.get(conversationId) ?? [];
   const pendientes = [];
@@ -272,11 +270,11 @@ function pendientesDesdeUltimaRespuesta(conversationId) {
 
 // msgId del último mensaje de usuario de la conversación: se DERIVA
 // escaneando la transcripción hacia atrás (primer rol=user desde el final) —
-// igual que `ultimoMsgIdUsuario` del store real (Task 2). A propósito no se
-// cachea en un Map aparte: un Map solo se actualiza en el camino que se
-// acuerda de tocarlo, y el camino "bloqueado" escribe directo a la
-// transcripción sin pasar por el debounce — un cache así queda
-// desincronizado. Escanear la transcripción hace que CUALQUIER escritura
+// igual que `ultimoMsgIdUsuario` del store real. A propósito no se cachea en
+// un Map aparte: un Map solo se actualiza en el camino que se acuerda de
+// tocarlo, y el camino "bloqueado" escribe directo a la transcripción sin
+// pasar por el debounce — un cache así queda desincronizado. Escanear la
+// transcripción hace que CUALQUIER escritura
 // (normal, bloqueada, la que venga) cuente sola, sin coordinación extra.
 function ultimoMsgIdUsuario(conversationId) {
   const mensajes = mensajesPorConversacion.get(conversationId) ?? [];
@@ -304,9 +302,9 @@ function procesarComoWorker(conversationId, msgId, sub) {
     contextoDe(conversationId),
   );
 
-  // demoraMs (40/400 según "lento") ya no marca el ritmo de un streaming: acá
-  // es la demora extra antes de que la respuesta quede escrita y visible por
-  // polling, para que "lento" se siga sintiendo más lento que lo normal.
+  // demoraMs (40/400 según "lento") es la demora extra antes de que la
+  // respuesta quede escrita y visible por polling, para que "lento" se sienta
+  // más lento que lo normal.
   setTimeout(() => {
     const ultimo = frames.at(-1);
     // Un frame de error (p. ej. "error" → agent_unavailable) es una falla del
@@ -337,22 +335,22 @@ async function manejarMensajesPost(req, res) {
     return;
   }
 
-  // M4 (fix-wave fase 2c): emula una falla temprana y síncrona del BFF real
-  // (p. ej. el PutItem del mensaje del usuario o el encolado fallando,
+  // "error500" emula una falla temprana y síncrona del BFF real (p. ej. el
+  // PutItem del mensaje del usuario o el encolado fallando,
   // packages/bff/src/mensajes/api.ts) — a diferencia de "error" (que SÍ
   // escribe el mensaje del usuario y responde `agent_unavailable` como
-  // assistant tras el debounce, ver mock.mjs), "error500" corta ANTES de
-  // escribir nada. Chequeo explícito antes de `planificarRespuesta`: la
-  // keyword "error" está contenida en "error500", así que este camino tiene
-  // que ganarle al genérico.
+  // assistant tras el debounce, ver mock.mjs), corta ANTES de escribir nada.
+  // El chequeo va explícito antes de `planificarRespuesta`: la keyword "error"
+  // está contenida en "error500", así que este camino tiene que ganarle al
+  // genérico.
   if (texto.toLowerCase().includes("error500")) {
     responderJson(res, 500, { error: { code: "error_interno" } });
     return;
   }
 
   if (!texto) {
-    // M1 (fix-wave fase 2c): paridad de contrato con el BFF real
-    // (packages/bff/src/mensajes/api.ts), que devuelve "empty_message".
+    // Paridad de contrato con el BFF real (packages/bff/src/mensajes/api.ts),
+    // que devuelve "empty_message".
     responderJson(res, 400, { error: { code: "empty_message" } });
     return;
   }
@@ -460,9 +458,9 @@ export function crearServer(entorno = process.env) {
     const html = await readFile(new URL("./public/index.html", import.meta.url), "utf8");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
-      // replaceAll: si un placeholder aparece más de una vez (p. ej. citado en
-      // un comentario del HTML), un replace simple dejaría el del script sin
-      // reemplazar — bug real que ya pasó con el de auth.
+      // replaceAll: un placeholder puede aparecer más de una vez (p. ej.
+      // citado en un comentario del HTML además del script), y un replace
+      // simple dejaría el del script sin reemplazar.
       html
         .replaceAll("__API_URL__", esMock ? "" : config.apiUrl)
         .replaceAll("__MOCK_HINT__", esMock ? MOCK_HINT_HTML : "")
@@ -482,8 +480,8 @@ if (esEjecutadoDirectamente) {
   const config = configDe(process.env);
 
   if (config.modo === "hmac" && !config.secreto) {
-    // Modo real por HMAC sin cambios: ambos env siguen siendo obligatorios
-    // juntos (o, si el stage ya habla OIDC, setear COGNITO_CLIENT_ID).
+    // Modo real por HMAC: los dos env son obligatorios juntos (o, si el stage
+    // habla OIDC, setear COGNITO_CLIENT_ID).
     console.error(
       "Faltan CHAT_HMAC_SECRET (el mismo que ClientHmacSecret del stage) y API_URL " +
         "(la Function URL del deploy).",

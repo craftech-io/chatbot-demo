@@ -1,15 +1,14 @@
-// El server sirve packages/widget/dist/widget.js tal cual (ver server.mjs).
-// Este test pinea que ese bundle sea el widget v2 (asíncrono: monta con
-// apiUrl y habla POST/GET /mensajes). Bug real que motiva el pin: un dist
-// viejo de la fase 2a (streaming, opción chatUrl) quedó en disco y el demo lo
-// sirvió sin quejarse — el widget montado con {apiUrl} hacía fetch(undefined)
-// y mostraba "Hubo un problema al responder" en todos los mensajes. El build
-// fresco lo garantizan los hooks prestart/pretest de package.json.
+// El server sirve packages/widget/dist/widget.js tal cual (ver server.mjs), y
+// un dist desactualizado en disco se serviría sin que nada se queje: el widget
+// montado con {apiUrl} haría fetch(undefined) y mostraría "Hubo un problema al
+// responder" en todos los mensajes. Este test pinea que el bundle sea el
+// asíncrono (monta con apiUrl y habla POST/GET /mensajes); el build fresco lo
+// garantizan los hooks prestart/pretest de package.json.
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("contrato del bundle del widget que sirve el demo", () => {
-  it("es el widget v2: apiUrl + /mensajes, sin rastros del streaming (chatUrl)", async () => {
+  it("es el widget asíncrono: apiUrl + /mensajes, sin la opción chatUrl", async () => {
     const js = await readFile(
       new URL("../../packages/widget/dist/widget.js", import.meta.url),
       "utf8",
