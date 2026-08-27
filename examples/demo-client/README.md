@@ -144,28 +144,40 @@ login real. `POST /login` habla con Cognito (`InitiateAuth`, sin SDK), guarda
 el ID token en una cookie HttpOnly y `/chat-token` devuelve ese token — el JS
 de la página nunca lo tiene en la mano.
 
-Las credenciales del entorno demo viven en `.cognito-demo.local` (en el root
-del repo, gitignoreado, claves `COGNITO_*`). Desde el root:
+Los datos del User Pool contra el que se loguea el demo van en
+`.cognito-demo.local` (en el root del repo, gitignoreado, claves `COGNITO_*`).
+Desde el root:
 
 ```bash
 set -a; source .cognito-demo.local; set +a
-API_URL="<function url de staging>" npm start -w @craftech-ai-chat/demo-client
+API_URL="<la Function URL del Messages Backend>" \
+  npm start -w @craftech-ai-chat/demo-client
 ```
 
 Con `COGNITO_CLIENT_ID` seteado el server entra en modo cognito y
 `CHAT_HMAC_SECRET` no hace falta (`COGNITO_REGION` es opcional, default
 `us-east-1`).
 
-Tres notas del entorno demo:
+Tres notas del modo cognito:
 
-- El User Pool es **compartido de la cuenta de demos** (y tiene
-  DeletionProtection): un usuario demo sirve para todas las demos, no hace
-  falta crear uno por proyecto. Alta de un usuario nuevo:
+- Hay que tener en el pool un **app client sin client secret y con el flow
+  `USER_PASSWORD_AUTH` habilitado** (es el que usa este demo), y un usuario con
+  password permanente. El id del pool y el del app client salen del output del
+  deploy, de la consola, o de la CLI:
 
   ```bash
-  aws cognito-idp admin-create-user --user-pool-id us-east-1_kLcJsB3IG \
+  aws cognito-idp list-user-pools --max-results 20
+  aws cognito-idp list-user-pool-clients --user-pool-id <tu-user-pool-id>
+  ```
+
+  Alta de un usuario para probar (el mismo `COGNITO_CLIENT_ID` que va en
+  `.cognito-demo.local` tiene que ser el de ese pool):
+
+  ```bash
+  POOL_ID="<tu-user-pool-id>"   # p. ej. us-east-1_XXXXXXXXX
+  aws cognito-idp admin-create-user --user-pool-id "$POOL_ID" \
     --username <usuario> --message-action SUPPRESS
-  aws cognito-idp admin-set-user-password --user-pool-id us-east-1_kLcJsB3IG \
+  aws cognito-idp admin-set-user-password --user-pool-id "$POOL_ID" \
     --username <usuario> --password '<password>' --permanent
   ```
 - Dos pestañas del mismo browser **comparten la cookie de sesión** — también

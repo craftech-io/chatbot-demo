@@ -1,7 +1,5 @@
 # craftech-ai-chat — Diseño del paquete base de chatbot + agent core
 
-**Ticket:** [AER-3](https://craftech.atlassian.net/browse/AER-3) (Onboarding Aersa) ·
-relacionado: [AER-2](https://craftech.atlassian.net/browse/AER-2) (Propuesta de arquitectura)
 **Fecha:** 2026-08-19
 **Estado:** diseño aprobado, pendiente de plan de implementación
 
@@ -11,14 +9,14 @@ Construir un **paquete base reusable** (repo template) que entregue a un cliente
 chatbot que interactúa con su propia aplicación: chat con memoria y streaming,
 respuestas con un LLM, RAG sobre su documentación y tools de lectura contra su API.
 
-El paquete es el producto que Craftech le da a todo cliente que llega buscando
-asesoría de IA. Aersa es su primer consumidor, pero **el diseño no incorpora nada
-específico de Aersa**: su negocio se refleja únicamente en la parametrización
-(`client.config.ts`), no en la arquitectura.
+El paquete es el producto que se le entrega a todo cliente que llega buscando
+asesoría de IA. **El diseño no incorpora nada específico de ningún cliente**: su
+negocio se refleja únicamente en la parametrización (`client.config.ts`), no en la
+arquitectura.
 
-Reusa el stack y los patrones ya probados en `msp-platform` (AgentCore, proxy SSE,
-Gateway MCP, KB sobre S3 Vectors, guardrails), que es la ventaja competitiva real:
-la diferencia entre entregar en semanas o en meses.
+Reusa un stack y patrones ya probados en producción (AgentCore, proxy SSE, Gateway
+MCP, KB sobre S3 Vectors, guardrails), que es la ventaja real: la diferencia entre
+entregar en semanas o en meses.
 
 ## 2. Decisiones tomadas
 
@@ -29,9 +27,9 @@ la diferencia entre entregar en semanas o en meses.
 | Runtime del agent core | Python en contenedor BYOC sobre AgentCore Runtime | LlamaIndex Workflows es Python-first: durabilidad, checkpointing, human-in-the-loop y streaming de eventos maduros. El Runtime es un contenedor: el lenguaje es indistinto para la infra |
 | Framework del harness | LlamaIndex Workflows | El loop del agente es un grafo de pasos y eventos explícito, no una caja negra: testeable paso a paso |
 | Alcance v1 | Chat + LLM + memoria + streaming + guardrails + tools de lectura + RAG | Es lo que el cliente de asesoría IA pide primero |
-| IaC | SST v4 como sabor de referencia; Terraform como segundo | Máxima velocidad reusando `msp-platform`; el contrato explícito habilita los otros sabores |
+| IaC | SST v4 como sabor de referencia; Terraform como segundo | Máxima velocidad reusando patrones ya probados; el contrato explícito habilita los otros sabores |
 | Despliegue | En la cuenta AWS del cliente | Él paga su consumo de Bedrock. Es lo que explica por qué el sabor de IaC importa: se le entrega a él |
-| Repos | Template propio (`craftech-ai-chat`) + `aersa` como primer clon | Un repo llamado `aersa` con el producto genérico sería una confusión permanente |
+| Repos | Un template propio, y un repo por cliente que lo clona | Un repo con el nombre de un cliente conteniendo el producto genérico sería una confusión permanente |
 | Enfoque general | AgentCore completo, con adaptador de LLM y capa de config agnóstica | El lock-in a Memory/Gateway se acepta a conciencia: reemplazarlos después es un módulo, no el producto |
 
 `craftech-ai-chat` es el nombre de trabajo del template; renombrarlo no afecta ninguna
@@ -47,17 +45,17 @@ contrato de infra documentado.
 **Fuera del v1**, con punto de extensión definido pero sin implementar: acciones de
 **escritura** sobre la app del cliente con human-in-the-loop; memoria long-term
 (resúmenes y preferencias); el sabor Pulumi; la modalidad de despliegue hosteada en la
-cuenta de Craftech; proveedores de LLM distintos de Bedrock; canales fuera de la web
+cuenta del proveedor; proveedores de LLM distintos de Bedrock; canales fuera de la web
 (WhatsApp, Slack).
 
 ## 4. Arquitectura
 
 Un stack por cliente, en su cuenta AWS. **No hay multitenancy de organizaciones**: el
-aislamiento es la cuenta, lo que simplifica todo respecto de `msp-platform` — no hay
-`orgId` atravesando cada query.
+aislamiento es la cuenta, lo que simplifica todo — no hay `orgId` atravesando cada
+query.
 
 ```
-   App del cliente                      Nuestro standalone
+   App del cliente                      Standalone del paquete
    ┌──────────────┐                     ┌──────────────┐
    │ widget (SDK) │                     │ web (React)  │
    └──────┬───────┘                     └──────┬───────┘
@@ -139,9 +137,9 @@ El widget pide ese token y lo envía al BFF, que lo valida:
 - **Sin OIDC:** por HMAC con un secreto en Secrets Manager (`CLIENT_HMAC_SECRET_ARN`).
 
 El standalone usa Cognito propio y produce un principal equivalente. El BFF tiene así
-**un solo concepto de principal con dos emisores**. La cuenta de demos usa el User
-Pool compartido de Cognito (`us-east-1_kLcJsB3IG`, un usuario sirve para todas las
-demos) con un app client propio por demo.
+**un solo concepto de principal con dos emisores**. Para las demos alcanza un User Pool
+de Cognito con un app client propio: el id del pool y del app client son configuración
+del stage, nunca literales en el código.
 
 Implementar `/chat-token` es la única tarea de desarrollo que se le pide al cliente.
 
@@ -207,17 +205,16 @@ Repartidos a propósito:
   modo que Bedrock evalúe cada chunk **antes** de emitirlo. Aplicarlo a mano sobre
   texto ya streameado llegaría tarde.
 
-Política de fallo **fail-open**, igual que `msp-platform`: si el guardrail falla, se
-loguea y el chat sigue. Se prefiere disponibilidad a censura dura.
+Política de fallo **fail-open**: si el guardrail falla, se loguea y el chat sigue. Se
+prefiere disponibilidad a censura dura.
 
 Los mensajes de bloqueo viven en un registro compartido, no como literales.
 
 ## 10. Memoria
 
 AgentCore Memory con el par `(actorId, sessionId)` — `actorId` es el usuario,
-`sessionId` el hilo — el mismo modelo que ya usa `msp-platform`. Solo short-term en
-v1; los resúmenes long-term quedan como extensión con su punto de enganche en
-`core/src/agent/memory.py`.
+`sessionId` el hilo. Solo short-term en v1; los resúmenes long-term quedan como
+extensión con su punto de enganche en `core/src/agent/memory.py`.
 
 **Dos stores con roles distintos (v2):** `MessagesTable` es la fuente de verdad de la
 transcripción para las UIs y los canales (el "listado por conversation_id" que hace
@@ -323,7 +320,7 @@ testeable: cada paso se prueba por sus eventos, con LLM y tools falsos.
 - **`bff/`**: validación de token en ambos emisores (JWKS y HMAC), aplicación de
   topes, passthrough SSE.
 - **e2e contra fakes**: "pregunta → responde con cita" y "pregunta → llama tool de
-  usuario", reusando el patrón `dev-local/aws-fakes.ts` de `msp-platform`.
+  usuario", contra fakes locales de los servicios de AWS.
 - **Smoke de deploy**: `/ping` más una invocación real por stage.
 
 **Entorno local mockeado — regla del proyecto (2026-08-20):** toda capacidad se
@@ -344,7 +341,7 @@ cliente que paga su propio Bedrock quiere verlo desde el día 1.
 
 ## 18. Fases de entrega
 
-- **Fase 1** (AER-3): esta propuesta y este spec.
+- **Fase 1**: esta propuesta y este spec.
 - **Fase 2** — el template:
   - **2a** Esqueleto vertical (streaming). ✔ desplegada.
   - **2b** Memoria, guardrails y topes de uso. ✔ desplegada.
@@ -368,15 +365,15 @@ Cada fase de la 2 es desplegable y demostrable por sí sola.
 
 ## 19. Riesgos y validaciones pendientes
 
-1. **Cobertura de AgentCore en Terraform.** En `msp-platform`, AgentCore
-   Harness/Memory/Identity y S3 Vectors se crean con el provider `aws-native` (Cloud
-   Control API), no con el classic. El equivalente en Terraform es
-   `hashicorp/awscc`. **Hay que validar esa cobertura antes de prometerle el sabor
-   Terraform a un cliente.** Es la validación de mayor impacto comercial del proyecto.
-2. **Cold start del contenedor.** LlamaIndex y sus dependencias son pesadas. El riesgo
-   es menor de lo que parece: como la microVM de la sesión se mantiene viva entre
-   invocaciones, el arranque se paga solo en el primer mensaje de cada conversación.
-   Medir igual en la fase 2a; mitigación por imagen slim e imports lazy.
+1. **Cobertura de AgentCore en Terraform.** AgentCore Harness/Memory/Identity y S3
+   Vectors se crean con el provider `aws-native` (Cloud Control API), no con el
+   classic. El equivalente en Terraform es `hashicorp/awscc`. **Hay que validar esa
+   cobertura antes de prometerle el sabor Terraform a un cliente.** Es la validación
+   de mayor impacto comercial del proyecto.
+2. **Cold start del contenedor** *(cerrado por medición)*. LlamaIndex y sus
+   dependencias son pesadas, pero la microVM de la sesión se mantiene viva entre
+   invocaciones: el arranque se paga solo en el primer mensaje de cada conversación, y
+   en ARM real es despreciable. Ver `docs/notas-tecnicas.md`.
 3. **Disponibilidad regional de AgentCore** en la región donde opera el cliente.
 4. **Dependencia de `/chat-token`.** Si el cliente no puede implementarlo, las tools
    de usuario no existen y el alcance cae a tools de tenant más RAG. Hay que
