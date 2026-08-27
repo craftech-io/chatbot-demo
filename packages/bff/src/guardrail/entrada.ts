@@ -1,6 +1,6 @@
 // Guardrail de ENTRADA: se corre en el BFF porque es barato y corta antes de
 // pagar Runtime y modelo. El de SALIDA vive en el core (modo sync). Política de
-// fallo: fail-open (spec §9) — se prefiere disponibilidad a censura dura.
+// fallo: fail-open — se prefiere disponibilidad a censura dura.
 import {
   ApplyGuardrailCommand,
   BedrockRuntimeClient,

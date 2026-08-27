@@ -1,6 +1,6 @@
-// API de mensajes (spec §8 v2): POST encola el turno, GET lo pollea. Todas las
-// deps son inyectables (nada de AWS real, patrón de handler.test.ts) — `store`
-// simula MessagesTable con arrays en memoria en vez de un DynamoDBClient.
+// API de mensajes: POST encola el turno, GET lo pollea. Todas las deps son
+// inyectables (nada de AWS real) — `store` simula MessagesTable con arrays en
+// memoria en vez de un DynamoDBClient.
 import { describe, expect, it, vi } from "vitest";
 import { SignJWT } from "jose";
 import { MENSAJES_GUARDRAIL } from "@craftech-ai-chat/shared/mensajes";
@@ -75,9 +75,8 @@ describe("postMensaje", () => {
     expect(store.mensajes).toHaveLength(0);
   });
 
-  // M1 (fix-wave fase 2c): un texto de solo espacios era truthy y pasaba la
-  // validación vieja (`!input.texto`) — llegaba al store/guardrail como
-  // mensaje real.
+  // Un texto de solo espacios es truthy: sin el trim previo a la validación
+  // llegaría al store y al guardrail como mensaje real.
   it("responde 400 con texto de solo espacios (trim antes de validar)", async () => {
     const store = storeFalso();
     const { encolar } = encolarFalso();
@@ -119,7 +118,7 @@ describe("postMensaje", () => {
     expect(store.mensajes[0]).toMatchObject({ rol: "user", texto: "algo horrible" });
     expect(store.mensajes[1]).toMatchObject({ rol: "assistant", texto: MENSAJES_GUARDRAIL.entradaBloqueada });
     expect(encolados).toHaveLength(0);
-    // El orden devuelto es el del mensaje del USUARIO (ruling): el widget
+    // El orden devuelto es el del mensaje del USUARIO: el widget
     // pollea desde ahí y encuentra la respuesta de política ya escrita.
     expect(r.body.msgId).toBe(store.mensajes[0]!.msgId);
     expect(r.body.orden).toBe(store.mensajes[0]!.orden);
@@ -141,14 +140,14 @@ describe("postMensaje", () => {
       msgId: store.mensajes[0]!.msgId,
       userId: "4821",
       // Sin claim act_token, viaja el mismo token que el usuario presentó
-      // (spec §6, caso común — 2d opción A).
+      // (el caso común).
       actToken: jwt,
     });
     expect(r.body.msgId).toBe(store.mensajes[0]!.msgId);
     expect(r.body.orden).toBe(store.mensajes[0]!.orden);
   });
 
-  // Fase 2d (opción A): el actToken viaja por la cola hasta el runtime.
+  // El actToken viaja por la cola hasta el runtime.
   it("encola con actToken = claim act_token cuando el emisor lo manda", async () => {
     const store = storeFalso();
     const { encolar, encolados } = encolarFalso();
@@ -169,7 +168,7 @@ describe("postMensaje", () => {
     expect(encolados[0]!.actToken).toBe(jwt);
   });
 
-  // PIN de seguridad (2d): el actToken va SOLO en el body de la cola — JAMÁS
+  // PIN de seguridad: el actToken va SOLO en el body de la cola — JAMÁS
   // en MessagesTable. Se revisa el argumento de CADA escritura y el contenido
   // serializado completo: ni la clave `actToken` ni el valor del token (claim
   // o crudo) pueden aparecer en lo que se persiste en Dynamo.

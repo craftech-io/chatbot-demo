@@ -1,4 +1,4 @@
-// Topes de uso (spec §12): el cliente paga su Bedrock; los topes evitan la
+// Topes de uso: el cliente paga su Bedrock; los topes evitan la
 // factura sorpresa. Estrategia: incremento atómico (ADD) y verificación del
 // valor resultante — en el borde sobrecuenta 1, aceptable y sin carrera.
 // Fail-open: si Dynamo falla, el chat sigue (disponibilidad > contabilidad).

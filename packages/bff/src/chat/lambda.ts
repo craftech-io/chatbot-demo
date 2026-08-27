@@ -1,8 +1,7 @@
-// Entrypoint de la Function URL en modo clásico (JSON): router de /mensajes
-// (spec §8 v2). Reemplaza el modo response streaming (SSE) que vivía acá
-// hasta la Task 4 (fase 2c) — el flujo asíncrono de mensajes/api.ts no
-// necesita mantener la conexión HTTP abierta mientras el agente responde: el
-// worker (Task 5) procesa el turno en background y el widget pollea con GET.
+// Entrypoint de la Function URL en modo clásico (JSON): router de /mensajes.
+// El flujo de mensajes es asíncrono, así que el handler no mantiene la conexión
+// HTTP abierta mientras el agente responde: el worker procesa el turno en
+// background y el widget pollea con GET.
 // Todo lo testeable vive en mensajes/api.ts; acá solo está el pegamento con
 // Lambda y los SDKs (Dynamo, SQS, Bedrock Guardrail).
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -21,16 +20,16 @@ const ddb = new DynamoDBClient({});
 const sqs = new SQSClient({});
 
 // La config se resuelve una vez por contenedor caliente, no una vez por
-// request (mismo patrón que el viejo chat/lambda.ts en modo streaming).
+// request.
 let cfgCache: Awaited<ReturnType<typeof loadConfig>> | undefined;
 async function cfg() {
   cfgCache ??= await loadConfig();
   return cfgCache;
 }
 
-// Solo si el sabor tiene las tablas de topes linkeadas (Task 6, fase 2b):
-// sabores/mocks viejos sin `cfg.tablas` corren sin tope de uso (deps.limites
-// queda undefined en el router, más abajo).
+// Solo si el sabor tiene las tablas de topes linkeadas: un sabor sin
+// `cfg.tablas` corre sin tope de uso (deps.limites queda undefined en el
+// router, más abajo).
 async function limites(
   userId: string,
   conversationId: string,
@@ -57,17 +56,17 @@ async function limites(
   );
 }
 
-// Fire-and-forget en el POST exitoso (spec §8 v2): el contador de turnos de
-// sesión pasa a contar mensajes ACEPTADOS, no turnos de agente — coherente
-// con el tope, que también cuenta mensajes.
+// Fire-and-forget en el POST exitoso: el contador de turnos de sesión cuenta
+// mensajes ACEPTADOS, no turnos de agente — coherente con el tope, que también
+// cuenta mensajes.
 async function registrarTurno(userId: string, conversationId: string, texto: string): Promise<number> {
   const c = await cfg();
   if (!c.tablas) return 0;
   return registrarTurnoEnIndice({ ddb, tabla: c.tablas.sesiones }, userId, conversationId, texto);
 }
 
-// Atado a MessagesTable vía config (Task 1, fase 2c): siempre linkeada en el
-// sabor SST, ver config/resource.ts.
+// Atado a MessagesTable vía config: siempre linkeada en el sabor SST, ver
+// config/resource.ts.
 const store = {
   async escribir(m: Omit<Mensaje, "orden">): Promise<Mensaje> {
     const c = await cfg();
@@ -81,11 +80,11 @@ const store = {
   },
 };
 
-// Publica el turno en la cola FIFO (Task 1, fase 2c). MessageGroupId serializa
-// los turnos de una misma conversación; MessageDeduplicationId evita duplicar
-// el turno si SQS reintrega el mensaje (at-least-once).
-// `actToken` (fase 2d): va en el body del mensaje (cifrado en reposo en SQS) y
-// de ahí al payload del invoke — NUNCA se loguea ni se escribe en Dynamo.
+// Publica el turno en la cola FIFO. MessageGroupId serializa los turnos de una
+// misma conversación; MessageDeduplicationId evita duplicar el turno si SQS
+// reentrega el mensaje (at-least-once).
+// El `actToken` va en el body del mensaje (cifrado en reposo en SQS) y de ahí al
+// payload del invoke — NUNCA se loguea ni se escribe en Dynamo.
 async function encolar(payload: {
   conversationId: string;
   msgId: string;
@@ -126,9 +125,8 @@ function token(event: FunctionUrlEvent): string | undefined {
   return raw.replace(/^Bearer /, "") || undefined;
 }
 
-// Function URL clásica: sin el modo de respuesta en streaming del viejo
-// lambda.ts — el handler devuelve un objeto {statusCode, headers, body} como
-// cualquier Lambda síncrona.
+// La Function URL va en modo buffered, no response streaming: el handler
+// devuelve la respuesta completa {statusCode, headers, body}, no un stream.
 export async function handler(event: FunctionUrlEvent): Promise<JsonResponse> {
   const path = event.rawPath ?? "";
   const method = event.requestContext?.http?.method ?? "GET";
@@ -152,8 +150,8 @@ export async function handler(event: FunctionUrlEvent): Promise<JsonResponse> {
         cfg: c,
         store,
         encolar,
-        // Solo si el sabor tiene el Guardrail linkeado (fase 2b): sabores/mocks
-        // viejos sin `cfg.guardrail` corren sin filtro de entrada.
+        // Solo si el sabor tiene el Guardrail linkeado: un sabor sin
+        // `cfg.guardrail` corre sin filtro de entrada.
         guard: c.guardrail ? (t) => evaluarEntrada(t, c.guardrail!) : undefined,
         limites: c.tablas ? limites : undefined,
         registrarTurno: c.tablas ? registrarTurno : undefined,

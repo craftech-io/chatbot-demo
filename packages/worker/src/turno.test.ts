@@ -101,10 +101,10 @@ describe("procesarMensaje", () => {
   });
 
   it("PIN: si el stream corta sin frame done (solo deltas), se trata como fallo y NO relanza", async () => {
-    // Nace verde: turno.ts ya cubre este caso por el mismo catch que atrapa
-    // invoke/parseo/PutItem — `texto` queda `undefined` si el for-await
-    // termina sin ver `type:"done"`, y eso dispara el error path. Test fijado
-    // para blindar el comportamiento ante un futuro refactor.
+    // turno.ts cubre este caso con el mismo catch que atrapa
+    // invoke/parseo/PutItem: `texto` queda `undefined` si el for-await termina
+    // sin ver `type:"done"`, y eso dispara el error path. El test lo blinda
+    // ante un refactor.
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const deps = depsBase({
       invocar: vi.fn(async () => streamDe({ type: "delta", text: "Hola" }, { type: "delta", text: " mundo" })),
@@ -134,10 +134,9 @@ describe("procesarMensaje", () => {
     err.mockRestore();
   });
 
-  // I1 (fix-wave fase 2c): redelivery post-crash o fail-open del store — no
-  // hay nada que responder, el assistant ya está o lo trae otro job. Restaura
-  // la paridad con el mock (examples/demo-client/server.mjs:198, que ya tiene
-  // esta guarda).
+  // Sin pendientes no hay nada que responder (redelivery post-crash, o
+  // fail-open del store): el assistant ya está escrito o lo trae otro job. El
+  // mock local (examples/demo-client/server.mjs) tiene la misma guarda.
   it("I1: si no hay pendientes, descarta el turno sin invocar ni escribir", async () => {
     const deps = depsBase({
       store: {
@@ -153,7 +152,7 @@ describe("procesarMensaje", () => {
     expect(deps.escribir).not.toHaveBeenCalled();
   });
 
-  // Fase 2d (opción A): el actToken llega en el evento SQS y viaja al invoke.
+  // El actToken llega en el evento SQS y viaja al invoke.
   it("pasa el actToken del evento al invocar (payload del runtime)", async () => {
     const deps = depsBase();
 
@@ -177,7 +176,7 @@ describe("procesarMensaje", () => {
     expect("actToken" in payload).toBe(false);
   });
 
-  // PIN de seguridad (2d): la respuesta del assistant que el worker escribe en
+  // PIN de seguridad: la respuesta del assistant que el worker escribe en
   // MessagesTable JAMÁS contiene el actToken — ni la clave ni el valor.
   it("lo que el worker escribe en MessagesTable no contiene el actToken", async () => {
     const deps = depsBase();
@@ -191,11 +190,11 @@ describe("procesarMensaje", () => {
     expect(serializado).not.toContain("token-de-la-api-del-cliente");
   });
 
-  // I2 (fix-wave fase 2c): `ultimoMsgIdUsuario` devolviendo `null` solo puede
-  // ser un fallo de lectura del store (el evento implica que el mensaje del
-  // usuario existe) — ante la duda, responder: un descarte acá sería silencio
-  // para el usuario. Con I1 puesto, si además el store no puede leer
-  // pendientes, degrada a "descartado" en vez de a un invoke con mensaje vacío.
+  // `ultimoMsgIdUsuario` devolviendo `null` solo puede ser un fallo de lectura
+  // del store (el evento implica que el mensaje del usuario existe) — ante la
+  // duda se responde: un descarte acá sería silencio para el usuario. Si además
+  // el store no puede leer pendientes, degrada a "descartado" en vez de invocar
+  // al agente con un mensaje vacío.
   it("I2: si ultimoMsgIdUsuario devuelve null, procesa el turno igual (no descarta)", async () => {
     const deps = depsBase({
       store: {

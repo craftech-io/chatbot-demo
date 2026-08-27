@@ -29,12 +29,12 @@ export function fromResource(): BffConfig {
   }
 
   return {
-    // Ojo: NO leer Resource.AgentRuntime acá. T4 (fase 2c) quitó `runtimeLink`
-    // de la Function del Chat a propósito — el invoke al Runtime ahora lo hace
-    // el worker (packages/worker/src/lambda.ts), no el BFF. El proxy Resource
-    // de sst LANZA ante un recurso no linkeado, así que leer
-    // Resource.AgentRuntime.arn acá tiraba en cada request y mataba TODO
-    // POST/GET del Messages Backend en el primer deploy (C1, fix-wave fase 2c).
+    // Ojo: NO leer Resource.AgentRuntime acá. El invoke al Runtime lo hace el
+    // worker (packages/worker/src/lambda.ts), no el BFF, así que la Function del
+    // Chat NO tiene ese recurso linkeado — y el proxy Resource de sst LANZA ante
+    // un recurso no linkeado. Como `cfg()` corre por request, una lectura de
+    // Resource.AgentRuntime.arn acá tira en CADA request y mata todo POST/GET
+    // del backend de mensajes.
     verifier: hmacSecret
       ? { kind: "hmac", secret: hmacSecret }
       : {
@@ -45,26 +45,26 @@ export function fromResource(): BffConfig {
           issuer: issuer || undefined,
           audience: audience || undefined,
         },
-    // El linkable Guardrail existe siempre en el sabor SST desde la fase 2b:
-    // no hace falta try/catch. El campo es opcional en BffConfig por otros
-    // sabores/mocks, no por este.
+    // El linkable Guardrail existe siempre en el sabor SST: no hace falta
+    // try/catch. El campo es opcional en BffConfig por los otros sabores, no
+    // por este.
     guardrail: { id: Resource.Guardrail.id, version: Resource.Guardrail.version },
-    // Ídem tablas: siempre linkeadas en el sabor SST desde la fase 2b (Task 6).
+    // Ídem tablas: siempre linkeadas en el sabor SST.
     tablas: {
       sesiones: Resource.SessionsTable.name,
       limites: Resource.LimitsTable.name,
     },
     // Único lugar que toca env en el BFF (además de los Resource de arriba):
     // los topes son el default del template — client.config.ts los ajusta por
-    // cliente en 2e.
+    // cliente.
     topes: {
       diario: Number(process.env.LIMITE_DIARIO ?? "50"),
       porSesion: Number(process.env.LIMITE_POR_SESION ?? "40"),
     },
     // Ídem tablas: MessagesTable y MensajesCola están linkeadas siempre en el
-    // sabor SST desde la fase 2c (Task 1). `debounceSegundos` lee env (como
-    // los topes arriba): es informativo, el delay real vive en la cola
-    // (infra/sst/mensajeria.ts) porque SQS FIFO no lo expone por mensaje.
+    // sabor SST. `debounceSegundos` lee env (como los topes arriba) y es solo
+    // informativo: el delay real vive en la cola (infra/sst/mensajeria.ts),
+    // porque SQS FIFO no expone el delay por mensaje.
     mensajes: {
       tabla: Resource.MessagesTable.name,
       colaUrl: Resource.MensajesCola.url,
