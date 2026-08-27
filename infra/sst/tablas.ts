@@ -1,8 +1,9 @@
 // SessionsTable: índice de hilos por usuario — SOLO metadata (título, timestamps,
 // contador de turnos). La transcripción vive en AgentCore Memory, nunca acá.
-export const sessionsTable = // El componente lleva sufijo Db: los nombres de componentes SST son únicos
-// entre sí, y el Linkable de abajo ya usa "SessionsTable" (la clave de Resource).
-new sst.aws.Dynamo("SessionsTableDb", {
+// Sufijo Db en el nombre del componente: los nombres de componentes SST son
+// únicos en toda la app y el Linkable de abajo ya usa "SessionsTable" (la clave
+// de Resource).
+export const sessionsTable = new sst.aws.Dynamo("SessionsTableDb", {
   fields: { userId: "string", sessionId: "string" },
   primaryIndex: { hashKey: "userId", rangeKey: "sessionId" },
 });

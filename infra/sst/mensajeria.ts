@@ -1,4 +1,4 @@
-// La mensajería asíncrona (spec §8 v2): el store es la fuente de verdad de la
+// La mensajería asíncrona (spec §8): el store es la fuente de verdad de la
 // transcripción para UIs y canales; la cola FIFO serializa por conversación.
 // El orden lexicográfico de `orden` (`${ts ISO}#${msgId}`) ES el cronológico:
 // no hace falta un GSI ni ordenar en memoria para paginar la transcripción.
@@ -11,15 +11,15 @@ export const messagesTable = new sst.aws.Dynamo("MessagesTableDb", {
 });
 
 // DLQ propia y también FIFO: SQS no permite que una cola FIFO redirija a una
-// DLQ estándar (ni al revés) — deben coincidir en tipo (verificado más abajo).
+// DLQ estándar (ni al revés) — deben coincidir en tipo.
 const dlq = new sst.aws.Queue("MensajesDlq", { fifo: true });
 
 // Sufijo Queue: mismo motivo que MessagesTableDb arriba — el nombre de
 // componente SST tiene que ser único en toda la app, y el Linkable de abajo
 // ya usa "MensajesCola" (la clave de Resource). Sin el sufijo, el componente
 // y el Linkable colisionan (`VisibleError: Component name MensajesCola is
-// not unique`) recién en runtime de Pulumi en el primer deploy — ningún
-// typecheck lo detecta.
+// not unique`) recién en runtime de Pulumi, al desplegar — ningún typecheck
+// lo detecta.
 export const mensajesCola = new sst.aws.Queue("MensajesColaQueue", {
   fifo: true,
   // FIFO no soporta delay POR MENSAJE: el delay de la cola ES la ventana de

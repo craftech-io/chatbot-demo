@@ -15,9 +15,9 @@ export default $config({
         // lo instale en .sst/platform en CUALQUIER máquina (CI incluido).
         "docker-build": { version: "0.0.14" },
         // Cloud Control: AgentCore Runtime no está en el provider classic.
-        // A diferencia del provider "aws" (region: string), el tipo de "aws-native"
-        // exige el literal `awsnative.Region`: el cast documenta que el valor sigue
-        // siendo el mismo string derivado del entorno, no un hardcode nuevo.
+        // A diferencia del provider "aws" (region: string), "aws-native" tipa
+        // `region` como el literal `awsnative.Region`: un string plano no
+        // satisface ese tipo y hay que castearlo, sin cambiar el valor.
         "aws-native": {
           version: "1.68.0",
           region: (process.env.AWS_REGION ?? "us-east-1") as awsnative.Region,
@@ -28,12 +28,12 @@ export default $config({
   async run() {
     const { runtime } = await import("./infra/sst/runtime");
     await import("./infra/sst/bff");
-    // El worker (Task 5, fase 2c) linkea messagesTableLink/runtimeLink desde
-    // ./mensajeria y ./runtime — ambos módulos ya se ejecutaron por el import
-    // de bff.ts de arriba (Node cachea el módulo, no se duplican recursos).
+    // El worker linkea messagesTableLink/runtimeLink desde ./mensajeria y
+    // ./runtime — ambos módulos ya se ejecutaron por los imports de arriba
+    // (Node cachea el módulo, no se duplican recursos).
     await import("./infra/sst/worker");
-    // El plan original decía `runtime.arn`: el recurso real (Step 0) expone
-    // `agentRuntimeArn`, no un `.arn` genérico.
+    // `awsnative.bedrockagentcore.Runtime` no expone un `.arn` genérico: el
+    // output con el ARN se llama `agentRuntimeArn`.
     return { runtimeArn: runtime.agentRuntimeArn };
   },
 });

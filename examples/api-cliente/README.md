@@ -3,7 +3,7 @@
 Esta Lambda juega el rol de **la API que un cliente real ya tiene**: en un
 deploy para un cliente de verdad, esta pieza **no se deploya** — el Gateway y
 las tools del core apuntan a la API existente del cliente. Acá existe solo para
-que la fase 2d (tools) tenga algo real contra qué demostrar el circuito
+que las tools del agente tengan algo real contra qué demostrar el circuito
 completo en staging.
 
 ## Endpoints

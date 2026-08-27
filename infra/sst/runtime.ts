@@ -1,7 +1,7 @@
 // AgentCore Runtime + su imagen. La imagen DEBE ser ARM64: el Runtime no acepta
 // otra arquitectura, y el fallo aparece recién al desplegar.
 //
-// Nombres reales verificados contra `.sst/platform` (Step 0, ver infra/CONTRACT.md):
+// Dónde vive cada pieza (ver infra/CONTRACT.md):
 // - el recurso de Cloud Control vive en el global `awsnative`, no en `aws.native`
 //   (`aws` es solo el provider classic; `awsnative` es el ambient global que
 //   expone `@pulumi/aws-native`).
@@ -102,18 +102,19 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
       },
       {
         // Data plane de Memory: el core lista y crea eventos de la conversación.
-        // Nombres de acción: mejor hipótesis del plan (no hay evidencia local
-        // de los tipos o docs) — verificar en el smoke.
+        // Estos nombres de acción no aparecen en los `.d.ts` de aws/aws-native:
+        // no hay typecheck que los valide, un typo sale como AccessDenied.
         Effect: "Allow",
         Action: ["bedrock-agentcore:CreateEvent", "bedrock-agentcore:ListEvents"],
         Resource: [$interpolate`${memoria.memoryArn}*`],
       },
       {
-        // Tools de tenant (2d): el core firma los requests MCP al Gateway con
-        // SigV4 (inbound AWS_IAM). Además del ARN pelado va el wildcard de
-        // sub-recursos: misma lección que el runtime-endpoint/* de 2a (el
-        // authz puede evaluar el target como sub-recurso del gateway) — sigue
-        // acotado al gateway PROPIO, no sobre-otorga.
+        // Tools de tenant: el core firma los requests MCP al Gateway con SigV4
+        // (inbound AWS_IAM). Además del ARN pelado va el wildcard de
+        // sub-recursos porque el authz puede evaluar el target como
+        // sub-recurso del gateway (mismo caso que el `runtime-endpoint/*` de
+        // InvokeAgentRuntime en infra/sst/worker.ts) — sigue acotado al gateway
+        // PROPIO, no sobre-otorga.
         Effect: "Allow",
         Action: ["bedrock-agentcore:InvokeGateway"],
         Resource: [gateway.gatewayArn, $interpolate`${gateway.gatewayArn}/*`],
@@ -140,15 +141,15 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   roleArn: role.arn,
   environmentVariables: {
     MODEL_ID: "us.anthropic.claude-sonnet-4-6",
-    // Encienden el guardrail de salida (sync) que el core ya soporta desde 2a.
+    // Encienden el guardrail de salida (modo sync) del core.
     GUARDRAIL_ID: guardrail.guardrailId,
     GUARDRAIL_VERSION: guardrail.version,
     // Memoria de conversación gestionada (AgentCore Memory, ver ./memoria.ts).
     MEMORY_ID: memoria.memoryId,
-    // Tools (2d). GATEWAY_URL: el endpoint MCP del gateway — el recurso lo
-    // expone como atributo `gatewayUrl` (verificado en gateway.d.ts, 1.68.0).
-    // CLIENT_API_URL: base de la API del cliente (acá, la demo) SIN barra
-    // final. Vacías/ausentes ⇒ el core corre sin esas tools (contrato 2d).
+    // GATEWAY_URL: el endpoint MCP del gateway — el recurso lo expone como
+    // atributo `gatewayUrl`. CLIENT_API_URL: base de la API del cliente (acá,
+    // la demo) SIN barra final. Vacías o ausentes ⇒ el core corre sin esas
+    // tools (contrato del core).
     GATEWAY_URL: gateway.gatewayUrl,
     CLIENT_API_URL: apiClienteDemoUrl,
   },
