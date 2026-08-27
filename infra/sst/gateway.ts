@@ -7,11 +7,13 @@
 // El output del recurso que interesa es `gatewayUrl`: es el endpoint MCP que
 // consume el core (se le pasa como GATEWAY_URL en infra/sst/runtime.ts).
 import { apiClienteDemoUrl } from "./api-cliente";
+import { slugKebab } from "./nombres";
 
 // El nombre físico exige `([0-9a-zA-Z][-]?){1,48}` (alfanumérico con guiones
 // no consecutivos, distinto del alfabeto del Runtime que acepta `_`): se
-// sanitiza el stage a ese alfabeto. Ojo con el largo: el prefijo se come 16 de
-// los 48, así que un stage de preview muy largo haría fallar el create.
+// sanitiza el stage a ese alfabeto. Ojo con el largo: el prefijo se come tantos
+// caracteres de los 48 como mida el slug del cliente (hoy 16), así que un slug
+// largo + un stage de preview largo haría fallar el create.
 const stageSaneado = $app.stage
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "-")
@@ -38,7 +40,7 @@ const gatewayRole = new aws.iam.Role("GatewayRole", {
 // El rol existe porque CreateGateway lo exige.
 
 export const gateway = new awsnative.bedrockagentcore.Gateway("Gateway", {
-  name: `craftech-ai-chat-gw-${stageSaneado}`,
+  name: `${slugKebab}-gw-${stageSaneado}`,
   description: "Tools de tenant del chat (catalogo) via MCP",
   // Inbound SigV4: el core firma cada request MCP con las credenciales del
   // RuntimeRole (SigV4Auth en core/src/agent/tools.py).

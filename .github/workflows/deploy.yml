@@ -15,6 +15,12 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      # Única fuente de la región del workflow: la consumen
+      # configure-aws-credentials y el smoke de la imagen (que arma con ella el
+      # host del registry ECR). Si un cliente despliega en otra región, se cambia
+      # acá y en `region` de client.config.ts.
+      AWS_REGION: us-east-1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +35,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
       - run: npm ci
       # `.sst/platform` es gitignoreado: sin este paso, `sst.config.ts` no
       # resuelve sus globals (`aws`, `awsnative`, `$interpolate`, ...) y el
@@ -56,8 +62,17 @@ jobs:
       # imagen. FAKE_LLM evita credenciales de Bedrock.
       - name: smoke de la imagen
         run: |
-          IMG="776805327629.dkr.ecr.us-east-1.amazonaws.com/craftech-ai-chat-core-staging:latest"
-          aws ecr get-login-password | docker login --username AWS --password-stdin 776805327629.dkr.ecr.us-east-1.amazonaws.com
+          set -euo pipefail
+          # Nada de identificadores fijos acá: en el repo de un cliente esto tiene
+          # que resolver a SU cuenta y SU repo. La cuenta sale de STS (las
+          # credenciales que ya asumió el job), la región del env del job y el
+          # nombre del repo ECR del output `repoCore` del propio deploy — que lo
+          # define infra/sst/runtime.ts a partir del slug de client.config.ts.
+          cuenta=$(aws sts get-caller-identity --query Account --output text)
+          repo=$(jq -re '.repoCore' .sst/outputs.json)
+          registry="${cuenta}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMG="${registry}/${repo}:latest"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
           docker pull -q --platform linux/arm64 "$IMG"
           cid=$(docker run -d -p 8080:8080 -e MODEL_ID=fake -e FAKE_LLM=1 "$IMG")
           ok=""

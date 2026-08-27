@@ -2,11 +2,14 @@
 // (ApplyGuardrail, barato, corta antes de pagar Runtime) y salida en el core
 // (guardrail_stream_processing_mode="sync").
 import { MENSAJES_GUARDRAIL } from "../../packages/shared/src/mensajes";
+import { slugKebab } from "./nombres";
 
 const FILTROS = ["SEXUAL", "VIOLENCE", "HATE", "INSULTS", "MISCONDUCT", "PROMPT_ATTACK"] as const;
 
 export const guardrail = new aws.bedrock.Guardrail("Guardrail", {
-  name: `craftech-ai-chat-${$app.stage}`,
+  // `[0-9a-zA-Z-_]+`: el stage entra tal cual (a diferencia del Gateway y del
+  // Runtime, que exigen sanearlo) y el prefijo sale del slug del cliente.
+  name: `${slugKebab}-${$app.stage}`,
   // Mensajes canónicos del registro compartido: los mismos que emite el BFF.
   blockedInputMessaging: MENSAJES_GUARDRAIL.entradaBloqueada,
   blockedOutputsMessaging: MENSAJES_GUARDRAIL.entradaBloqueada,
