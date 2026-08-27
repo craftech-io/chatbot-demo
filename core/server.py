@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 class _EchoLLM:
-    """LLM de smoke: repite el mensaje. Solo se usa con FAKE_LLM=1.
+    """LLM local que repite el mensaje. Solo se usa con FAKE_LLM=1.
 
     Con tools, ante un mensaje que menciona "pedido" simula una tool call a
-    `mis_pedidos` (regla del modo local: pinea el loop sin Bedrock ni red).
+    `mis_pedidos`: así el loop de tools se ejercita entero sin Bedrock ni red.
     """
 
     async def astream(self, message: str, history: list[dict]):
@@ -60,12 +60,12 @@ def build_app(
     # obligatorio es preferible no arrancar (la misma razón de config.py).
     cfg = load_config(env)
     # El factory se inyecta en los tests para no pegarle a Bedrock.
-    # FAKE_LLM permite el smoke del contenedor sin credenciales de Bedrock.
+    # FAKE_LLM permite correr el contenedor sin credenciales de Bedrock.
     if llm_factory is None and env.get("FAKE_LLM"):
         llm_factory = lambda cfg: _EchoLLM()  # noqa: E731
     llm_factory = llm_factory or BedrockAdapter
-    # Sin MEMORY_ID (Task 4 no cableó el recurso, o entorno sin memoria) queda en
-    # None: el server sigue usando `payload.get("history")` como en 2a.
+    # Sin MEMORY_ID no hay memoria persistente: el historial llega en el payload
+    # (`history`) y el turno no se guarda en ningún lado.
     if memoria_factory is None and cfg.memory_id:
         memoria_factory = lambda cfg: Memoria(cfg.memory_id)  # noqa: E731
     memoria = memoria_factory(cfg) if memoria_factory else None
@@ -106,8 +106,9 @@ def build_app(
         actor = payload.get("userId") or "anonimo"
         sesion = payload.get("sessionId") or "default"
         history = memoria.historial(actor, sesion) if memoria else (payload.get("history") or [])
-        # El actToken viene del payload del InvokeAgentRuntime (contrato 2d) y
-        # muere acá: entra a la tool de usuario como Bearer y a ningún otro lado.
+        # El actToken viene en el payload del InvokeAgentRuntime y muere acá:
+        # entra a la tool de usuario como Bearer y a ningún otro lado. Nunca se
+        # loguea ni se persiste.
         tools = await armar_tools(payload.get("actToken"))
 
         workflow = ChatWorkflow(llm=llm_factory(cfg), tools=tools or None, timeout=120)

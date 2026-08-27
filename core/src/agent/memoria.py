@@ -1,7 +1,7 @@
 """AgentCore Memory: el historial de la conversación por (actorId, sessionId).
 
-Fail-open deliberado (spec §15): una caída de Memory degrada a conversación sin
-historial, nunca tumba el turno. El evento se crea con el timestamp del server.
+Fail-open deliberado: una caída de Memory degrada a conversación sin historial,
+nunca tumba el turno. El evento se crea con el timestamp del server.
 """
 
 import logging

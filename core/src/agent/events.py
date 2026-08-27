@@ -20,9 +20,8 @@ class ChatDone(StopEvent):
     """Fin del turno: el texto completo que se le dijo al usuario.
 
     El campo se llama `texto`, no `result`: declarar `result` acá lo haría colisionar
-    con el `result` de `StopEvent`. Esa colisión no es solo un warning de pydantic —
-    en versiones anteriores de la librería hacía que `result` quedara silenciosamente
-    como un `property object` en vez del string.
+    con el `result` de `StopEvent`. Esa colisión no es solo un warning de pydantic:
+    puede dejar `result` como un `property object` en vez del string, en silencio.
     """
 
     texto: str

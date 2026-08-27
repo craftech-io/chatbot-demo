@@ -1,6 +1,6 @@
-"""Tools del agente (fase 2d).
+"""Tools del agente.
 
-Dos familias, dos caminos (spec §7):
+Dos familias, dos caminos:
 - Usuario ("mis pedidos"): FunctionTool local que llama la API del cliente por
   HTTP con el `actToken` del usuario. El token NUNCA se loguea ni se persiste.
 - Tenant (catálogo, FAQ): llegan como MCP tools desde un AgentCore Gateway con
@@ -9,9 +9,9 @@ Dos familias, dos caminos (spec §7):
 Nota de librerías: el camino MCP usa el cliente OFICIAL (`mcp`), no
 `llama-index-tools-mcp`. Esa librería (0.5.0) desempaca 3 valores del
 transporte streamable-http y `mcp` 2.x yieldea 2 — falla con "not enough
-values to unpack" contra toda la línea 2.x (probado 2.0.0, 2.0.1, 2.1.0,
-2.1.1). La superficie que necesitamos es chica (list_tools + call_tool), así
-que se habla MCP directo y se envuelve cada tool en un FunctionTool.
+values to unpack" contra toda la línea 2.x (2.0.0, 2.0.1, 2.1.0, 2.1.1).
+La superficie necesaria es chica (list_tools + call_tool), así que se habla
+MCP directo y se envuelve cada tool en un FunctionTool.
 
 `mcp` usa `httpx2`, no el httpx clásico: por eso SigV4Auth extiende
 `httpx2.Auth`, mientras que la tool de usuario usa `httpx` clásico como el
@@ -207,9 +207,8 @@ async def tools_de_gateway(
 ) -> list:
     """Lista las MCP tools de tenant que expone el AgentCore Gateway.
 
-    Fail-open como los reads del bff: si el gateway no responde o el listado
-    falla, el chat sigue sin tools de tenant (lista vacía + log), nunca una
-    excepción al turno.
+    Fail-open: si el gateway no responde o el listado falla, el chat sigue sin
+    tools de tenant (lista vacía + log), nunca una excepción al turno.
     """
     try:
         async with sesion_factory(gateway_url, region, credenciales) as sesion:
@@ -219,9 +218,8 @@ async def tools_de_gateway(
                 for tool in listado.tools
             ]
     except Exception as exc:
-        # El ExceptionGroup de anyio esconde la causa real en `exceptions`: se
-        # loguean las sub-excepciones o el log no sirve para diagnosticar nada
-        # (lección del smoke de 2d).
+        # El ExceptionGroup de anyio esconde la causa real en `exceptions`: hay
+        # que loguear las sub-excepciones o el log no dice nada útil.
         subs = getattr(exc, "exceptions", None)
         detalle = "; ".join(f"{type(s).__name__}: {s}" for s in subs) if subs else f"{exc}"
         logger.error("No se pudieron listar las tools del gateway: %s", detalle)

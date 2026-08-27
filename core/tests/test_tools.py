@@ -128,9 +128,9 @@ def test_sigv4_pide_el_cuerpo_del_request_para_firmarlo():
 #
 # Por qué MCP directo y no llama-index-tools-mcp: esa librería (0.5.0) desempaca
 # 3 valores del transporte streamable-http mientras `mcp` 2.x yieldea 2
-# ("not enough values to unpack") — está rota contra TODA la línea 2.x (probado
-# 2.0.0, 2.0.1, 2.1.0, 2.1.1). El cliente oficial es estable y la superficie que
-# necesitamos es chica: list_tools + call_tool.
+# ("not enough values to unpack") — está rota contra TODA la línea 2.x (2.0.0,
+# 2.0.1, 2.1.0, 2.1.1). El cliente oficial es estable y la superficie necesaria
+# es chica: list_tools + call_tool.
 
 
 class SesionFalsa:
@@ -252,5 +252,5 @@ async def test_tools_de_gateway_falla_abierto_con_lista_vacia():
         credenciales=Credentials("AKIAEJEMPLO", "secreto"),
         sesion_factory=factory_que_falla,
     )
-    # El chat sigue sin tools de tenant, como los reads fail-open del bff.
+    # El chat sigue sin tools de tenant y el turno no revienta.
     assert tools == []

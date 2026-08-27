@@ -19,8 +19,8 @@ class Config:
     guardrail_version: str | None
     region: str
     memory_id: str | None
-    # Tools (fase 2d), ambas opcionales: sin GATEWAY_URL no hay tools de
-    # tenant; sin CLIENT_API_URL no hay tools de usuario. El chat sigue igual.
+    # Tools, ambas opcionales: sin GATEWAY_URL no hay tools de tenant; sin
+    # CLIENT_API_URL no hay tools de usuario. El chat sigue igual.
     gateway_url: str | None
     client_api_url: str | None
 

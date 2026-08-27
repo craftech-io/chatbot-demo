@@ -39,8 +39,8 @@ def test_ping_responde_healthy():
 def test_invocations_streamea_deltas_y_evento_final():
     r = client().post("/invocations", json={"message": "¿hola?", "history": []})
     assert r.status_code == 200
-    # Tras C1, este header es el gatillo del streaming en AgentCore: sin él,
-    # el Runtime podría bufferear la respuesta entera antes de relayarla.
+    # Este header es el gatillo del streaming en AgentCore: sin él, el Runtime
+    # podría bufferear la respuesta entera antes de relayarla.
     assert r.headers["content-type"].startswith("text/event-stream")
 
     eventos = [
@@ -200,7 +200,7 @@ def test_una_lista_vacia_del_gateway_no_se_cachea_y_el_chat_sigue():
         tools_gateway_factory=gateway_factory,
     )
     c = TestClient(app)
-    # Sin tools el turno sale por el camino de streaming de siempre.
+    # Sin tools el turno sale por el camino de streaming.
     assert texto_del_done(c.post("/invocations", json={"message": "hola"})) == "Hola mundo"
     assert texto_del_done(c.post("/invocations", json={"message": "otra"})) == "Hola mundo"
     # El fallo no queda cacheado: la próxima request vuelve a intentar.
@@ -208,9 +208,9 @@ def test_una_lista_vacia_del_gateway_no_se_cachea_y_el_chat_sigue():
 
 
 def test_fake_llm_con_tools_pinea_el_loop_local_sin_bedrock_ni_red():
-    # Regla del modo local: FAKE_LLM + "pedido" simula la tool call a
-    # mis_pedidos. Sin actToken la tool real responde no-autenticado SIN tocar
-    # la red, así que el loop entero corre local.
+    # FAKE_LLM + "pedido" simula la tool call a mis_pedidos. Sin actToken la
+    # tool real responde no-autenticado SIN tocar la red: el loop entero corre
+    # local.
     app = build_app(env={"MODEL_ID": "fake", "FAKE_LLM": "1", "CLIENT_API_URL": "http://api.cliente"})
     r = TestClient(app).post("/invocations", json={"message": "¿dónde está mi pedido?"})
 

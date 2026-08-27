@@ -46,7 +46,7 @@ class AdaptadorLLM(Protocol):
         """Opcional: solo se invoca cuando el workflow recibió tools.
 
         Devuelve (texto_final | None, tool_calls pendientes). El history usa el
-        formato de dicts de siempre, extendido para el turno con tools:
+        formato de dicts neutral, extendido para el turno con tools:
         `tool_calls` (lista de {id, nombre, argumentos}) en mensajes assistant
         y `tool_call_id` en mensajes con role `tool`.
         """
@@ -57,7 +57,7 @@ class ChatWorkflow(Workflow):
     def __init__(self, llm: AdaptadorLLM, tools: list | None = None, **kwargs):
         # `llm` es el adaptador de modelo (agent/llm.py) o un doble en los tests.
         # `tools` son BaseTool de LlamaIndex (FunctionTool de usuario + MCP de
-        # tenant); sin tools el turno sale por el streaming de siempre.
+        # tenant); sin tools el turno sale por el camino de streaming.
         super().__init__(**kwargs)
         self.llm = llm
         self.tools = tools or []
@@ -65,8 +65,8 @@ class ChatWorkflow(Workflow):
     @step
     async def responder(self, ctx: Context, ev: ChatStart) -> ChatDone:
         if not self.tools:
-            # Camino sin tools, intacto: cada chunk del modelo se publica al
-            # stream apenas llega, y a la vez se acumula para la memoria.
+            # Camino sin tools: cada chunk del modelo se publica al stream
+            # apenas llega, y a la vez se acumula para la memoria.
             partes: list[str] = []
             async for chunk in self.llm.astream(ev.message, ev.history):
                 partes.append(chunk)
