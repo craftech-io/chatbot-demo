@@ -59,7 +59,7 @@ async def test_emite_deltas_y_el_generador_termina():
     async def recolectar():
         return [c async for c in adapter.astream("¿hola?", [])]
 
-    # El timeout es el test: hay bugs conocidos de streams que no cierran.
+    # El timeout es la aserción: un stream que no cierra colgaría el turno.
     deltas = await asyncio.wait_for(recolectar(), timeout=5)
     assert deltas == ["Hola", " mundo"]
 
