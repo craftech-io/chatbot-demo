@@ -5,7 +5,7 @@ que un cliente lo adopte como punto de partida para su propio chat: el core
 (Python) corre el agente en un contenedor BYOC, un BFF (TypeScript) media
 entre el navegador y el Runtime, y un widget embebible se monta en el sitio
 del cliente. Se despliega en la cuenta de AWS del cliente, no en una cuenta
-compartida — ver `docs/superpowers/specs/2026-08-19-craftech-ai-chat-design.md`
+compartida — ver `docs/diseno.md`
 para las razones de esa decisión y del resto del diseño.
 
 El template es genérico: lo específico de cada cliente vive en
@@ -81,7 +81,9 @@ npm run typecheck                 # typecheck de los workspaces de npm
 
 ## Dónde seguir leyendo
 
-- `docs/superpowers/specs/2026-08-19-craftech-ai-chat-design.md` — el diseño completo.
+- `docs/diseno.md` — el diseño completo.
+- `docs/notas-tecnicas.md` — expectativas operativas: latencias, cold start,
+  tamaño de la imagen y los knobs que las mueven.
 - `infra/CONTRACT.md` — el contrato multi-IaC: qué recursos y variables debe
   proveer cualquier sabor de infraestructura.
 - `examples/demo-client/README.md` — cómo integra el chat una app cliente.
