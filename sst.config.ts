@@ -1,11 +1,13 @@
 /// <reference path="./.sst/platform/config.d.ts" />
 
-// Nombre de la app y región salen de client.config.ts: ver ese archivo para
-// qué se toca al adoptar el template.
-import { cliente } from "./client.config";
-
 export default $config({
-  app(input) {
+  // El nombre de la app y la región salen de client.config.ts (ver ese archivo
+  // para qué se toca al adoptar el template). El import va DINÁMICO y adentro
+  // de la función: sst rechaza cualquier import top-level en este archivo
+  // ("Your sst.config.ts has top level imports - this is not allowed"), y
+  // `app()` acepta devolver una promesa.
+  async app(input) {
+    const { cliente } = await import("./client.config");
     return {
       name: cliente.slug,
       removal: input?.stage === "production" ? "retain" : "remove",
