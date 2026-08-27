@@ -1,6 +1,6 @@
 // Guardrail de contenido del template. Se aplica DOS veces: entrada en el BFF
 // (ApplyGuardrail, barato, corta antes de pagar Runtime) y salida en el core
-// (guardrail_stream_processing_mode="sync", ya cableado en fase 2a).
+// (guardrail_stream_processing_mode="sync").
 import { MENSAJES_GUARDRAIL } from "../../packages/shared/src/mensajes";
 
 const FILTROS = ["SEXUAL", "VIOLENCE", "HATE", "INSULTS", "MISCONDUCT", "PROMPT_ATTACK"] as const;

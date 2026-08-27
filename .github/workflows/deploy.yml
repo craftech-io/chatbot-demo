@@ -21,7 +21,7 @@ jobs:
         with: { node-version: 24, cache: npm }
       - uses: docker/setup-qemu-action@v3   # build ARM64 desde runners x86
       # El driver docker default NO buildea plataformas no nativas ni con QEMU:
-      # hace falta un builder docker-container. Sin esto, el primer CI falla.
+      # hace falta un builder docker-container. Sin esto, el build ARM64 falla.
       - uses: docker/setup-buildx-action@v3
       # Sin input python-version: no existe en setup-uv@v3, y uv descarga solo
       # el Python que pide requires-python (3.13) al primer `uv run`.
@@ -45,11 +45,10 @@ jobs:
       - run: uv run pytest core/tests/ -v
       # Un solo ambiente desplegado: este repo es el TEMPLATE, y lo único que
       # necesita en vivo es el showcase con el que se demuestra y se prueba.
-      # El stage se llama `staging` por historia (nació antes de que `main`
-      # fuera la rama de deploy) y se deja así a propósito: el nombre está
-      # incrustado en cada recurso, el repo ECR y las URLs ya verificadas, y
-      # renombrarlo obliga a rehacer el stack entero sin ganar nada — nadie ve
-      # ese nombre desde afuera. Un clon de cliente elige los stages que quiera.
+      # El stage se llama `staging` y se deja fijo: el nombre está incrustado en
+      # el nombre físico de cada recurso (el repo ECR, las URLs), renombrarlo
+      # obliga a recrear el stack entero y nadie lo ve desde afuera. Un clon de
+      # cliente elige los stages que quiera.
       - run: npx sst deploy --stage staging
       # Ground truth del contenedor (diagnóstico): correr la imagen recién
       # pusheada en el runner (QEMU) y exigir /ping. Si esto pasa y AgentCore

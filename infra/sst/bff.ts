@@ -21,17 +21,15 @@ export const clientAuth = new sst.Linkable("ClientAuth", {
   },
 });
 
-// Desde la Task 4 (fase 2c) esta Function ya NO invoca AgentCore Runtime
-// directamente: solo escribe en MessagesTable y encola en MensajesCola (JSON
-// clásico, sin streaming). El invoke al Runtime pasa al worker (Task 5), que
-// linkea `runtimeLink` en su propio stack.
+// Esta Function NO invoca el AgentCore Runtime: solo escribe en MessagesTable
+// y encola en MensajesCola (JSON clásico, sin streaming). El invoke al Runtime
+// lo hace el worker, que linkea `runtimeLink` en su propio módulo
+// (infra/sst/worker.ts).
 export const chat = new sst.aws.Function("Chat", {
   handler: "packages/bff/src/chat/lambda.handler",
   runtime: "nodejs24.x",
   // 30s alcanza de sobra: el router hace auth + 2 PutItem + 1 SendMessage
-  // (nada de invoke al agente, eso lo hace el worker en background). El
-  // timeout de 5 minutos era herencia del modo streaming viejo, que sí
-  // mantenía la conexión abierta esperando al agente.
+  // (nada de invoke al agente, eso lo hace el worker en background).
   timeout: "30 seconds",
   // CORS abierto: el token del chat (JWKS/HMAC) es lo que protege, no el origen.
   // En el paquete final para un cliente concreto, los orígenes salen de
@@ -47,8 +45,8 @@ export const chat = new sst.aws.Function("Chat", {
     },
   ],
   environment: {
-    // Topes por defecto del template; por cliente se ajustan acá (client.config
-    // los absorberá en 2e).
+    // Topes por defecto del template; por cliente se ajustan acá o desde su
+    // `client.config.ts`.
     LIMITE_DIARIO: "50",
     LIMITE_POR_SESION: "40",
     // Informativo: el delay real (la ventana de debounce) vive en la cola

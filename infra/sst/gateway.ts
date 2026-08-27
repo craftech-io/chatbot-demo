@@ -1,16 +1,11 @@
-// AgentCore Gateway (fase 2d): expone las tools de TENANT como MCP tools para
-// el core. Inbound AWS_IAM/SigV4 (verificado en el spike 2026-08-26 — sin
-// prerequisito de JWT); un solo target OpenAPI con GET /catalogo de la demo
-// API. /pedidos NO va al gateway: regla dura del spec §7, nada per-usuario
-// pasa por acá (eso lo llama el core por HTTP directo con el actToken).
+// AgentCore Gateway: expone las tools de TENANT como MCP tools para el core.
+// Inbound AWS_IAM/SigV4, que no exige además un JWT; un solo target OpenAPI con
+// GET /catalogo de la demo API. /pedidos NO va al gateway: regla dura del spec
+// §7, nada per-usuario pasa por acá (eso lo llama el core por HTTP directo con
+// el actToken).
 //
-// Nombres de props verificados contra `.sst/platform/node_modules/@pulumi/
-// aws-native/bedrockagentcore/{gateway,gatewayTarget}.d.ts` (1.68.0):
-// - Gateway: args `authorizerType`/`protocolType`/`roleArn`/`name`; outputs
-//   `gatewayUrl` (el endpoint MCP), `gatewayArn`, `gatewayIdentifier`.
-// - GatewayTarget: args `gatewayIdentifier`, `targetConfiguration.mcp
-//   .openApiSchema.inlinePayload`, `credentialProviderConfigurations[]
-//   .credentialProviderType` (enum incluye "GATEWAY_IAM_ROLE").
+// El output del recurso que interesa es `gatewayUrl`: es el endpoint MCP que
+// consume el core (se le pasa como GATEWAY_URL en infra/sst/runtime.ts).
 import { apiClienteDemoUrl } from "./api-cliente";
 
 // El nombre físico exige `([0-9a-zA-Z][-]?){1,48}` (alfanumérico con guiones
@@ -24,8 +19,8 @@ const stageSaneado = $app.stage
 
 const gatewayRole = new aws.iam.Role("GatewayRole", {
   // Mismo principal que el RuntimeRole: el servicio AgentCore asume este rol
-  // para las llamadas outbound de los targets (credencial POR TARGET, no de
-  // nivel gateway — corrección del spike al spec §7).
+  // para las llamadas outbound de los targets. La credencial outbound se
+  // configura POR TARGET, no a nivel gateway.
   assumeRolePolicy: JSON.stringify({
     Version: "2012-10-17",
     Statement: [
@@ -46,7 +41,7 @@ export const gateway = new awsnative.bedrockagentcore.Gateway("Gateway", {
   name: `craftech-ai-chat-gw-${stageSaneado}`,
   description: "Tools de tenant del chat (catalogo) via MCP",
   // Inbound SigV4: el core firma cada request MCP con las credenciales del
-  // RuntimeRole (SigV4Auth en core/src/agent/tools.py, T1).
+  // RuntimeRole (SigV4Auth en core/src/agent/tools.py).
   authorizerType: "AWS_IAM",
   // El .d.ts tipa protocolType como `any` (el enum vive en el schema de
   // CloudFormation): "MCP" es el único protocolo del recurso hoy.
@@ -55,10 +50,10 @@ export const gateway = new awsnative.bedrockagentcore.Gateway("Gateway", {
 });
 
 // El OpenAPI del target: SOLO /catalogo. El operationId nombra la tool
-// (contrato de la fase: `listar_catalogo`). Ojo para el smoke de T5: AgentCore
-// suele prefijar las tools MCP con el nombre del target (`<target>___<op>`) —
-// el core lista las tools dinámicamente así que no rompe nada, pero el nombre
-// visto en logs puede llevar el prefijo.
+// (`listar_catalogo`). Ojo: AgentCore suele prefijar las tools MCP con el
+// nombre del target (`<target>___<op>`) — el core lista las tools
+// dinámicamente así que no rompe nada, pero el nombre visto en logs puede
+// llevar el prefijo.
 const openApiCatalogo = $jsonStringify({
   openapi: "3.0.3",
   info: {
@@ -105,9 +100,7 @@ const openApiCatalogo = $jsonStringify({
 
 new awsnative.bedrockagentcore.GatewayTarget("GatewayTarget", {
   // El .d.ts lo marca opcional, pero sin él Cloud Control no sabe de qué
-  // gateway colgar el target: va siempre. (Si además es createOnly en el
-  // registry — no verificable local, sin creds — pasarlo explícito también es
-  // lo correcto; lo confirma el deploy de T5.)
+  // gateway colgar el target: va siempre.
   gatewayIdentifier: gateway.gatewayIdentifier,
   name: "api-cliente",
   description: "GET /catalogo de la demo API (dato de tenant)",
@@ -118,12 +111,12 @@ new awsnative.bedrockagentcore.GatewayTarget("GatewayTarget", {
   // de AgentCore permite para targets OpenAPI): el target es la Function URL
   // pública de la demo API (authType NONE), no hay nada que autenticar.
   //
-  // Ojo, acá había un bug que el review final cazó antes del deploy: un
-  // `credentialProviderType: "GATEWAY_IAM_ROLE"` pelado NO es válido sobre un
-  // target OpenAPI — ahí ese tipo significa "firmá el outbound con SigV4" y la
-  // API exige además `credentialProvider.iamCredentialProvider.service`; sin
-  // eso CreateGatewayTarget responde ValidationException. GATEWAY_IAM_ROLE
-  // pelado solo aplica a targets Lambda/ApiGateway/Smithy/Connector.
+  // Ojo si algún día hace falta credencial: un `credentialProviderType:
+  // "GATEWAY_IAM_ROLE"` pelado NO es válido sobre un target OpenAPI — ahí ese
+  // tipo significa "firmá el outbound con SigV4" y la API exige además
+  // `credentialProvider.iamCredentialProvider.service`; sin eso
+  // CreateGatewayTarget responde ValidationException. GATEWAY_IAM_ROLE pelado
+  // solo aplica a targets Lambda/ApiGateway/Smithy/Connector.
   // Cuando un cliente real tenga su API detrás de auth, va por acá: OAUTH o
   // API_KEY con su ProviderArn (AgentCore Identity).
 });

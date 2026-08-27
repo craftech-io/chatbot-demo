@@ -1,11 +1,10 @@
-// La "API del cliente" de ejemplo (fase 2d): una Lambda con Function URL que
-// juega el rol de la API que un cliente real ya tiene (ver
-// examples/api-cliente/README.md — en un deploy real esta pieza no existe y
-// el Gateway/las tools apuntan a la API del cliente).
+// La "API del cliente" de ejemplo: una Lambda con Function URL que juega el rol
+// de la API que un cliente real ya tiene (ver examples/api-cliente/README.md —
+// en un deploy real esta pieza no existe y el Gateway/las tools apuntan a la
+// API del cliente).
 export const apiClienteDemo = new sst.aws.Function("ApiClienteDemo", {
   // Formato de sst: ruta al archivo sin extensión + export (mismo patrón que
-  // Chat/Worker) — el plan la citaba con `.mjs`, pero sst resuelve
-  // `archivo.export`.
+  // Chat/Worker), no el nombre del archivo con su `.mjs`.
   handler: "examples/api-cliente/handler.handler",
   runtime: "nodejs24.x",
   // Dos GET de datos fijos: 10s sobra.

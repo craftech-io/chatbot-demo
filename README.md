@@ -8,9 +8,8 @@ del cliente. Se despliega en la cuenta de AWS del cliente, no en una cuenta
 compartida — ver `docs/superpowers/specs/2026-08-19-craftech-ai-chat-design.md`
 para las razones de esa decisión y del resto del diseño.
 
-Aersa es el primer cliente que lo usa, pero el template en sí es genérico: lo
-específico de cada cliente (orígenes de CORS, textos, branding) vive en un
-`client.config.ts` propio, no acá.
+El template es genérico: lo específico de cada cliente (orígenes de CORS,
+textos, branding) vive en un `client.config.ts` propio, no acá.
 
 ## Mapa del monorepo
 

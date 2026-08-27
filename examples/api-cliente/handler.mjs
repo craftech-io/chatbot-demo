@@ -1,9 +1,9 @@
-// La "API del cliente" de ejemplo (fase 2d). Es una PIEZA DE EJEMPLO: juega el
-// rol de la API que un cliente real YA TIENE en producción — nosotros no
-// deployaríamos esto para un cliente de verdad (ver README.md).
+// La "API del cliente" de ejemplo. Es una PIEZA DE EJEMPLO: juega el rol de la
+// API que un cliente real YA TIENE en producción — para un cliente de verdad
+// esta pieza no se despliega (ver README.md).
 //
-// Contrato (cerrado en el plan de la fase 2d; el mock del demo-client cuenta
-// exactamente la misma historia con estos mismos datos):
+// Contrato (el mock del demo-client expone los mismos endpoints con estos
+// mismos datos):
 // - GET /catalogo → 200 con los productos, SIN auth (dato de tenant: es lo
 //   mismo para todos, por eso este endpoint sí entra al AgentCore Gateway).
 // - GET /pedidos  → exige `Authorization: Bearer <actToken>`; sin header →
