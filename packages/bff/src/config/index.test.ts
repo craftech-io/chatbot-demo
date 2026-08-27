@@ -13,6 +13,6 @@
 import { expectTypeOf, it } from "vitest";
 import type { BffConfig } from "./index";
 
-it("BffConfig no tiene runtimeArn (pin de tipo, ver C1 del fix-wave)", () => {
+it("BffConfig no tiene runtimeArn (pin de tipo)", () => {
   expectTypeOf<BffConfig>().not.toHaveProperty("runtimeArn");
 });

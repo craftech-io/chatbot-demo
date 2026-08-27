@@ -11,7 +11,7 @@ const DEMORA_NORMAL_MS = 40;
 
 const RESTO_DE_LA_RESPUESTA =
   "Esto es el modo local (mock) del chat: no hay ningún agente real del otro " +
-  "lado, esta respuesta se arma de a poco para que veas el streaming en el navegador.";
+  "lado, la respuesta la escribe este mismo server para que puedas probar la UI.";
 
 // Texto de la entrada bloqueada: EMULA al registro compartido
 // (packages/shared/src/mensajes.ts, MENSAJES_GUARDRAIL.entradaBloqueada). El

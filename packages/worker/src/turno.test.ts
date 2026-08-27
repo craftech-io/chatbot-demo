@@ -137,7 +137,7 @@ describe("procesarMensaje", () => {
   // Sin pendientes no hay nada que responder (redelivery post-crash, o
   // fail-open del store): el assistant ya está escrito o lo trae otro job. El
   // mock local (examples/demo-client/server.mjs) tiene la misma guarda.
-  it("I1: si no hay pendientes, descarta el turno sin invocar ni escribir", async () => {
+  it("si no hay pendientes, descarta el turno sin invocar ni escribir", async () => {
     const deps = depsBase({
       store: {
         ultimoMsgIdUsuario: vi.fn(async () => "m1"),
@@ -195,7 +195,7 @@ describe("procesarMensaje", () => {
   // duda se responde: un descarte acá sería silencio para el usuario. Si además
   // el store no puede leer pendientes, degrada a "descartado" en vez de invocar
   // al agente con un mensaje vacío.
-  it("I2: si ultimoMsgIdUsuario devuelve null, procesa el turno igual (no descarta)", async () => {
+  it("si ultimoMsgIdUsuario devuelve null, procesa el turno igual (no descarta)", async () => {
     const deps = depsBase({
       store: {
         ultimoMsgIdUsuario: vi.fn(async () => null),
