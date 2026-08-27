@@ -6,11 +6,10 @@ import { MENSAJES_LIMITE } from "@craftech-ai-chat/shared/mensajes";
 // Registro de textos visibles: el producto es en español y los literales no se
 // dispersan por el código.
 //
-// Nota: no hay más un texto propio para "agente caído" — en la arquitectura
-// async (spec §8 v2) esa falla la maneja el worker, que escribe su propio
-// mensaje de assistant (MENSAJES_WORKER.error) directo al store. El widget lo
-// recibe por polling como cualquier otra respuesta; no hay código de error que
-// distinguirlo acá.
+// No hay un texto propio para "agente caído": esa falla la maneja el worker,
+// que escribe su propio mensaje de assistant (MENSAJES_WORKER.error) directo
+// al store. El widget lo recibe por polling como cualquier otra respuesta, así
+// que acá no hay ningún código de error que lo distinga.
 const MENSAJES = {
   errorGenerico: "Hubo un problema al responder. Probá de nuevo.",
 } as const;
@@ -111,8 +110,8 @@ function inyectarEstilos(): void {
 }
 
 // Cuánto se espera entre polls y cuánto se tolera sin respuesta antes de
-// rendirse (spec §8 v2: 1500ms / 90s). Inyectables SOLO para que los tests
-// sean determinísticos y rápidos — el default es el real.
+// rendirse. Inyectables SOLO para que los tests sean determinísticos y
+// rápidos — el default es el de producción.
 const POLL_MS_DEFECTO = 1500;
 const POLL_TIMEOUT_MS_DEFECTO = 90_000;
 
@@ -151,7 +150,7 @@ export function mount(
 
   // Nace con el indicador de "escribiendo" (3 puntos por DOM, sin innerHTML):
   // vive hasta que el polling trae la respuesta del asistente o se da por
-  // vencido (error o timeout) — ya no hay deltas que lo corten antes.
+  // vencido (error o timeout).
   function crearBurbujaRespuesta(): HTMLParagraphElement {
     const burbuja = document.createElement("p");
     burbuja.className = "cc-respuesta cc-escribiendo";
@@ -200,30 +199,30 @@ export function mount(
     }
   }
 
-  // Poller ÚNICO por mount (fix round 1): el server colapsa por debounce
-  // varios mensajes rápidos en UNA sola respuesta assistant. Si cada send()
-  // abriera su propio loop de polling, dos sends concurrentes matchearían esa
-  // misma respuesta y la pintarían dos veces. `pollerActivo` es el mutex
-  // síncrono que decide, en el momento de llamar a enviar() (antes de
-  // cualquier await), si ESTE send es el "dueño" del poller; `cursorInicial`
-  // es el `orden` del primer mensaje sin responder — el cursor que usa el
-  // poller del dueño, sin importar cuántos sends concurrentes se agreguen
-  // después.
-  // M5 (riesgo conocido y aceptado, fix-wave fase 2c): ventana de pocos
-  // milisegundos entre que preguntarHastaRespuesta ENCUENTRA la respuesta y
-  // recién ahí baja `pollerActivo` (línea de abajo del `if` en el loop) — un
-  // send() concurrente que caiga justo en esa ventana todavía ve
+  // Poller ÚNICO por mount: el server colapsa por debounce varios mensajes
+  // rápidos en UNA sola respuesta assistant. Si cada send() abriera su propio
+  // loop de polling, dos sends concurrentes matchearían esa misma respuesta y
+  // la pintarían dos veces. `pollerActivo` es el mutex síncrono que decide, en
+  // el momento de llamar a enviar() (antes de cualquier await), si ESTE send
+  // es el "dueño" del poller; `cursorInicial` es el `orden` del primer mensaje
+  // sin responder — el cursor que usa el poller del dueño, sin importar
+  // cuántos sends concurrentes se agreguen después.
+  //
+  // Limitación conocida y aceptada: hay una ventana de pocos milisegundos
+  // entre que preguntarHastaRespuesta ENCUENTRA la respuesta y recién ahí baja
+  // `pollerActivo` (la línea de abajo del `if` en el loop). Un send()
+  // concurrente que caiga justo en esa ventana todavía ve
   // `pollerActivo === true`, no se vuelve dueño, y confía en un poller que ya
   // está por terminar (encontró SU respuesta) y no va a volver a preguntar:
-  // ese mensaje nuevo queda sin quien lo pollee hasta el próximo send().
+  // ese mensaje queda sin quien lo pollee hasta el próximo send().
   let pollerActivo = false;
   let cursorInicial: string | null = null;
 
   type ResultadoPoll = { tipo: "respuesta"; texto: string } | { tipo: "todavia_no" } | { tipo: "fatal" };
 
   // Un solo poll: GET .../mensajes?hilo=&desde= y busca un rol=assistant en la
-  // respuesta. El store ya filtra `orden > desde` server-side (Task 2/3), así
-  // que cualquier assistant en la lista es la respuesta que se espera.
+  // respuesta. El store ya filtra `orden > desde` server-side, así que
+  // cualquier assistant en la lista es la respuesta que se espera.
   //
   // Un 401 NO es "todavía no": es simétrico al POST — se renueva el token UNA
   // vez y se reintenta; si el reintento TAMBIÉN da 401, no tiene sentido

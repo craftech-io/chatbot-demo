@@ -1,6 +1,6 @@
-// Mini-login del demo (plan 2026-08-26, Task 2): en mock es simulado (cookie
-// cc_user, cualquier usuario/contraseña no vacíos); en cognito es real
-// (InitiateAuth USER_PASSWORD_AUTH → ID token en cookie cc_id, HttpOnly).
+// Mini-login del demo: en mock es simulado (cookie cc_user, cualquier
+// usuario/contraseña no vacíos); en cognito es real (InitiateAuth
+// USER_PASSWORD_AUTH → ID token en cookie cc_id, HttpOnly).
 //
 // Los servers se levantan en puerto efímero (patrón de mock.test.mjs) y el
 // modo se elige pasando el entorno a crearServer(entorno) — sin tocar
@@ -72,9 +72,10 @@ describe("modo mock: login simulado", () => {
   });
 });
 
-// Pinea un bug real: el placeholder de auth aparecía dos veces en el HTML y
-// un replace simple (no-all) dejaba el del script sin reemplazar — la página
-// arrancaba en un modo inexistente y el login no aparecía nunca.
+// El placeholder de auth aparece dos veces en el HTML, así que el reemplazo
+// tiene que ser replaceAll: con un replace simple el del script queda sin
+// reemplazar, la página arranca en un modo inexistente y el login no aparece
+// nunca.
 describe("el HTML servido inyecta el modo de auth", () => {
   async function htmlServidoCon(entorno) {
     const server = crearServer(entorno);

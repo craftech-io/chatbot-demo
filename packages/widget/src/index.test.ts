@@ -8,7 +8,7 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// Fetch stub para el nuevo transporte (POST + polling, todo JSON): distingue
+// Fetch stub del transporte del widget (POST + polling, todo JSON): distingue
 // el pedido de token, el POST a /mensajes y los GET de polling por método —
 // las tres rutas comparten hostname/base en producción. Cada función recibe
 // el número de llamada (1-based) a esa ruta, para simular secuencias (ej. dos
@@ -62,13 +62,13 @@ describe("mount", () => {
     expect(mock.getCount()).toBe(3);
     expect(el.querySelector(".cc-respuesta")?.textContent).toBe("Hola mundo");
     // El primer poll usa el `orden` que devolvió el POST como cursor `desde`,
-    // y el `hilo` de la sesión — el contrato del plan (Task 3).
+    // y el `hilo` de la sesión.
     expect(mock.llamadasGet[0]).toContain("hilo=");
     expect(mock.llamadasGet[0]).toContain("desde=o1");
   });
 
   it("normaliza la barra final de apiUrl: nunca pide //mensajes", async () => {
-    // Bug real: la Function URL de Lambda se copia con barra final
+    // La Function URL de Lambda se suele copiar con barra final
     // (https://….on.aws/). Sin normalizar, `${apiUrl}/mensajes` arma
     // //mensajes, que el router del BFF no matchea (404) — y el usuario ve el
     // error genérico en todos los mensajes.
