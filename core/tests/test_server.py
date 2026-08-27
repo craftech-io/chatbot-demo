@@ -207,7 +207,7 @@ def test_una_lista_vacia_del_gateway_no_se_cachea_y_el_chat_sigue():
     assert llamados == ["https://gw/mcp", "https://gw/mcp"]
 
 
-def test_fake_llm_con_tools_pinea_el_loop_local_sin_bedrock_ni_red():
+def test_fake_llm_con_tools_recorre_el_loop_sin_bedrock_ni_red():
     # FAKE_LLM + "pedido" simula la tool call a mis_pedidos. Sin actToken la
     # tool real responde no-autenticado SIN tocar la red: el loop entero corre
     # local.

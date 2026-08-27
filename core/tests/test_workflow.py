@@ -135,7 +135,7 @@ async def test_sin_texto_ni_llamadas_cae_al_fallback_sin_agotar_rondas():
     assert len(llm.vistos) == 1
 
 
-async def test_sin_tools_el_camino_de_streaming_queda_intacto():
+async def test_sin_tools_el_workflow_streamea_la_respuesta():
     # Con tools=None ni siquiera se le pide aresponder_con_tools al adaptador:
     # FakeLLM no lo implementa y aun así el turno sale por astream.
     llm = FakeLLM(["igual", " que", " antes"])
