@@ -16,5 +16,5 @@
       "@pulumi/docker-build": ["./.sst/platform/node_modules/@pulumi/docker-build"]
     }
   },
-  "include": ["sst.config.ts", "infra/**/*.ts", "sst-env.d.ts"]
+  "include": ["sst.config.ts", "client.config.ts", "infra/**/*.ts", "sst-env.d.ts"]
 }

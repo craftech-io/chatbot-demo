@@ -9,6 +9,8 @@
 //   ambiental para esto, a diferencia de `aws`/`awsnative`/`sst`): se importa
 //   explícito.
 import * as dockerbuild from "@pulumi/docker-build";
+import { cliente } from "../../client.config";
+import { slugKebab, slugCamel } from "./nombres";
 import { guardrail } from "./guardrail";
 import { memoria } from "./memoria";
 import { gateway } from "./gateway";
@@ -18,10 +20,13 @@ import { apiClienteDemoUrl } from "./api-cliente";
 const region = aws.getRegionOutput().region;
 const accountId = aws.getCallerIdentityOutput().accountId;
 
-const repo = new aws.ecr.Repository("CoreRepo", {
+// Se exporta para publicar su nombre como output del stack: el CI lo lee de
+// `.sst/outputs.json` en vez de rearmarlo a mano (ver .github/workflows/deploy.yml).
+export const repo = new aws.ecr.Repository("CoreRepo", {
   // ECR exige nombres en minúsculas y el autoname de Pulumi parte del nombre
-  // lógico (CoreRepo) — lo rechaza. Nombre físico explícito y saneado.
-  name: `craftech-ai-chat-core-${$app.stage.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
+  // lógico (CoreRepo) — lo rechaza. Nombre físico explícito y saneado: el
+  // prefijo sale del slug del cliente (ver infra/sst/nombres.ts).
+  name: `${slugKebab}-core-${$app.stage.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`,
   forceDelete: true,
 });
 
@@ -126,7 +131,9 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
 export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   // El recurso exige `[a-zA-Z][a-zA-Z0-9_]*`: stages con guion (p.ej. `pr-123`)
   // lo violarían, así que se sanitiza cualquier carácter fuera de ese alfabeto.
-  agentRuntimeName: $interpolate`craftechAiChat${$app.stage.replace(/[^a-zA-Z0-9_]/g, "_")}`,
+  // El prefijo es el slug del cliente en camelCase (infra/sst/nombres.ts): ese
+  // alfabeto no acepta `-`.
+  agentRuntimeName: $interpolate`${slugCamel}${$app.stage.replace(/[^a-zA-Z0-9_]/g, "_")}`,
   agentRuntimeArtifact: {
     containerConfiguration: {
       // Digest PURO (repo@sha256:...): el ref canónico de docker-build combina
@@ -140,7 +147,7 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   networkConfiguration: { networkMode: "PUBLIC" },
   roleArn: role.arn,
   environmentVariables: {
-    MODEL_ID: "us.anthropic.claude-sonnet-4-6",
+    MODEL_ID: cliente.modelo,
     // Encienden el guardrail de salida (modo sync) del core.
     GUARDRAIL_ID: guardrail.guardrailId,
     GUARDRAIL_VERSION: guardrail.version,
