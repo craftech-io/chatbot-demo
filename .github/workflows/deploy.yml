@@ -1,7 +1,7 @@
 name: deploy
 on:
   push:
-    branches: [main, staging]
+    branches: [main]
 
 permissions:
   id-token: write
@@ -43,13 +43,19 @@ jobs:
       # El core (Python/ARM64) tiene su propia suite, corre acá antes de construir
       # la imagen que empaqueta el Runtime: si esto falla, no tiene sentido desplegar.
       - run: uv run pytest core/tests/ -v
-      - run: npx sst deploy --stage ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      # Un solo ambiente desplegado: este repo es el TEMPLATE, y lo único que
+      # necesita en vivo es el showcase con el que se demuestra y se prueba.
+      # El stage se llama `staging` por historia (nació antes de que `main`
+      # fuera la rama de deploy) y se deja así a propósito: el nombre está
+      # incrustado en cada recurso, el repo ECR y las URLs ya verificadas, y
+      # renombrarlo obliga a rehacer el stack entero sin ganar nada — nadie ve
+      # ese nombre desde afuera. Un clon de cliente elige los stages que quiera.
+      - run: npx sst deploy --stage staging
       # Ground truth del contenedor (diagnóstico): correr la imagen recién
       # pusheada en el runner (QEMU) y exigir /ping. Si esto pasa y AgentCore
       # igual falla su health check, el problema es de la plataforma, no de la
       # imagen. FAKE_LLM evita credenciales de Bedrock.
       - name: smoke de la imagen
-        if: github.ref_name != 'main'
         run: |
           IMG="776805327629.dkr.ecr.us-east-1.amazonaws.com/craftech-ai-chat-core-staging:latest"
           aws ecr get-login-password | docker login --username AWS --password-stdin 776805327629.dkr.ecr.us-east-1.amazonaws.com
