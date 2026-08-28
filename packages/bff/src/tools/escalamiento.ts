@@ -8,7 +8,7 @@
 // POST con el payload del caso a un webhook configurable. Sirve tal cual (o
 // como puente hacia lo que el cliente ya usa: Zapier, n8n, una Lambda propia).
 // Lo que es contrato NO es el webhook, es la INTERFAZ de la tool:
-//   entrada  { resumen, detalle?, usuario?, conversacion? }
+//   entrada  { resumen, detalle? }
 //   salida   { creado: true, referencia?, link?, nota? } | { creado: false, nota }
 // Un adaptador de un sistema concreto (Jira Service Management, Jira, Slack,
 // email) se implementa en el clon del cliente, donde existen las credenciales
@@ -24,6 +24,13 @@
 //
 // El token del sistema externo NUNCA toca el core: vive acá, detrás del
 // Gateway. El agente pide "escalá esto" y no ve credencial alguna.
+//
+// Por qué la entrada NO lleva `usuario` ni `conversacion`: el core le manda al
+// Gateway solo los argumentos que armó el MODELO, y el modelo no tiene el actor
+// ni el id de sesión en contexto — declararlos en el schema los volvía campos
+// que llegan vacíos o inventados. Hoy el humano retoma el caso por el canal que
+// nombre el `resumen`. Inyectarlos del lado del servidor (el core sí los tiene)
+// es una fase futura, no un olvido.
 //
 // Regla dura: si el POST no fue 2xx, esta tool NUNCA dice que creó el
 // escalamiento. Mentirle al usuario ("ya te derivé") cuando el ticket no
@@ -68,10 +75,6 @@ export type EntradaEscalamiento = {
   resumen?: string;
   /** Contexto adicional del caso. */
   detalle?: string;
-  /** Identificador del usuario final. */
-  usuario?: string;
-  /** Identificador de la conversación, para que el humano pueda leer el hilo. */
-  conversacion?: string;
 };
 
 export type RespuestaEscalamiento =
@@ -167,17 +170,13 @@ export function crearEscalarAHumano(deps: DepsEscalamiento) {
     if (!resumen) return { creado: false, nota: NOTA_SIN_RESUMEN };
     if (!deps.webhookUrl) return { creado: false, nota: NOTA_SIN_WEBHOOK };
 
-    // Los opcionales ausentes no viajan: `JSON.stringify` los borraría igual,
-    // pero armarlo así deja el payload explícito y evita mandar `""`.
+    // Payload explícito, campo por campo: los opcionales ausentes no viajan
+    // (`JSON.stringify` los borraría igual, pero así no se manda `""`) y nada
+    // que el modelo agregue por su cuenta —una identidad inventada, p. ej.—
+    // llega al sistema del cliente.
     const payload: Record<string, string> = { resumen };
-    for (const [clave, valor] of [
-      ["detalle", entrada.detalle],
-      ["usuario", entrada.usuario],
-      ["conversacion", entrada.conversacion],
-    ] as const) {
-      const limpio = texto(valor);
-      if (limpio) payload[clave] = limpio;
-    }
+    const detalle = texto(entrada.detalle);
+    if (detalle) payload.detalle = detalle;
 
     let respuesta: Response;
     try {

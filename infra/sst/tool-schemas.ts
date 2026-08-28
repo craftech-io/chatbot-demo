@@ -46,7 +46,7 @@ export const escalamientoToolSchema: ToolSchema = [
   {
     name: "escalar_a_humano",
     description:
-      "Crea el escalamiento para que una persona del equipo siga el caso. Usala SOLO después de que el usuario haya aceptado explícitamente que lo derives: primero ofrecé, y recién cuando diga que sí, llamala. Devuelve { creado: true } si el caso quedó registrado: si trae `referencia` (y `link`), pasáselos al usuario; si en cambio trae `nota`, el caso quedó recibido igual y lo que hay que transmitir es esa nota — no inventes una referencia. Si devuelve { creado: false, nota }, NO hay escalamiento confirmado — explicale al usuario lo que dice la nota, nunca le digas que ya lo derivaste.",
+      "Crea el escalamiento para que una persona del equipo siga el caso. Usala SOLO después de que el usuario haya aceptado explícitamente que lo derives: primero ofrecé, y recién cuando diga que sí, llamala. La persona del equipo retoma el caso por el canal que nombre el resumen (no recibe ni la identidad del usuario ni el hilo de esta conversación), así que escribí en el resumen por dónde seguirlo. Devuelve { creado: true } si el caso quedó registrado: si trae `referencia` (y `link`), pasáselos al usuario; si en cambio trae `nota`, el caso quedó recibido igual y lo que hay que transmitir es esa nota — no inventes una referencia. Si devuelve { creado: false, nota }, NO hay escalamiento confirmado — explicale al usuario lo que dice la nota, nunca le digas que ya lo derivaste.",
     inputSchema: {
       type: "object",
       properties: {
@@ -59,14 +59,6 @@ export const escalamientoToolSchema: ToolSchema = [
           type: "string",
           description:
             "Contexto útil del caso: qué se intentó, qué datos dio el usuario, qué no encontraste en los documentos.",
-        },
-        usuario: {
-          type: "string",
-          description: "Identificador del usuario, si lo tenés en el contexto.",
-        },
-        conversacion: {
-          type: "string",
-          description: "Identificador de esta conversación, si lo tenés en el contexto.",
         },
       },
       required: ["resumen"],

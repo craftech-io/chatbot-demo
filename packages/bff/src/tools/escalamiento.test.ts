@@ -36,8 +36,6 @@ function cuerpoDelPost(espia: ReturnType<typeof fetchFalso>["espia"]) {
 const CASO = {
   resumen: "El usuario pide el estado de una garantía que no está en los documentos",
   detalle: "Producto XR-200, comprado en marzo",
-  usuario: "usuario-1",
-  conversacion: "usuario-1#hilo-1",
 };
 
 describe("escalar_a_humano", () => {
@@ -234,6 +232,24 @@ describe("escalar_a_humano", () => {
       nota: NOTA_SIN_RESUMEN,
     });
     expect(espia).not.toHaveBeenCalled();
+  });
+
+  // `usuario` y `conversacion` salieron del schema: el core manda al Gateway
+  // SOLO los argumentos que armó el modelo, y el modelo no tiene el actor ni la
+  // sesión en contexto, así que llegaban vacíos o inventados. Si igual los
+  // manda, no viajan: un ticket con una identidad inventada es peor que uno sin
+  // identidad. (Inyectarlos del lado del servidor es otra fase.)
+  it("no reenvía identidades que el modelo pudiera inventar", async () => {
+    const { espia, fetch } = fetchFalso(async () => respuesta(200, { referencia: "ESC-1" }));
+    const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
+
+    await escalar({
+      ...CASO,
+      usuario: "juan.perez@ejemplo",
+      conversacion: "hilo-inventado",
+    } as never);
+
+    expect(cuerpoDelPost(espia)).toEqual(CASO);
   });
 
   it("los campos opcionales ausentes no viajan como undefined en el payload", async () => {
