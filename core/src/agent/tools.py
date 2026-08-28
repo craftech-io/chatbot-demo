@@ -43,6 +43,12 @@ MENSAJE_ERROR_TOOL_TENANT = (
     "No pude consultar esa información en este momento; el servicio no respondió."
 )
 
+# La tool de escalamiento vive en el Gateway y llega prefijada con el nombre del
+# target (`<target>___escalar_a_humano`), así que se reconoce por el sufijo. El
+# cierre del turno la usa para contar derivaciones (spec §17) sin mirar el
+# contenido de la conversación.
+NOMBRE_TOOL_ESCALAMIENTO = "escalar_a_humano"
+
 _TIMEOUT_API_CLIENTE = 10  # segundos
 
 

@@ -1,7 +1,10 @@
 import json
+import logging
 
 from starlette.testclient import TestClient
 
+from agent.costo import UsoTokens
+from agent.workflow import LlamadaTool, RespuestaLLM
 from server import build_app
 
 
@@ -122,7 +125,7 @@ class FakeLLMSoloTools:
     """Doble que solo sabe responder por el camino de tools."""
 
     async def aresponder_con_tools(self, message, history, tools):
-        return ("listo", [])
+        return RespuestaLLM(texto="listo", llamadas=[])
 
 
 def test_el_acttoken_del_payload_llega_a_las_tools_de_usuario():
@@ -216,3 +219,129 @@ def test_fake_llm_con_tools_recorre_el_loop_sin_bedrock_ni_red():
 
     assert r.status_code == 200
     assert "no está autenticado" in texto_del_done(r)
+
+
+# --- cierre del turno: el log estructurado (observabilidad, spec §17) ---
+
+
+def log_del_cierre(caplog) -> dict:
+    """El único log de cierre de turno, parseado. Falla si hay más de uno."""
+    (linea,) = [
+        r.getMessage() for r in caplog.records if '"evento": "turno_cerrado"' in r.getMessage()
+    ]
+    return json.loads(linea)
+
+
+class FakeLLMConUso:
+    """Doble que expone el uso del turno, como hace BedrockAdapter."""
+
+    def __init__(self):
+        self.uso_del_turno = UsoTokens(
+            entrada=1200, salida=300, cache_lectura=800, cache_escritura=40
+        )
+
+    async def astream(self, message: str, history: list[dict]):
+        yield "Hola"
+        yield " mundo"
+
+
+def test_el_cierre_del_turno_se_loguea_en_una_linea_json_sin_texto_de_la_conversacion(caplog):
+    app = build_app(
+        llm_factory=lambda cfg: FakeLLMConUso(),
+        env={"MODEL_ID": "fake", "AWS_REGION": "us-east-1"},
+        # El estimador se inyecta: los tests no pegan a la Pricing API.
+        estimador_de_costo=lambda uso, model_id, region: 0.0126,
+    )
+    with caplog.at_level(logging.INFO):
+        r = TestClient(app).post(
+            "/invocations",
+            json={"message": "¿cuánto sale el envío a Córdoba?", "sessionId": "s-9"},
+        )
+
+    assert r.status_code == 200
+    assert log_del_cierre(caplog) == {
+        "evento": "turno_cerrado",
+        "sessionId": "s-9",
+        "modelo": "fake",
+        "tokensEntrada": 1200,
+        "tokensSalida": 300,
+        "tokensCacheLectura": 800,
+        "tokensCacheEscritura": 40,
+        "costoUsd": 0.0126,
+        "escalado": False,
+    }
+    # Ni la pregunta ni la respuesta viajan en el log: es lo que hace consultable
+    # la métrica sin exponer la conversación.
+    assert "Córdoba" not in caplog.text
+    assert "mundo" not in caplog.text
+
+
+def test_sin_uso_reportado_el_turno_se_cierra_igual_con_tokens_en_cero(caplog):
+    # FakeLLM no expone `uso_del_turno` (ni el modo local, ni un proveedor que no
+    # lo reporte): el log sale igual, sin costo.
+    app = build_app(llm_factory=lambda cfg: FakeLLM(), env={"MODEL_ID": "fake"})
+    with caplog.at_level(logging.INFO):
+        r = TestClient(app).post("/invocations", json={"message": "hola", "sessionId": "s-1"})
+
+    assert r.status_code == 200
+    datos = log_del_cierre(caplog)
+    assert datos["tokensEntrada"] == 0
+    assert datos["costoUsd"] is None
+
+
+def test_el_turno_se_cierra_con_log_aunque_el_workflow_falle(caplog):
+    app = build_app(llm_factory=lambda cfg: FakeLLMQueFalla(), env={"MODEL_ID": "fake"})
+    with caplog.at_level(logging.INFO):
+        r = TestClient(app).post("/invocations", json={"message": "hola", "sessionId": "s-2"})
+
+    assert r.status_code == 200
+    assert log_del_cierre(caplog)["sessionId"] == "s-2"
+
+
+def test_el_log_marca_el_escalamiento_cuando_el_agente_usa_esa_tool(caplog):
+    from llama_index.core.tools import FunctionTool
+
+    async def escalar() -> str:
+        """Deriva la conversación a una persona."""
+        return "escalamiento ACME-42 creado"
+
+    # El Gateway prefija las tools con el nombre del target: el core reconoce el
+    # escalamiento por el sufijo, no por el nombre pelado.
+    tool = FunctionTool.from_defaults(
+        async_fn=escalar,
+        name="acme___escalar_a_humano",
+        description="Deriva la conversación a una persona.",
+    )
+
+    class FakeLLMQueEscala:
+        def __init__(self):
+            self.rondas = 0
+
+        async def aresponder_con_tools(self, message, history, tools):
+            self.rondas += 1
+            if self.rondas == 1:
+                return RespuestaLLM(
+                    texto=None,
+                    llamadas=[
+                        LlamadaTool(id="e1", nombre="acme___escalar_a_humano", argumentos={})
+                    ],
+                )
+            return RespuestaLLM(texto="Ya derivé tu caso.", llamadas=[])
+
+    async def gateway_factory(url, region):
+        return [tool]
+
+    app = build_app(
+        llm_factory=lambda cfg: FakeLLMQueEscala(),
+        env={"MODEL_ID": "fake", "GATEWAY_URL": "https://gw/mcp"},
+        tools_gateway_factory=gateway_factory,
+    )
+    with caplog.at_level(logging.INFO):
+        r = TestClient(app).post(
+            "/invocations", json={"message": "quiero hablar con alguien", "sessionId": "s-3"}
+        )
+
+    assert r.status_code == 200
+    assert log_del_cierre(caplog)["escalado"] is True
+    # El resultado de la tool tampoco sale en el log.
+    assert "ACME-42" not in caplog.text
