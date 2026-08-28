@@ -83,7 +83,9 @@ npm run typecheck                 # typecheck de los workspaces de npm
 
 - `docs/diseno.md` — el diseño completo.
 - `docs/notas-tecnicas.md` — expectativas operativas: latencias, cold start,
-  tamaño de la imagen y los knobs que las mueven.
+  tamaño de la imagen, la observabilidad (qué se ve sin instrumentar nada, cómo
+  se lee resolución vs derivación, cómo se apuntan las trazas a otro destino) y
+  los knobs que mueven todo eso.
 - `infra/CONTRACT.md` — el contrato multi-IaC: qué recursos y variables debe
   proveer cualquier sabor de infraestructura.
 - `examples/demo-client/README.md` — cómo integra el chat una app cliente.
