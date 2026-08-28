@@ -49,6 +49,12 @@ export const NOTA_SIN_WEBHOOK =
 // certeza es que NO tiene una referencia que darle al usuario.
 export const NOTA_FALLO =
   "No pude confirmar el escalamiento: el sistema de soporte no respondió bien y no hay una referencia para darle al usuario. Conviene reintentar en un rato.";
+// Nota propia para el 3xx: no es una caída del sistema de soporte, es el URL
+// configurado. Lo dice explícito para que el operador que lea la conversación
+// (o el log) sepa dónde mirar en vez de reintentar contra un destino que jamás
+// va a recibir el POST.
+export const NOTA_REDIRECCION =
+  "No pude confirmar el escalamiento: el destino configurado redirige a otra dirección, así que el pedido nunca llegó. Hay que revisar el URL del webhook de escalamiento (suele ser `http://` en vez de `https://`, o una barra final de más).";
 
 export type EntradaEscalamiento = {
   /** Qué necesita el usuario, en una o dos frases. Obligatorio. */
@@ -174,11 +180,31 @@ export function crearEscalarAHumano(deps: DepsEscalamiento) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
+        // NO el default (`follow`): en 301/302/303 fetch cambia el método a GET
+        // y descarta el body, así que el POST se pierde, el GET devuelve 200 y
+        // la tool afirmaría que creó un escalamiento que no existe. Con
+        // `manual` el 3xx vuelve como tal y se trata como fallo (abajo).
+        redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (e) {
       console.error("el POST al webhook de escalamiento falló:", motivoDeError(e));
       return { creado: false, nota: NOTA_FALLO };
+    }
+
+    // Un 3xx no es "el sistema de soporte respondió mal": es el URL configurado.
+    // Se chequea aparte del `!ok` de abajo por la nota, y se aceptan las dos
+    // formas posibles — el 3xx crudo (lo que hace undici) y la respuesta
+    // filtrada `opaqueredirect` con status 0 que permite el spec de fetch.
+    const redirige =
+      respuesta.type === "opaqueredirect" || (respuesta.status >= 300 && respuesta.status < 400);
+    if (redirige) {
+      console.error(
+        "el webhook de escalamiento redirige (status",
+        respuesta.status,
+        "): el POST no se reenvía a un redirect, revisar el URL configurado",
+      );
+      return { creado: false, nota: NOTA_REDIRECCION };
     }
 
     if (!respuesta.ok) {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   crearEscalarAHumano,
   NOTA_FALLO,
+  NOTA_REDIRECCION,
   NOTA_SIN_RESUMEN,
   NOTA_SIN_WEBHOOK,
 } from "./escalamiento";
@@ -94,6 +95,48 @@ describe("escalar_a_humano", () => {
 
       expect(r).toEqual({ creado: false, nota: NOTA_FALLO });
     }
+    err.mockRestore();
+  });
+
+  // `redirect: "follow"` (el default de fetch) produce un `creado: true` FALSO:
+  // en 301/302/303 el método pasa a GET y el body se descarta, así que el POST
+  // se pierde, el GET devuelve 200 y `respuesta.ok` es true. Pasa con un
+  // secreto seteado con `http://` o con barra final que el server normaliza.
+  it("pide redirect manual: con `follow` el POST se convertiría en un GET", async () => {
+    const { espia, fetch } = fetchFalso(async () => respuesta(201, { referencia: "ESC-1" }));
+
+    await crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch })(CASO);
+
+    expect(espia.mock.calls[0]![1].redirect).toBe("manual");
+  });
+
+  it("un 3xx NUNCA es creado, y la nota dice que el destino redirige", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const status of [301, 302, 303, 307, 308]) {
+      const { fetch } = fetchFalso(async () =>
+        respuesta(status, { referencia: "ESC-mentira" }),
+      );
+      const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
+
+      expect(await escalar(CASO)).toEqual({ creado: false, nota: NOTA_REDIRECCION });
+    }
+    err.mockRestore();
+  });
+
+  it("un opaqueredirect (status 0, el filtrado del spec) tampoco es creado", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    // undici devuelve el 3xx real, pero el spec de fetch permite devolver una
+    // respuesta filtrada `opaqueredirect` con status 0: no se asume ninguna de
+    // las dos formas.
+    const { fetch } = fetchFalso(async () => ({
+      ok: false,
+      status: 0,
+      type: "opaqueredirect",
+      json: async () => ({}),
+    }) as unknown as Response);
+    const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
+
+    expect(await escalar(CASO)).toEqual({ creado: false, nota: NOTA_REDIRECCION });
     err.mockRestore();
   });
 
