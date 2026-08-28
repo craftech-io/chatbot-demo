@@ -43,10 +43,18 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "Documentos": {
+      "name": string
+      "type": "sst.aws.Bucket"
+    }
     "Guardrail": {
       "id": string
       "type": "sst.sst.Linkable"
       "version": string
+    }
+    "KnowledgeBase": {
+      "id": string
+      "type": "sst.sst.Linkable"
     }
     "LimitsTable": {
       "name": string

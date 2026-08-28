@@ -159,6 +159,10 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
     // tools (contrato del core).
     GATEWAY_URL: gateway.gatewayUrl,
     CLIENT_API_URL: apiClienteDemoUrl,
+    // Política de comportamiento del agente (spec §11.2): sale de
+    // `client.config.ts` y el core la usa como mensaje `system`. Vacía o
+    // ausente ⇒ el core corre sin mensaje de sistema (contrato del core).
+    PROMPT_SISTEMA: cliente.promptSistema,
   },
 });
 

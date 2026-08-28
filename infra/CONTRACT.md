@@ -21,6 +21,11 @@ uno a otro es reimplementar esta lista, nada más.
 | MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver las notas del sabor SST abajo); redirige a MensajesDlq tras 3 intentos; `visibilityTimeout` 6 minutos — **invariante: siempre ≥ 2x el `timeout` del worker** (hoy 3 minutos, `infra/sst/worker.ts`), o SQS re-entrega el mensaje mientras el primer invoke sigue corriendo y el segundo `procesarMensaje` concurrente pasa el debounce (nada cambió) → doble invocación al agente, doble respuesta, sin error ni DLQ que lo delate |
 | MensajesDlq (SQS FIFO) | destino de mensajes que MensajesCola no pudo entregar tras 3 intentos | también FIFO — SQS no permite que una cola FIFO redirija a una DLQ estándar (ni al revés) |
 | Lambda del worker (`Worker`) | consume MensajesCola (batch size 1) y corre el turno del agente en background: debounce + agregación de pendientes + invoke a AgentCore Runtime + escritura de la respuesta en MessagesTable (spec §8) | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio + sub-recurso `runtime-endpoint/*`); `sqs:ChangeMessageVisibility`+`sqs:DeleteMessage`+`sqs:GetQueueAttributes`+`sqs:GetQueueUrl`+`sqs:ReceiveMessage` sobre MensajesCola (a mano — `subscribe` por ARN no los auto-otorga, ver las notas del sabor SST abajo); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable heredado de `messagesTableLink` (mismo Linkable que usa el BFF, `include` en `infra/sst/mensajeria.ts`); timeout 3 minutos (el turno puede tardar tanto como el invoke completo al Runtime) |
+| Bucket de documentos (`Documentos`) | fuente de la Knowledge Base: acá viven los documentos del cliente (spec §11) | el template no lleva documentos de ningún cliente; el corpus se sube post-deploy. **La ingesta no es automática**: subir un archivo no lo indexa, hay que disparar un ingestion job (`aws bedrock-agent start-ingestion-job`) — ver `examples/documentos/README.md` |
+| Vector bucket + índice de S3 Vectors | el vector store de la Knowledge Base | índice `documentos`: `float32`, dimensión **1024** (tiene que coincidir con el modelo de embeddings: Titan Text Embeddings v2), métrica `cosine`. `AMAZON_BEDROCK_TEXT` y `AMAZON_BEDROCK_METADATA` van como metadata **no filtrable**: son las dos claves donde Bedrock guarda el texto del chunk y su metadata, y filtrables se comen el presupuesto de metadata del índice |
+| Rol de ejecución de la Knowledge Base | lo asume `bedrock.amazonaws.com` | **el nombre del rol DEBE empezar con `AmazonBedrockExecutionRoleForKnowledgeBase_`** — es un requisito de Bedrock (`CreateKnowledgeBase` valida el ARN y si no responde `ValidationException`), no una convención nuestra. Presupuesto de nombre: IAM tope 64 caracteres menos los 43 del prefijo = **21** para el sufijo, así que el sufijo derivado del slug se recorta. Permisos: `bedrock:InvokeModel` sobre el ARN del modelo de embeddings; `s3vectors:*` acotado por recurso al vector bucket y al índice propios (wildcard de acción a propósito: los nombres de acción de S3 Vectors no los valida ningún `.d.ts` y una que falte sale como fallo opaco a mitad de la ingesta); `s3:ListBucket` sobre el bucket de documentos y `s3:GetObject` sobre sus claves |
+| Knowledge Base de Bedrock | RAG sobre los documentos del cliente (spec §11) | `type: VECTOR` con `vectorKnowledgeBaseConfiguration.embeddingModelArn`; `storageConfiguration.type: S3_VECTORS` apuntando al vector bucket y al índice. **Se crea después de la policy del rol** (`dependsOn`): `CreateKnowledgeBase` valida en el momento que el rol pueda leer el bucket y escribir en el vector store |
+| DataSource de la Knowledge Base | conecta el bucket de documentos a la KB | `type: S3` con `s3Configuration.bucketArn`, y **`dataDeletionPolicy: RETAIN`**: con el default (`DELETE`) el borrado del data source le pide a Bedrock que además borre los vectores indexados, y si esa limpieza falla la KB queda en `DELETE_UNSUCCESSFUL` — stack a medio borrar, sin forma limpia de retomarlo (pasó en una cuenta real) |
 
 ## Variables que recibe el core (contenedor)
 
@@ -33,6 +38,21 @@ uno a otro es reimplementar esta lista, nada más.
 | `MEMORY_ID` | no | sin ella, el core usa el history del payload (modo local/tests) |
 | `GATEWAY_URL` | no | endpoint MCP del AgentCore Gateway (`gatewayUrl` del recurso). Vacía o ausente ⇒ el agente corre sin tools de tenant. El core firma cada request con SigV4 (rol del Runtime), así que el rol necesita `bedrock-agentcore:InvokeGateway` |
 | `CLIENT_API_URL` | no | base URL de la API del cliente para las tools de usuario (sin barra final). Vacía o ausente ⇒ el agente corre sin tools de usuario. **Es una frontera de confianza:** a esta URL se le manda el `actToken` del usuario final como `Authorization: Bearer` en cada llamada de tool, así que solo puede apuntar a la API del cliente — una URL mal apuntada exfiltra credenciales de usuarios |
+| `PROMPT_SISTEMA` | no | política de comportamiento del agente (spec §11.2): no inventar, citar la fuente, ofrecer derivar a una persona cuando la respuesta no está en los documentos. Sale de `promptSistema` en `client.config.ts` y el core la manda como mensaje `system` al principio de cada turno. **Vacía o ausente ⇒ el core corre sin mensaje de sistema** (el comportamiento previo a esta capacidad: los tests y el modo local no cambian) |
+
+## Variables que recibe la tool de documentos
+
+La tool `consultar_documentos` corre en su propia Lambda y hace `Retrieve`
+contra la Knowledge Base.
+
+| Variable | Obligatoria | Descripción |
+|---|---|---|
+| `KNOWLEDGE_BASE_ID` | sí | id de la Knowledge Base. En SST llega por linkable (`Resource.KnowledgeBase.id`): la KB es un recurso crudo de Cloud Control, no auto-linkable, así que va envuelta en un `sst.Linkable` llamado `KnowledgeBase` |
+| `DOCUMENTOS_TOP_K` | no (default 5) | cuántos pasajes pide cada búsqueda (`numberOfResults`) cuando la llamada de la tool no pide otro número. Sale de `documentos.topK` en `client.config.ts` |
+
+Permisos que necesita esa Lambda: `bedrock:Retrieve` acotado al
+`knowledgeBaseArn` de la KB propia. **Un `sst.Linkable` pelado no otorga nada**
+(ver "Lo que un Linkable NO otorga" abajo): el permiso va a mano.
 
 ## Variables que recibe el BFF
 
@@ -149,6 +169,53 @@ silencio.
   (`bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents`) no aparecen
   en los `.d.ts` de `aws`/`aws-native`: no hay nada que los valide en tiempo de
   build y un typo sale como `AccessDenied` en runtime.
+- La Knowledge Base de Bedrock NO existe en el provider classic: va por
+  `awsnative.bedrock.KnowledgeBase` (espeja el tipo CFN
+  `AWS::Bedrock::KnowledgeBase`, el único que soporta `S3VectorsConfiguration`).
+  Sus outputs se llaman `knowledgeBaseId` y `knowledgeBaseArn`, no `.id`/`.arn`.
+  El vector store va por `awsnative.s3vectors.VectorBucket` +
+  `awsnative.s3vectors.Index` (`vectorBucketArn`, `indexArn`); ojo con el import
+  del índice, que el paquete lo exporta desde `index_` y lo reexporta como
+  `Index`. `Index.vectorBucketName` está tipado `Output<string | undefined>`
+  (CloudFormation lo autogenera si no se lo pasás), así que hay que resolverlo.
+- Los nombres de acción de S3 Vectors (`s3vectors:*`) tampoco aparecen en los
+  `.d.ts`: el rol de la KB usa el wildcard de acción acotado por recurso al
+  vector bucket y al índice propios, porque una acción que falte de una lista
+  explícita no falla el deploy — sale como un error opaco a mitad de la ingesta.
+
+### Propiedades createOnly de la Knowledge Base
+
+Cloud Control marca varias propiedades como createOnly: cambiarlas no actualiza
+el recurso, lo **recrea**. No lo detecta ningún typecheck; lo ves en el diff del
+deploy si lo leés.
+
+- `storageConfiguration` y
+  `knowledgeBaseConfiguration.vectorKnowledgeBaseConfiguration` de la KB:
+  cambiar de vector store o de modelo de embeddings borra y recrea la KB, y con
+  ella se va todo lo indexado.
+- `dataSourceConfiguration` y
+  `vectorIngestionConfiguration.chunkingConfiguration` del DataSource. Por eso
+  `infra/sst/conocimiento.ts` NO declara chunking: se toma el default del
+  servicio (fixed-size), y tunearlo después implica recrear el data source y
+  reingestar todo el corpus.
+- La dimensión del índice de S3 Vectors y la del modelo de embeddings tienen que
+  coincidir (1024 con Titan v2). Cambiar de modelo es cambiar las dos cosas, o
+  sea recrear índice y KB.
+
+### Alfabetos de nombres físicos (S3 Vectors y el rol de la KB)
+
+Además de los tres alfabetos que ya traduce `infra/sst/nombres.ts`:
+
+- Vector bucket e índice de S3 Vectors: minúsculas, dígitos y guiones, 3–63
+  caracteres. NO aceptan mayúsculas ni `_`, así que el stage se sanea (un stage
+  `PR_12` haría fallar el create).
+- Rol de ejecución de la KB: el prefijo `AmazonBedrockExecutionRoleForKnowledgeBase_`
+  que exige Bedrock se come 43 de los 64 caracteres que IAM permite en un nombre
+  de rol. Quedan 21 para el sufijo, y el slug del template ya mide 16: con un
+  stage largo el nombre se pasa. `infra/sst/conocimiento.ts` recorta el SLUG y
+  preserva el stage entero — dentro de una misma cuenta (el template es BYOC,
+  una cuenta por cliente) lo que distingue dos stacks es el stage, y dos roles
+  con el mismo nombre serían el mismo recurso.
 
 ### Nombres de componentes
 
@@ -160,6 +227,13 @@ linkables `SessionsTable`, `LimitsTable`, `MessagesTable` y `MensajesCola`. La
 colisión no la ve ningún typecheck: sale como `VisibleError: Component name X is
 not unique` en runtime de Pulumi, al desplegar. (`Worker` no necesita sufijo:
 ningún linkable usa esa clave.)
+
+El chequeo solo mira los tipos `sst:*` y los tipos envueltos por `sst.Linkable`,
+así que un recurso CRUDO de `aws-native` sí podría reusar el nombre de un
+linkable sin que nada se queje. Igual se eligen nombres distintos: el recurso de
+la Knowledge Base se llama `Conocimiento` y el linkable con su id,
+`KnowledgeBase` — dos cosas distintas con el mismo nombre en el diff del deploy
+y en los logs de Pulumi no se leen.
 
 ### Lo que un Linkable NO otorga
 
