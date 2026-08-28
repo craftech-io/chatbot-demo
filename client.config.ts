@@ -171,8 +171,14 @@ export interface ConfigCliente {
      * nombra al stage que la administra; los demás la consumen sin declararla,
      * porque ya está activa en la cuenta.
      *
-     * Con una cuenta por ambiente, poné el nombre del único stage. Con varios
-     * stages en la misma cuenta (previews por PR), poné el estable.
+     * El default (`""`) es que NADIE la declare: es un prerequisito de cuenta
+     * que se activa una vez, fuera del stack (`aws xray
+     * update-trace-segment-destination --destination CloudWatchLogs`), igual
+     * que habilitar los modelos en Bedrock. Si ya está activa —lo normal— y un
+     * stack la declara, el deploy corta con AlreadyExists.
+     *
+     * Poné acá el nombre de un stage solo si querés que ESE stack sea dueño de
+     * la configuración de toda la cuenta.
      */
     stageQueAdministraLaBusqueda: string;
   };
@@ -236,7 +242,7 @@ export const cliente: ConfigCliente = {
     destino: "cloudwatch",
     // Indexar todo lo que llega: con el muestreo al 5% no sobra nada.
     indexadoTrazas: 100,
-    stageQueAdministraLaBusqueda: "staging",
+    stageQueAdministraLaBusqueda: "",
   },
   documentos: {
     topK: 5,

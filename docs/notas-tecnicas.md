@@ -88,6 +88,25 @@ Confluence (que exige OpenSearch) queda fuera del núcleo.
 
 ## Observabilidad: qué se ve y qué se prende
 
+### Prerequisito de cuenta: búsqueda de transacciones
+
+Las trazas del agente no aparecen en CloudWatch hasta que la cuenta tiene
+habilitada la búsqueda de transacciones de X-Ray. Se activa **una vez por cuenta
+y región**, igual que habilitar los modelos en Bedrock:
+
+```bash
+aws xray update-trace-segment-destination --destination CloudWatchLogs
+aws xray get-trace-segment-destination        # Status debería decir ACTIVE
+```
+
+No lo hace el stack a propósito: es configuración de cuenta, y si un stack la
+declara cuando ya está activa —o cuando otro stage ya la declaró— el deploy
+corta con `AlreadyExists`. Quien quiera tenerla bajo IaC pone su stage en
+`observabilidad.stageQueAdministraLaBusqueda`.
+
+Ojo con el modo de falla: **sin este paso el deploy sigue verde** y las trazas
+simplemente no aparecen en ningún lado.
+
 El *por qué* de las tres capas está en la spec §17. Acá está el cómo: qué mirar
 sin tocar nada, qué knob mueve qué, y las dos formas de pagar de más.
 

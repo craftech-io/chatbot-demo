@@ -336,7 +336,7 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
 });
 
 // Escritura de spans al endpoint OTLP de X-Ray (spec §17, capa 2). Va como la
-// policy ADMINISTRADA `AWSXrayWriteOnlyPolicy` y no como statement propio a
+// policy ADMINISTRADA `AWSXrayWriteOnlyAccess` y no como statement propio a
 // propósito: es la que la doc de AWS indica para el camino collector-less de
 // ADOT, y el set de acciones que necesita ese endpoint lo fue cambiando
 // (`xray:PutTraceSegments` y después `xray:PutSpans`) — una lista escrita a mano
@@ -348,7 +348,7 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
 if (observabilidad.destino === "cloudwatch") {
   new aws.iam.RolePolicyAttachment("RuntimeXrayWrite", {
     role: role.name,
-    policyArn: "arn:aws:iam::aws:policy/AWSXrayWriteOnlyPolicy",
+    policyArn: "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess",
   });
 }
 

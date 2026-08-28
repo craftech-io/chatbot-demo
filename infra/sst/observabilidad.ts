@@ -82,16 +82,28 @@ const region = aws.getRegionOutput().region;
 // El `.d.ts` del recurso expone `accountId` como OUTPUT (read-only): el único
 // argumento de entrada es `indexingPercentage`. No hay nada de nuestra cuenta
 // escrito acá.
-// Es OPT-IN, y no siempre, por lo que dice la nota de arriba: la configuración
-// es de CUENTA, así que el segundo stage de la misma cuenta que la declare se
-// come un AlreadyExists de Cloud Control y el deploy CORTA. Un template genérico
-// no puede asumir un stage por cuenta: un `pr-123` de preview haría fallar un CI
-// que no tiene nada que ver con el cambio.
+// La búsqueda de transacciones de X-Ray es un **prerequisito de CUENTA**, de la
+// misma familia que habilitar los modelos en Bedrock: se activa una vez por
+// cuenta y región, y a partir de ahí todos los stacks la usan.
 //
-// Quien la administra la declara una vez (el stage designado en
-// `client.config.ts`); los demás stages la consumen sin declararla — la
-// configuración ya está activa en la cuenta y les sirve igual.
+// Por eso el default es NO declararla, y no es timidez: modelarla como recurso
+// del stack rompe de dos formas distintas, las dos verificadas en una cuenta
+// real. Si dos stages la declaran, el segundo deploy corta con AlreadyExists. Y
+// si alguien ya la activó a mano —lo normal, porque es el primer paso de la guía
+// de AgentCore— el PRIMER deploy corta, aunque sea el único stage.
+//
+// Un cliente que la quiera bajo IaC pone su stage en
+// `observabilidad.stageQueAdministraLaBusqueda`, sabiendo que ese stack pasa a
+// ser dueño de una configuración de toda la cuenta. Con el default (`""`) nadie
+// la declara y el prerequisito se cumple una vez, fuera del stack:
+//
+//   aws xray update-trace-segment-destination --destination CloudWatchLogs
+//
+// Sin ella, AgentCore no publica sus spans en CloudWatch y las trazas del agente
+// no aparecen en ningún lado — el deploy sigue verde, así que conviene
+// verificarla con `aws xray get-trace-segment-destination`.
 export const busquedaDeTransacciones =
+  cliente.observabilidad.stageQueAdministraLaBusqueda !== "" &&
   cliente.observabilidad.stageQueAdministraLaBusqueda === $app.stage
     ? new awsnative.xray.TransactionSearchConfig(
         "TransactionSearch",
