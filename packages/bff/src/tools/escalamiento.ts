@@ -82,15 +82,49 @@ function texto(valor: unknown): string | undefined {
   return undefined;
 }
 
+// ¿Este candidato es el webhook disfrazado de dato del ticket? La comparación es
+// por ORIGEN y no por URL entera porque el token suele viajar en el path o en el
+// query: `https://hooks.zapier.com/hooks/catch/123/abc` y
+// `https://hooks.zapier.com/hooks/catch/123/abc/` son el mismo secreto.
+function esDelWebhook(candidato: string, webhookUrl: string): boolean {
+  try {
+    return new URL(candidato).origin === new URL(webhookUrl).origin;
+  } catch {
+    // Un id que no es un URL absoluto (`ESC-42`, `12345`) no puede ser el
+    // webhook. Tampoco lo es si el webhook configurado no parsea (y en ese caso
+    // el POST ni salió).
+    return false;
+  }
+}
+
 // Del cuerpo del webhook se rescatan la referencia y el link del ticket, con los
 // nombres más habituales: `key` es lo de Atlassian, `id`/`reference` lo de casi
-// todo lo demás. Si no viene ninguno, el caller genera una referencia local.
-function datosDelTicket(cuerpo: unknown): { referencia?: string; link?: string } {
+// todo lo demás.
+//
+// Lo que sale de acá viaja al modelo y de ahí AL USUARIO (el schema le dice que
+// le pase la referencia y el link), y el URL del webhook ES el secreto. El
+// cuerpo de la respuesta no es de fiar: un catch-hook de Zapier —y los "webhook
+// testers" en general— devuelve el hook COMPLETO, con token, en su 200. Por eso:
+//   - el link sale SOLO de `link`, explícito: `url` y `self` son justo las
+//     claves donde esos servicios reflejan el hook, no un link para el usuario;
+//   - y se descarta cualquier candidato del mismo origen que el webhook
+//     configurado. Cuesta un falso negativo (un ticket realmente publicado en
+//     el mismo host que el webhook pierde su link) y es el lado correcto del
+//     error: un link de menos se nota, un token de más no.
+function datosDelTicket(
+  cuerpo: unknown,
+  webhookUrl: string,
+): { referencia?: string; link?: string } {
   if (!cuerpo || typeof cuerpo !== "object") return {};
   const c = cuerpo as Record<string, unknown>;
+  const sinSecreto = (valor: unknown) => {
+    const limpio = texto(valor);
+    return limpio && !esDelWebhook(limpio, webhookUrl) ? limpio : undefined;
+  };
   return {
-    referencia: texto(c.referencia) ?? texto(c.reference) ?? texto(c.key) ?? texto(c.id),
-    link: texto(c.link) ?? texto(c.url) ?? texto(c.self),
+    referencia:
+      sinSecreto(c.referencia) ?? sinSecreto(c.reference) ?? sinSecreto(c.key) ?? sinSecreto(c.id),
+    link: sinSecreto(c.link),
   };
 }
 
@@ -162,7 +196,7 @@ export function crearEscalarAHumano(deps: DepsEscalamiento) {
     } catch {
       cuerpo = undefined;
     }
-    const { referencia, link } = datosDelTicket(cuerpo);
+    const { referencia, link } = datosDelTicket(cuerpo, deps.webhookUrl);
     return {
       creado: true,
       referencia: referencia ?? generarReferencia(),

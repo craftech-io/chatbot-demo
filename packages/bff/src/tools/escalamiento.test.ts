@@ -130,6 +130,49 @@ describe("escalar_a_humano", () => {
     err.mockRestore();
   });
 
+  // Contracara del test de arriba: el secreto no se filtra por el LOG, pero
+  // tampoco puede filtrarse por el VALOR DE RETORNO — que es peor, porque el
+  // schema le dice al modelo que le pase el link al usuario. Un catch-hook de
+  // Zapier (y los "webhook testers" en general) devuelve el hook COMPLETO, con
+  // token, en el cuerpo de su 200.
+  it("el secreto del webhook NUNCA sale por el valor de retorno", async () => {
+    const cuerposQueReflejanElHook = [
+      { url: WEBHOOK },
+      { self: WEBHOOK },
+      { link: WEBHOOK },
+      { referencia: WEBHOOK },
+      { status: "success", url: `${WEBHOOK}?attempt=1`, request_id: "0f7b" },
+      { key: `${WEBHOOK}/hooks/catch/1`, link: `${WEBHOOK}/portal` },
+    ];
+
+    for (const cuerpo of cuerposQueReflejanElHook) {
+      const { fetch } = fetchFalso(async () => respuesta(200, cuerpo));
+      const escalar = crearEscalarAHumano({
+        webhookUrl: WEBHOOK,
+        fetch,
+        generarReferencia: () => "ESC-generada",
+      });
+
+      const devuelto = JSON.stringify(await escalar(CASO));
+
+      expect(devuelto).not.toContain("t0k3n-secreto");
+      expect(devuelto).not.toContain("webhook.ejemplo");
+    }
+  });
+
+  it("un link de OTRO origen sí llega al usuario (el filtro no es un tapón)", async () => {
+    const { fetch } = fetchFalso(async () =>
+      respuesta(201, { referencia: "ESC-7", link: "https://portal.ejemplo/ESC-7" }),
+    );
+    const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
+
+    expect(await escalar(CASO)).toEqual({
+      creado: true,
+      referencia: "ESC-7",
+      link: "https://portal.ejemplo/ESC-7",
+    });
+  });
+
   it("sin webhook configurado no postea nada y avisa", async () => {
     const { espia, fetch } = fetchFalso(async () => respuesta(200, {}));
     const escalar = crearEscalarAHumano({ webhookUrl: "", fetch });
