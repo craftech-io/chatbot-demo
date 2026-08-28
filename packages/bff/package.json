@@ -10,6 +10,7 @@
   "private": true,
   "license": "UNLICENSED",
   "dependencies": {
+    "@aws-sdk/client-bedrock-agent-runtime": "3.1116.0",
     "@aws-sdk/client-bedrock-runtime": "3.1116.0",
     "@aws-sdk/client-dynamodb": "3.1116.0",
     "@aws-sdk/client-sqs": "3.1116.0",

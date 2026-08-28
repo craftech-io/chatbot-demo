@@ -47,6 +47,10 @@ declare module "sst" {
       "name": string
       "type": "sst.aws.Bucket"
     }
+    "EscalamientoWebhookUrl": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "Guardrail": {
       "id": string
       "type": "sst.sst.Linkable"
@@ -91,6 +95,14 @@ declare module "sst" {
     "SessionsTableDb": {
       "name": string
       "type": "sst.aws.Dynamo"
+    }
+    "ToolDocumentos": {
+      "name": string
+      "type": "sst.aws.Function"
+    }
+    "ToolEscalamiento": {
+      "name": string
+      "type": "sst.aws.Function"
     }
     "Worker": {
       "name": string

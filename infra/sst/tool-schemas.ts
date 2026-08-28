@@ -1,0 +1,75 @@
+// Esquemas MCP de las tools de tenant que corren como Lambda detrás del
+// Gateway. Cada `const` es el `inlinePayload` de un GatewayTarget: es LO QUE VE
+// EL MODELO (nombre, descripción y JSON Schema de los argumentos).
+//
+// Las `description` son INSTRUCCIONES para el modelo, no títulos: le dicen
+// cuándo usar la tool y qué hacer con el resultado. Es la mitad ejecutable de la
+// política del prompt del sistema (spec §11.2) — si acá dice "citá la fuente",
+// el modelo cita.
+//
+// Viven separados de infra/sst/tools.ts para que ese archivo cablee Lambdas,
+// permisos y targets sin el ruido del JSON.
+
+// Tipo del `inlinePayload` de un GatewayTarget MCP (espeja el contrato de
+// aws-native). Anotarlo acá preserva los literales (`type: "object"`, ...) que
+// exigen los enums del schema: sin la anotación, TS los ensancha a `string` al
+// sacarlos del sitio de uso y el array deja de ser asignable.
+type ToolSchema = awsnative.types.input.bedrockagentcore.GatewayTargetToolDefinitionArgs[];
+
+// `consultar_documentos` → packages/bff/src/tools/documentos.ts
+export const documentosToolSchema: ToolSchema = [
+  {
+    name: "consultar_documentos",
+    description:
+      "Busca en los documentos del negocio (políticas, horarios, garantías, procedimientos) y devuelve los pasajes más parecidos, cada uno con su score y su fuente. Usala SIEMPRE antes de responder cualquier cosa sobre el negocio: no contestes de memoria. Citá la fuente del pasaje que usaste. Si vuelve con una nota de que no encontró nada, decilo y ofrecé derivar el caso a una persona.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        consulta: {
+          type: "string",
+          description:
+            "Qué buscar, en lenguaje natural. Mejor una frase con las palabras del usuario que una palabra sola.",
+        },
+        topK: {
+          type: "integer",
+          description:
+            "Máximo de pasajes a traer. Omitilo salvo que necesites más contexto del habitual.",
+        },
+      },
+      required: ["consulta"],
+    },
+  },
+];
+
+// `escalar_a_humano` → packages/bff/src/tools/escalamiento.ts
+export const escalamientoToolSchema: ToolSchema = [
+  {
+    name: "escalar_a_humano",
+    description:
+      "Crea el escalamiento para que una persona del equipo siga el caso. Usala SOLO después de que el usuario haya aceptado explícitamente que lo derives: primero ofrecé, y recién cuando diga que sí, llamala. Devuelve { creado: true, referencia } si quedó registrado: pasale esa referencia al usuario. Si devuelve { creado: false, nota }, NO hay escalamiento confirmado — explicale al usuario lo que dice la nota, nunca le digas que ya lo derivaste.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resumen: {
+          type: "string",
+          description:
+            "Qué necesita el usuario, en una o dos frases, escrito para que lo lea una persona del equipo.",
+        },
+        detalle: {
+          type: "string",
+          description:
+            "Contexto útil del caso: qué se intentó, qué datos dio el usuario, qué no encontraste en los documentos.",
+        },
+        usuario: {
+          type: "string",
+          description: "Identificador del usuario, si lo tenés en el contexto.",
+        },
+        conversacion: {
+          type: "string",
+          description: "Identificador de esta conversación, si lo tenés en el contexto.",
+        },
+      },
+      required: ["resumen"],
+    },
+  },
+];

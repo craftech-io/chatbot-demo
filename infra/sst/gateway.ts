@@ -19,7 +19,9 @@ const stageSaneado = $app.stage
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-+|-+$/g, "");
 
-const gatewayRole = new aws.iam.Role("GatewayRole", {
+// Se exporta para que ./tools.ts le cuelgue su policy: las tools de tenant que
+// son Lambda propia necesitan que ESTE rol pueda invocarlas.
+export const gatewayRole = new aws.iam.Role("GatewayRole", {
   // Mismo principal que el RuntimeRole: el servicio AgentCore asume este rol
   // para las llamadas outbound de los targets. La credencial outbound se
   // configura POR TARGET, no a nivel gateway.
@@ -34,10 +36,12 @@ const gatewayRole = new aws.iam.Role("GatewayRole", {
     ],
   }),
 });
-// Sin policy de permisos a propósito: el único target es la Function URL
-// pública de la demo API (auth NONE) y el target va sin credencial outbound
-// (ver GatewayTarget abajo), así que no hay ninguna API de AWS que autorizar.
-// El rol existe porque CreateGateway lo exige.
+// Sin policy en ESTE archivo: el target de acá abajo es la Function URL pública
+// de la demo API (auth NONE) y va sin credencial outbound (ver GatewayTarget),
+// así que no hay ninguna API de AWS que autorizar por él. La policy del rol la
+// declara ./tools.ts (`lambda:InvokeFunction` acotado a las dos tool Lambdas):
+// vive ahí para no armar un ciclo de imports gateway↔tools, y porque es ahí
+// donde se conocen los ARNs a autorizar.
 
 export const gateway = new awsnative.bedrockagentcore.Gateway("Gateway", {
   name: `${slugKebab}-gw-${stageSaneado}`,
@@ -100,7 +104,10 @@ const openApiCatalogo = $jsonStringify({
   },
 });
 
-new awsnative.bedrockagentcore.GatewayTarget("GatewayTarget", {
+// Se exporta —sin cambiarle nada— para que los targets de ./tools.ts se creen
+// DESPUÉS de este: Cloud Control falla con InternalFailure si dos targets del
+// mismo gateway se crean en paralelo, así que van en cadena de `dependsOn`.
+export const targetApiCliente = new awsnative.bedrockagentcore.GatewayTarget("GatewayTarget", {
   // El .d.ts lo marca opcional, pero sin él Cloud Control no sabe de qué
   // gateway colgar el target: va siempre.
   gatewayIdentifier: gateway.gatewayIdentifier,
