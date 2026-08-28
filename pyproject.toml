@@ -9,6 +9,13 @@ dependencies = [
     "llama-index-llms-bedrock-converse>=0.14.18",
     "llama-index-workflows>=2.23.2",
     "mcp>=2.1.1",
+    # Observabilidad (spec §17, capa 2). El distro de ADOT trae el SDK de
+    # OpenTelemetry, el exporter y el entrypoint `opentelemetry-instrument`; el
+    # instrumentor de OpenInference es el que produce los spans semánticos del
+    # interior del turno (CHAIN/TOOL/LLM con contadores de tokens) enganchando el
+    # dispatcher de llama_index_instrumentation, el mismo que usa `workflows`.
+    "aws-opentelemetry-distro>=0.18.0",
+    "openinference-instrumentation-llama-index>=4.4.8",
     "starlette>=1.6.0",
     "uvicorn>=0.52.4",
 ]

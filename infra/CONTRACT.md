@@ -10,7 +10,7 @@ uno a otro es reimplementar esta lista, nada más.
 |---|---|---|
 | AgentCore Runtime | corre el contenedor del agente | imagen **ARM64**; `/ping` y `/invocations` en `:8080` |
 | Repositorio ECR | aloja la imagen del core | |
-| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel` (foundation-model + inference-profile), `bedrock:ApplyGuardrail` (statement propio, scoped al `guardrailArn` — NO al statement de modelos, que no matchea ese recurso), `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents` |
+| Rol de ejecución del Runtime | lo asume `bedrock-agentcore.amazonaws.com` | permisos: `bedrock:InvokeModelWithResponseStream`, `bedrock:InvokeModel` (foundation-model + inference-profile), `bedrock:ApplyGuardrail` (statement propio, scoped al `guardrailArn` — NO al statement de modelos, que no matchea ese recurso), `bedrock-agentcore:CreateEvent`, `bedrock-agentcore:ListEvents`; `bedrock-agentcore:InvokeGateway` (gateway propio + sub-recursos); **`pricing:GetProducts`** con `Resource: "*"` — la Price List API no soporta scoping por recurso, y es read-only sobre el catálogo PÚBLICO de precios de AWS. La necesita `core/src/agent/costo.py` para resolver las tarifas: sin ella el costo sale siempre `null` con un warning por microVM, el chat funciona igual y el deploy no se queja; **`AWSXrayWriteOnlyPolicy`** (policy administrada) cuando `observabilidad.destino` es `"cloudwatch"`, para escribir spans al endpoint OTLP de X-Ray. Va como policy administrada y no como lista a mano porque el set de acciones que ese endpoint exige fue cambiando (`xray:PutTraceSegments`, después `xray:PutSpans`) y una lista escrita a mano se queda vieja: el fallo sale como un 403 del exporter, en un log que nadie mira |
 | Lambda del BFF + Function URL | encolá los mensajes en MessagesTable y MensajesCola (spec §8, async) | permisos: `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable y `sqs:SendMessage` sobre MensajesCola (vía `include` en `infra/sst/mensajeria.ts`, mismo patrón) |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
@@ -27,6 +27,7 @@ uno a otro es reimplementar esta lista, nada más.
 | Knowledge Base de Bedrock | RAG sobre los documentos del cliente (spec §11) | `type: VECTOR` con `vectorKnowledgeBaseConfiguration.embeddingModelArn`; `storageConfiguration.type: S3_VECTORS` apuntando al vector bucket y al índice. **Se crea después de la policy del rol** (`dependsOn`): `CreateKnowledgeBase` valida en el momento que el rol pueda leer el bucket y escribir en el vector store |
 | DataSource de la Knowledge Base | conecta el bucket de documentos a la KB | `type: S3` con `s3Configuration.bucketArn`, y **`dataDeletionPolicy: RETAIN`**: con el default (`DELETE`) el borrado del data source le pide a Bedrock que además borre los vectores indexados, y si esa limpieza falla la KB queda en `DELETE_UNSUCCESSFUL` — stack a medio borrar, sin forma limpia de retomarlo (pasó en una cuenta real) |
 | Secreto del webhook de escalamiento | destino del POST que crea el escalamiento (tool `escalar_a_humano`, spec §11.1) | `sst.Secret` `EscalamientoWebhookUrl`, default `""`: sin setear, la tool responde que no hay destino configurado y NO postea — el deploy no corta. **El URL ES el secreto** (estos webhooks llevan el token en el path o el query), así que la Lambda no lo loguea nunca: de un fallo de red loguea solo `error.name` y `cause.code`, jamás el `message` (undici mete el host ahí) ni el cuerpo de la respuesta, y tampoco lo devuelve (el link del ticket sale solo de un `link` explícito y de otro origen que el webhook). El POST va con **`redirect: "manual"` y cualquier 3xx es fallo**: siguiendo el redirect, fetch convierte el POST en GET y descarta el body, así que el 200 del GET daría un `creado: true` falso |
+| Secretos del destino OTLP de trazas | endpoint y headers del backend externo de trazas cuando `observabilidad.destino` es `"otlp"` (spec §17) | `sst.Secret` `ObservabilidadOtlpEndpoint` y `ObservabilidadOtlpHeaders`, default `""` ambos: con `destino: "cloudwatch"` no se usan y el deploy no corta. **El header LLEVA LA CREDENCIAL** del backend (p. ej. `Authorization=Basic ...`): no se loguea nunca, ni en la infra ni en el core. Ojo con el trade-off: viaja como env del Runtime, así que queda legible con `GetAgentRuntime` para quien tenga ese permiso — si el cliente no lo acepta, el destino es CloudWatch |
 | Lambdas de las tools de tenant (`ToolDocumentos`, `ToolEscalamiento`) | implementan `consultar_documentos` (Retrieve sobre la Knowledge Base) y `escalar_a_humano` (POST al webhook) como targets **Lambda** del Gateway | permisos: `bedrock:Retrieve` acotado al `knowledgeBaseArn` (solo ToolDocumentos); y **el rol del Gateway necesita `lambda:InvokeFunction` sobre las dos** (`infra/sst/tools.ts`) o el `tools/call` muere con AccessDenied dentro del Gateway, sin error de deploy que lo delate. En targets Lambda `credentialProviderType: "GATEWAY_IAM_ROLE"` pelado SÍ es válido (en OpenAPI no). Los targets del mismo gateway se crean EN CADENA (`dependsOn`): dos en paralelo dan `InternalFailure` de Cloud Control |
 | Configuración de Transaction Search de X-Ray | habilita las trazas: sin ella AgentCore no publica sus spans en CloudWatch y el endpoint OTLP de X-Ray los rechaza | `AWS::XRay::TransactionSearchConfig` (`awsnative.xray.TransactionSearchConfig`, único argumento de entrada `indexingPercentage`; `accountId` es output). **Es un recurso de CUENTA, no de stage:** dos stages en la misma cuenta declaran dos recursos que apuntan a la MISMA configuración real. Va con `retainOnDelete: true` — destruir un stack no puede dejar ciego al otro stage, y el recurso no guarda datos, es un flag de cuenta. Al revés: cuando se va el último stack la configuración queda prendida (y sigue costando el indexado); apagarla es un acto deliberado. Si dos stages declaran `indexingPercentage` distinto, gana el último deploy |
 | Tracing activo en las 5 Lambdas (`Chat`, `Worker`, `ToolDocumentos`, `ToolEscalamiento`, `ApiClienteDemo`) | une la traza de punta a punta: BFF → cola → worker → Runtime | `tracingConfig.mode: "Active"` sobre la Lambda (`PassThrough` solo propaga la traza del llamador, no genera segmentos propios). Necesita además `xray:PutTraceSegments` + `xray:PutTelemetryRecords` **en el rol de cada Lambda** (ninguna de las dos acciones soporta scope por recurso): el tracing no trae sus permisos puestos, y sin ellos no hay traza ni error que lo delate. Sin esto la traza se corta en cada salto — justo donde vive el debounce |
@@ -45,6 +46,66 @@ uno a otro es reimplementar esta lista, nada más.
 | `CLIENT_API_URL` | no | base URL de la API del cliente para las tools de usuario (sin barra final). Vacía o ausente ⇒ el agente corre sin tools de usuario. **Es una frontera de confianza:** a esta URL se le manda el `actToken` del usuario final como `Authorization: Bearer` en cada llamada de tool, así que solo puede apuntar a la API del cliente — una URL mal apuntada exfiltra credenciales de usuarios |
 | `PROMPT_SISTEMA_B64` | no | la política de comportamiento del agente (spec §11.2) **en base64**: no inventar, citar la fuente, ofrecer derivar cuando la respuesta no está en los documentos. Sale de `promptSistema` en `client.config.ts`, y el core la manda como mensaje `system` al principio de cada turno. **Va codificada porque AgentCore Runtime rechaza caracteres de control en los valores de env** (`Environment variable value contains invalid control characters`) y el prompt es multilínea. Vacía o ausente ⇒ el core corre sin mensaje de sistema |
 | `PROMPT_SISTEMA` | no | la misma política **en claro**, para los sabores de IaC o los entornos locales donde el salto de línea no molesta. Si están las dos, gana esta |
+
+### Variables de observabilidad del core (spec §17, capa 2)
+
+Todas las inyecta `infra/sst/runtime.ts` derivándolas del bloque
+`observabilidad` de `client.config.ts`. Ninguna es obligatoria: **sin ninguna de
+ellas el contenedor arranca igual y no exporta nada** — el entrypoint
+`opentelemetry-instrument` del `CMD` no exporta por su cuenta.
+
+| Variable | Valor que pone la infra | Por qué |
+|---|---|---|
+| `TRAZAS_OPENINFERENCE` | `1` | **La guarda que activa la capa de trazas.** `opentelemetry-instrument` NO conoce el instrumentor de OpenInference: `core/server.py` lo llama a mano (`_instrumentar_trazas`) y esta env es la condición. Sin ella el contenedor exporta spans de HTTP pero ninguno del interior del turno (workflow, tools, tokens del LLM). Cualquier valor no vacío la prende |
+| `OTEL_PYTHON_DISTRO` | `aws_distro` | En el venv están instalados los DOS distros (`opentelemetry-distro` viene como dependencia de `aws-opentelemetry-distro`) y sus entry points compiten: `_load_distro` toma "el primero que aparezca". Sin esta env, qué distro gana depende del orden de instalación, y con el genérico no hay exporter SigV4 ni endpoint de X-Ray |
+| `OTEL_PYTHON_CONFIGURATOR` | `aws_configurator` | Igual que la anterior, para el configurador |
+| `OTEL_SERVICE_NAME` | `<slug>-agente` | Nombre del servicio en las trazas |
+| `OTEL_RESOURCE_ATTRIBUTES` | `deployment.environment=<stage>` | El índice de Transaction Search es de CUENTA: sin esto, dos stages de la misma cuenta no se distinguen en la consola |
+| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` | Sin collector el default del SDK es `parentbased_always_on`, o sea el 100% de las trazas — "hasta 20x más volumen de ingesta y costo" según la doc de AWS. `parentbased_*` (y no `traceidratio` pelado) para que la decisión del BFF/worker se respete y la cadena quede en UNA traza |
+| `OTEL_TRACES_SAMPLER_ARG` | `observabilidad.muestreo` | Fracción muestreada, 0..1 |
+| `AGENT_OBSERVABILITY_ENABLED` | `false` | **En false EXPLÍCITO, no ausente.** Con la flag prendida el configurador de ADOT agrega un `BatchUnsampledSpanProcessor` que exporta TODOS los spans y deja al sampler de arriba sin efecto, y reactiva el `LLOHandler` que manda el contenido de la conversación a logs. Prenderla es cambiar de modelo de costo, no un detalle |
+| `OTEL_AWS_APPLICATION_SIGNALS_ENABLED` | `false` | Application Signals incluye Transaction Search: con las dos prendidas se paga dos veces por lo mismo. Es además el default del distro; va explícito para que un cambio de default no duplique la factura |
+| `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` | `botocore,jinja2` | ADOT auto-instrumenta `botocore` y eso DUPLICA el span del LLM (uno de OpenInference con la semántica buena, otro de botocore con el HTTP crudo). Solo apaga la instrumentación: el exporter SigV4 sigue usando botocore como librería para firmar. `jinja2` va en la lista porque LlamaIndex compila templates y cada compilación es un span: en una corrida local de UN turno salieron 10 `jinja2.compile` — ruido puro, y se paga por span ingestado |
+| `OTEL_PYTHON_STARLETTE_EXCLUDED_URLS` | `/ping` | El health check de AgentCore pega a `/ping` sin parar y cada llamada son 3 spans (el request más los `http send` del ASGI). Que el contenedor está vivo lo dice el Runtime, no una traza |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Ver el modo local en `docs/notas-tecnicas.md` para el valor `console`. **La imagen trae `none` por default** (ver `core/Dockerfile`): sin configuración no exporta nada, en vez de reintentar contra el OTLP de localhost que no existe |
+| `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` | `none` | Acá solo se exportan TRAZAS. Es también el default de la imagen: sin esto el SDK levanta los pipelines de métricas y logs apuntando al OTLP de localhost, que en la microVM no existe — errores de export cada pocos segundos, por nada |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | `http/protobuf` | Los endpoints nativos de CloudWatch son HTTP, no gRPC. Es el default del distro; explícito porque si no coincide el exporter SigV4 no se elige y el aviso queda en un warning |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `https://xray.<region>.amazonaws.com/v1/traces` con `destino: "cloudwatch"`; el secreto `ObservabilidadOtlpEndpoint` con `destino: "otlp"` | El destino es un adaptador de UNA env: misma clave, otro valor. Con el endpoint de X-Ray el distro elige su exporter SigV4 mirando ESTE valor (compara el host con el del servicio X-Ray), no una flag aparte. **Exige Transaction Search habilitado en la cuenta.** Los endpoints son POR SEÑAL: cambiar el de trazas no mueve las métricas |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | el secreto `ObservabilidadOtlpHeaders`, solo con `destino: "otlp"` | Lleva la credencial del backend externo. **No se loguea nunca** |
+
+**Redacción — el default del template.** Los ~14 `OPENINFERENCE_HIDE_*` vienen en
+`False` de fábrica: sin estas env **la conversación completa y el prompt de
+sistema viajan en los spans**. Con `observabilidad.contenidoEnTrazas: false` (el
+default) la infra pone en `true` las diez que tapan contenido —
+`OPENINFERENCE_HIDE_INPUTS`, `HIDE_OUTPUTS`, `HIDE_INPUT_MESSAGES`,
+`HIDE_OUTPUT_MESSAGES`, `HIDE_INPUT_TEXT`, `HIDE_OUTPUT_TEXT`,
+`HIDE_INPUT_IMAGES`, `HIDE_PROMPTS`, `HIDE_CHOICES`, `HIDE_EMBEDDINGS_TEXT` — más
+estas dos, que cierran los caminos que las flags de OpenInference no gobiernan:
+
+| Variable | Valor | Por qué |
+|---|---|---|
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | `false` | Tapa el camino de botocore/GenAI (por si alguien reactiva esa instrumentación). Hace falta explícita: el distro de ADOT la pone en `true` por `setdefault` cuando `AGENT_OBSERVABILITY_ENABLED` está prendido |
+| `AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT` | `true` | Apaga el `LLOHandler` del distro, que **extrae** `input.value`, `output.value` y `llm.*_messages.*.message.content` de los spans y los emite como LOG RECORDS a CloudWatch. Sin esto el contenido puede salir por LOGS aunque uno solo haya pensado en trazas |
+
+`HIDE_INPUTS` y `HIDE_OUTPUTS` solas ya tapan casi todo (en el `mask()` del
+paquete cubren `input.value`, `output.value`, `llm.input_messages.*`,
+`llm.output_messages.*`, `llm.tools`, `llm.prompts`, `llm.choices` y los
+documentos del reranker); las demás van igual por el criterio de que en
+redacción se pone la env de más, para que un atributo que cambie de lugar en una
+versión futura del instrumentor ya esté cubierto.
+
+Lo que sobrevive a la redacción **a propósito**: los contadores de tokens
+(`llm.token_count.*`, la base del costo por conversación), los nombres de las
+tools y las latencias. La traza sigue contando QUÉ pasó en el turno; lo que no se
+ve es lo que se dijo. Quedan fuera de la lista `HIDE_LLM_INVOCATION_PARAMETERS`
+(son los metadatos del modelo: nombre, context window — no contenido),
+`HIDE_LLM_TOOLS` (el esquema de las tools, y además ya lo tapa `HIDE_INPUTS`) y
+`HIDE_EMBEDDINGS_VECTORS` (vectores, no texto): esconderlas degradaría la traza
+sin ganar privacidad.
+
+Habilitar `contenidoEnTrazas` con un destino externo es, además de un cambio de
+flags, una decisión de **residencia de datos**.
+
 
 ## Variables que recibe la tool de documentos
 

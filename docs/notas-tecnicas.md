@@ -79,7 +79,7 @@ rápida.
 **Las citas dependen de los sidecars.** Sin `<archivo>.metadata.json`, lo único
 citable es la URI del documento — es decir, el nombre del bucket interno en el
 chat del usuario. Con el sidecar, el agente cita el título y ofrece el link
-público. Es la diferencia entre "según s3://…-documentos-bctazkrk/politica.md" y
+público. Es la diferencia entre "según s3://<bucket-de-documentos>/politica.md" y
 "según la Política de devoluciones", así que vale la pena poblarlos.
 
 **Costo del vector store en reposo:** centavos por mes con S3 Vectors, contra
