@@ -49,9 +49,10 @@ export const toolDocumentos = new sst.aws.Function("ToolDocumentos", {
       resources: [kb.knowledgeBaseArn],
     },
   ],
-  environment: {
-    ...(topKDocumentos === undefined ? {} : { DOCUMENTOS_TOP_K: String(topKDocumentos) }),
-  },
+  // `documentos.topK` es un `number` requerido en ConfigCliente: siempre hay
+  // valor, así que no hay nada que condicionar (el default del template lo
+  // aplica la tool, no la infra).
+  environment: { DOCUMENTOS_TOP_K: String(topKDocumentos) },
 });
 
 export const toolEscalamiento = new sst.aws.Function("ToolEscalamiento", {

@@ -162,7 +162,14 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
     // Política de comportamiento del agente (spec §11.2): sale de
     // `client.config.ts` y el core la usa como mensaje `system`. Vacía o
     // ausente ⇒ el core corre sin mensaje de sistema (contrato del core).
-    PROMPT_SISTEMA: cliente.promptSistema,
+    //
+    // Spread condicional y no `PROMPT_SISTEMA: cliente.promptSistema` pelado: el
+    // vacío es un modo SOPORTADO (lo documentan client.config.ts e
+    // infra/CONTRACT.md) y sería el primer valor vacío que vería
+    // `CreateAgentRuntime` — un servicio de Cloud Control que rechaza el string
+    // vacío haría fallar el deploy por una config legítima. Ausente es
+    // exactamente lo que el core espera para ese modo.
+    ...(cliente.promptSistema ? { PROMPT_SISTEMA: cliente.promptSistema } : {}),
   },
 });
 
