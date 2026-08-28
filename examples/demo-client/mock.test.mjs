@@ -114,6 +114,110 @@ describe("escenarios de tools", () => {
   });
 });
 
+// Modo local del conocimiento (RAG) y del escalamiento. Los textos citan el
+// CORPUS FICTICIO de examples/documentos (la empresa inventada Ciclos Aurora),
+// igual que los de tools citan los datos fijos de la demo API: mock y realidad
+// cuentan la misma historia. Se pinean exactos a propósito — si el corpus
+// cambia, estos tests son los que avisan.
+const TEXTO_DOCUMENTO_ESPERADO =
+  "Según *Política de devoluciones* (`politica-devoluciones.md`): tenés 30 días " +
+  "corridos desde que recibís el pedido para iniciar el cambio o la devolución, " +
+  "con el producto sin uso y en su embalaje original. El reintegro sale por el " +
+  "mismo medio de pago dentro de los 10 días hábiles.";
+
+describe("escenarios de conocimiento y escalamiento", () => {
+  it("'documento' responde como si hubiera usado consultar_documentos: CON la cita, turno normal", () => {
+    const plan = planificarRespuesta("¿tienen algún documento sobre devoluciones?", "A", ctx);
+
+    expect(plan.frames).toEqual([{ type: "done", text: TEXTO_DOCUMENTO_ESPERADO }]);
+    // Es un turno del agente, no un corte: pasa por el debounce y se persiste.
+    expect(plan.persistible).toBeUndefined();
+  });
+
+  it("'escalar' paso 1: dice que no lo encontró, ofrece derivar y NO crea nada", () => {
+    const plan = planificarRespuesta("necesito escalar esto", "A", ctx);
+
+    const texto = plan.frames.at(-1).text;
+    expect(plan.frames.at(-1).type).toBe("done");
+    expect(texto).toMatch(/no encontré/i);
+    // Cita el corpus: enumera los documentos que sí tiene.
+    expect(texto).toContain("política de devoluciones");
+    // Pregunta y espera: el consentimiento del spec §11.1.
+    expect(texto).toMatch(/\?$/);
+    // Sin el "sí" del usuario no hay escalamiento ni referencia.
+    expect(texto).not.toContain("ESC-");
+    expect(plan.persistible).toBeUndefined();
+  });
+
+  it("'escalar' paso 2: un 'sí' después del paso 1 crea el escalamiento y devuelve la referencia", () => {
+    const plan = planificarRespuesta("sí, dale", "A", {
+      turnos: 1,
+      historial: ["necesito escalar esto"],
+    });
+
+    const texto = plan.frames.at(-1).text;
+    expect(texto).toContain("ESC-2043");
+    expect(texto).toMatch(/derivé/i);
+  });
+
+  it("'escalar' paso 2: el 'si' sin tilde también acepta la derivación", () => {
+    const plan = planificarRespuesta("si", "A", { turnos: 1, historial: ["escalar"] });
+
+    expect(plan.frames.at(-1).text).toContain("ESC-2043");
+  });
+
+  it("un 'sí' sin paso 1 previo no crea ningún escalamiento", () => {
+    const plan = planificarRespuesta("sí", "A", { turnos: 1, historial: ["hola, ¿qué tal?"] });
+
+    expect(plan.frames.at(-1).text).not.toContain("ESC-");
+  });
+
+  // El matching de la afirmación es por PALABRA, no por inclusión: "sí" es
+  // substring de "así" y "si" de "necesito", así que un "no, dejemos así"
+  // crearía un escalamiento que el usuario nunca aceptó.
+  it("una negación que contiene 'sí' como substring ('dejemos así') no acepta la derivación", () => {
+    const plan = planificarRespuesta("no, dejemos así", "A", {
+      turnos: 1,
+      historial: ["necesito escalar esto"],
+    });
+
+    expect(plan.frames.at(-1).text).not.toContain("ESC-");
+  });
+
+  // La lección del matching por inclusión (ver el comentario de "error500" en
+  // server.mjs): una keyword contenida en otra necesita orden explícito. Estas
+  // dos son independientes de todas las que ya había.
+  it("'documento' y 'escalar' no colisionan con las keywords existentes", () => {
+    const existentes = [
+      "error",
+      "error500",
+      "tope",
+      "bloqueado",
+      "memoria",
+      "pedido",
+      "catalogo",
+      "catálogo",
+      "lento",
+      "vencido",
+    ];
+
+    for (const kw of existentes) {
+      for (const nueva of ["documento", "escalar"]) {
+        expect(`${nueva} vs ${kw}: ${nueva.includes(kw)}`).toBe(`${nueva} vs ${kw}: false`);
+        expect(`${kw} vs ${nueva}: ${kw.includes(nueva)}`).toBe(`${kw} vs ${nueva}: false`);
+      }
+    }
+
+    // Y los escenarios viejos siguen respondiendo lo suyo (no regresión).
+    expect(planificarRespuesta("dame un error", "A", ctx).frames).toEqual([
+      { type: "error", code: "agent_unavailable" },
+    ]);
+    expect(planificarRespuesta("mostrame el catalogo", "A", ctx).frames[0].text).toContain(
+      "3 productos",
+    );
+  });
+});
+
 // Contrato REST del mock: server real, levantado en un puerto efímero, contra
 // el que se le pega con fetch — no se testea con dobles porque lo que hay que
 // probar es justamente la orquestación entre el POST, el timer del debounce y
@@ -274,6 +378,72 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     expect(mensajes[0].texto).toBe(
       "Tenemos 3 productos: Casco MTB ($45.000), Luz trasera USB ($12.000) y Kit de parches ($3.500).",
     );
+  });
+
+  it("'documento': pasado el debounce, el assistant responde citando la política de devoluciones", async () => {
+    const hilo = "hilo-documento";
+    const post = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "¿qué dice el documento de devoluciones?", hilo }),
+    });
+    expect(post.status).toBe(200);
+    const { orden } = await post.json();
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get = await fetch(
+      `${base}/mensajes?hilo=${encodeURIComponent(hilo)}&desde=${encodeURIComponent(orden)}`,
+    );
+    const { mensajes } = await get.json();
+
+    expect(mensajes).toHaveLength(1);
+    expect(mensajes[0].rol).toBe("assistant");
+    expect(mensajes[0].texto).toBe(TEXTO_DOCUMENTO_ESPERADO);
+  });
+
+  // El flujo de consentimiento del spec §11.1, de punta a punta: son DOS turnos
+  // reales (con su debounce cada uno), y el segundo depende de que el server
+  // haya guardado el primero en el historial de la conversación.
+  it("escalamiento en dos pasos: primero ofrece derivar, y recién con el 'sí' aparece la referencia", async () => {
+    const hilo = "hilo-escalar";
+
+    const post1 = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "quiero escalar esto con alguien", hilo }),
+    });
+    expect(post1.status).toBe(200);
+    const { orden: orden1 } = await post1.json();
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get1 = await fetch(
+      `${base}/mensajes?hilo=${encodeURIComponent(hilo)}&desde=${encodeURIComponent(orden1)}`,
+    );
+    const { mensajes: mensajes1 } = await get1.json();
+    expect(mensajes1).toHaveLength(1);
+    expect(mensajes1[0].texto).toMatch(/no encontré/i);
+    // Todavía no aceptó nada: no puede haber escalamiento creado.
+    expect(mensajes1[0].texto).not.toContain("ESC-");
+
+    const post2 = await fetch(`${base}/mensajes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ texto: "sí, por favor", hilo }),
+    });
+    expect(post2.status).toBe(200);
+    const { orden: orden2 } = await post2.json();
+
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const get2 = await fetch(
+      `${base}/mensajes?hilo=${encodeURIComponent(hilo)}&desde=${encodeURIComponent(orden2)}`,
+    );
+    const { mensajes: mensajes2 } = await get2.json();
+    expect(mensajes2).toHaveLength(1);
+    expect(mensajes2[0].rol).toBe("assistant");
+    expect(mensajes2[0].texto).toContain("ESC-2043");
   });
 
   // "error500" emula una falla temprana y síncrona del BFF real (nada de

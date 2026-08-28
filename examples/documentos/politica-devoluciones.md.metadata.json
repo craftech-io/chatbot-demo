@@ -1,0 +1,15 @@
+{
+  "metadataAttributes": {
+    "title": {
+      "value": { "type": "STRING", "stringValue": "Política de devoluciones" },
+      "includeForEmbedding": true
+    },
+    "url": {
+      "value": {
+        "type": "STRING",
+        "stringValue": "https://ayuda.ciclosaurora.example/devoluciones"
+      },
+      "includeForEmbedding": false
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "metadataAttributes": {
+    "title": {
+      "value": { "type": "STRING", "stringValue": "Garantía" },
+      "includeForEmbedding": true
+    },
+    "url": {
+      "value": {
+        "type": "STRING",
+        "stringValue": "https://ayuda.ciclosaurora.example/garantia"
+      },
+      "includeForEmbedding": false
+    }
+  }
+}

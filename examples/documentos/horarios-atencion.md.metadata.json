@@ -1,0 +1,15 @@
+{
+  "metadataAttributes": {
+    "title": {
+      "value": { "type": "STRING", "stringValue": "Horarios de atención" },
+      "includeForEmbedding": true
+    },
+    "url": {
+      "value": {
+        "type": "STRING",
+        "stringValue": "https://ayuda.ciclosaurora.example/horarios"
+      },
+      "includeForEmbedding": false
+    }
+  }
+}
