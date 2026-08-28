@@ -28,6 +28,9 @@ uno a otro es reimplementar esta lista, nada más.
 | DataSource de la Knowledge Base | conecta el bucket de documentos a la KB | `type: S3` con `s3Configuration.bucketArn`, y **`dataDeletionPolicy: RETAIN`**: con el default (`DELETE`) el borrado del data source le pide a Bedrock que además borre los vectores indexados, y si esa limpieza falla la KB queda en `DELETE_UNSUCCESSFUL` — stack a medio borrar, sin forma limpia de retomarlo (pasó en una cuenta real) |
 | Secreto del webhook de escalamiento | destino del POST que crea el escalamiento (tool `escalar_a_humano`, spec §11.1) | `sst.Secret` `EscalamientoWebhookUrl`, default `""`: sin setear, la tool responde que no hay destino configurado y NO postea — el deploy no corta. **El URL ES el secreto** (estos webhooks llevan el token en el path o el query), así que la Lambda no lo loguea nunca: de un fallo de red loguea solo `error.name` y `cause.code`, jamás el `message` (undici mete el host ahí) ni el cuerpo de la respuesta, y tampoco lo devuelve (el link del ticket sale solo de un `link` explícito y de otro origen que el webhook). El POST va con **`redirect: "manual"` y cualquier 3xx es fallo**: siguiendo el redirect, fetch convierte el POST en GET y descarta el body, así que el 200 del GET daría un `creado: true` falso |
 | Lambdas de las tools de tenant (`ToolDocumentos`, `ToolEscalamiento`) | implementan `consultar_documentos` (Retrieve sobre la Knowledge Base) y `escalar_a_humano` (POST al webhook) como targets **Lambda** del Gateway | permisos: `bedrock:Retrieve` acotado al `knowledgeBaseArn` (solo ToolDocumentos); y **el rol del Gateway necesita `lambda:InvokeFunction` sobre las dos** (`infra/sst/tools.ts`) o el `tools/call` muere con AccessDenied dentro del Gateway, sin error de deploy que lo delate. En targets Lambda `credentialProviderType: "GATEWAY_IAM_ROLE"` pelado SÍ es válido (en OpenAPI no). Los targets del mismo gateway se crean EN CADENA (`dependsOn`): dos en paralelo dan `InternalFailure` de Cloud Control |
+| Configuración de Transaction Search de X-Ray | habilita las trazas: sin ella AgentCore no publica sus spans en CloudWatch y el endpoint OTLP de X-Ray los rechaza | `AWS::XRay::TransactionSearchConfig` (`awsnative.xray.TransactionSearchConfig`, único argumento de entrada `indexingPercentage`; `accountId` es output). **Es un recurso de CUENTA, no de stage:** dos stages en la misma cuenta declaran dos recursos que apuntan a la MISMA configuración real. Va con `retainOnDelete: true` — destruir un stack no puede dejar ciego al otro stage, y el recurso no guarda datos, es un flag de cuenta. Al revés: cuando se va el último stack la configuración queda prendida (y sigue costando el indexado); apagarla es un acto deliberado. Si dos stages declaran `indexingPercentage` distinto, gana el último deploy |
+| Tracing activo en las 5 Lambdas (`Chat`, `Worker`, `ToolDocumentos`, `ToolEscalamiento`, `ApiClienteDemo`) | une la traza de punta a punta: BFF → cola → worker → Runtime | `tracingConfig.mode: "Active"` sobre la Lambda (`PassThrough` solo propaga la traza del llamador, no genera segmentos propios). Necesita además `xray:PutTraceSegments` + `xray:PutTelemetryRecords` **en el rol de cada Lambda** (ninguna de las dos acciones soporta scope por recurso): el tracing no trae sus permisos puestos, y sin ellos no hay traza ni error que lo delate. Sin esto la traza se corta en cada salto — justo donde vive el debounce |
+| Dashboard de CloudWatch | lo que el cliente mira: derivaciones sobre conversaciones, latencia, errores, tokens e invocaciones por tool | se arma sobre las métricas que el servicio YA emite (namespace **`AWS/Bedrock-AgentCore`**, con guion), sin instrumentar nada. Los tokens salen de `AWS/Bedrock` (`InputTokenCount`/`OutputTokenCount`, dimensión única `ModelId`). Los nombres de recurso salen de los módulos de infra (ARN del Runtime y del Gateway, nombre MCP de la tool de escalamiento), nunca escritos a mano |
 
 ## Variables que recibe el core (contenedor)
 
@@ -279,3 +282,61 @@ que no es determinístico. Da igual para el producto: ni el BFF ni el worker
 hardcodean el nombre, lo obtienen del linkable (`Resource.MensajesCola.url`). Si
 alguna vez hace falta un nombre fijo —para referenciar la cola desde fuera de
 SST— va por `transform.queue.name`, y ahí el `.fifo` hay que escribirlo a mano.
+
+### Observabilidad: tracing y dashboard
+
+- **`sst.aws.Function` NO tiene una prop `tracing`.** Verificado en sst 4.17.1:
+  la palabra no aparece en `.sst/platform/src/components/aws/function.ts`. El
+  tracing se prende en el recurso de abajo (`aws.lambda.Function`) por el escape
+  hatch que el propio componente documenta: `transform: { function: {
+  tracingConfig: { mode: "Active" } } }`. La constante compartida vive en
+  `infra/sst/observabilidad.ts` (`trazasActivas`) para no repetir el literal en
+  los cuatro módulos de Lambdas.
+- El rol que arma `sst.aws.Function` lleva solo `AWSLambdaBasicExecutionRole`
+  (más el de VPC si corresponde): las dos acciones de X-Ray van a mano
+  (`permisosTrazas`). Un rol sin ellas no rompe el deploy — simplemente no hay
+  trazas.
+- **`infra/sst/observabilidad.ts` no importa ningún otro módulo de `infra/sst`
+  salvo `./nombres`,** y el dashboard se crea llamando a `crearDashboard()`
+  desde `sst.config.ts`. No es capricho: las cuatro Lambdas importan
+  `trazasActivas` de ese módulo, y una de ellas es `./api-cliente`, de la que
+  cuelga `./gateway`. Si `observabilidad` importara `gateway`/`runtime`/`tools`
+  para leer los ARNs, el ciclo `api-cliente → observabilidad → gateway →
+  api-cliente` rompería la carga de módulos (acá importar un módulo CREA
+  recursos). `sst.config.ts` es el único lugar donde todos ya se ejecutaron.
+- **El cuerpo del dashboard usa búsquedas (`SEARCH`) y no listas explícitas de
+  métricas con sus dimensiones.** Las métricas vendidas de AgentCore se publican
+  en varios juegos de dimensiones a la vez (desde `[Resource]` hasta
+  `[Operation, Protocol, Method, Resource, Name]`), y una entrada explícita tiene
+  que matchear un juego EXACTO: si le sobra o le falta una dimensión el widget
+  sale vacío y parece que no hay datos. Una búsqueda matchea cualquier juego que
+  contenga los pares pedidos. El scope por `Resource` (el ARN, que sale del
+  módulo de infra) es lo que evita que dos stages de la misma cuenta se sumen
+  entre sí. Excepción: los tokens de `AWS/Bedrock` sí van con el esquema entre
+  llaves (`{AWS/Bedrock,ModelId}`) porque ahí `ModelId` es la dimensión única y
+  está verificado. Si un widget sale vacío, el juego real se lista con
+  `aws cloudwatch list-metrics --namespace AWS/Bedrock-AgentCore`.
+- Los errores del Runtime y del Gateway se buscan con las **dos ortografías**
+  (`Errors` y `SystemErrors`/`UserErrors`): cada primitiva publica la suya.
+- **El rótulo de la métrica de derivación no puede prometer más que el dato.** El
+  numerador son llamadas a la tool de escalamiento (dimensión `Name` del
+  Gateway, con el nombre MCP `escalamiento___escalar_a_humano` — tres guiones
+  bajos, el prefijo es el nombre del target) y el denominador son sesiones nuevas
+  del Runtime (`Sessions`). Eso NO es una tasa de resolución: mide el INTENTO de
+  derivar (no que el escalamiento se haya creado — eso lo confirma la tool), una
+  misma conversación puede derivar más de una vez (el valor puede pasar de 100),
+  una derivación puede caer en un período distinto al de su sesión, y "no
+  derivó" no significa "respondió bien". Sirve como cota y como tendencia, y el
+  widget se llama por lo que mide.
+- El widget de tokens es de **cuenta**, no de stage: `AWS/Bedrock` no tiene
+  dimensión de stack, así que incluye el modelo de embeddings de la Knowledge
+  Base y cualquier otro consumidor de Bedrock de la cuenta. El modelo
+  configurado va en el TÍTULO y no como filtro: para un inference profile
+  (`us.` en `cliente.modelo`) no está garantizado que el `ModelId` publicado sea
+  el mismo string.
+- Lo configurable vive en el bloque `observabilidad` de `client.config.ts`
+  (`muestreo`, `contenidoEnTrazas`, `destino`, `indexadoTrazas`), cada campo
+  documentado ahí. Dos cosas que no son lo mismo y se confunden fácil:
+  `muestreo` es el sampler del SDK en el contenedor (qué spans se EMITEN) y
+  `indexadoTrazas` es el `IndexingPercentage` de Transaction Search (qué
+  proporción de los que llegaron se puede BUSCAR).

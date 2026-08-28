@@ -16,6 +16,7 @@ import { cliente } from "../../client.config";
 import { kb, kbLink } from "./conocimiento";
 import { gateway, gatewayRole, targetApiCliente } from "./gateway";
 import { documentosToolSchema, escalamientoToolSchema } from "./tool-schemas";
+import { permisosTrazas, trazasActivas } from "./observabilidad";
 
 // Destino del escalamiento. Es un SECRETO (estos webhooks suelen llevar el token
 // en el path o en el query), así que va en `sst.Secret` —
@@ -41,7 +42,15 @@ export const toolDocumentos = new sst.aws.Function("ToolDocumentos", {
   timeout: "30 seconds",
   // El id del KB llega por linkable (`Resource.KnowledgeBase.id`), no por env.
   link: [kbLink],
+  // Tracing activo: los segmentos de esta tool cuelgan del span que el Gateway
+  // emite por su target, así que sin esto la traza del turno llega hasta el
+  // Gateway y ahí se corta —justo donde se ve si la tool tardó o falló. En sst
+  // no hay prop `tracing`: va por `transform.function` (ver ./observabilidad.ts).
+  transform: { function: trazasActivas },
   permissions: [
+    // Los permisos de X-Ray no vienen con el tracing: el rol que arma sst lleva
+    // solo AWSLambdaBasicExecutionRole (ver ./observabilidad.ts).
+    ...permisosTrazas,
     {
       // Un Linkable pelado no otorga permisos (ver infra/CONTRACT.md): el
       // `bedrock:Retrieve` va a mano, acotado al KB propio.
@@ -63,6 +72,14 @@ export const toolEscalamiento = new sst.aws.Function("ToolEscalamiento", {
   // el arranque en frío.
   timeout: "20 seconds",
   link: [escalamientoWebhookUrl],
+  // Tracing activo: los segmentos de esta tool cuelgan del span que el Gateway
+  // emite por su target, así que sin esto la traza del turno llega hasta el
+  // Gateway y ahí se corta —justo donde se ve si la tool tardó o falló. En sst
+  // no hay prop `tracing`: va por `transform.function` (ver ./observabilidad.ts).
+  transform: { function: trazasActivas },
+  // Los permisos de X-Ray no vienen con el tracing: el rol que arma sst lleva
+  // solo AWSLambdaBasicExecutionRole (ver ./observabilidad.ts).
+  permissions: [...permisosTrazas],
 });
 
 // El ÚNICO permiso que necesita el rol del Gateway: invocar exactamente estas
@@ -124,11 +141,24 @@ export const targetDocumentos = new awsnative.bedrockagentcore.GatewayTarget(
   { dependsOn: [gatewayRolePolicy, targetApiCliente] },
 );
 
+// El nombre del target del escalamiento vive en una constante porque no lo usa
+// solo el `name` de acá: el dashboard de ./observabilidad.ts filtra las
+// invocaciones del Gateway por el nombre MCP de la tool, que lleva este prefijo.
+// Renombrar el target mueve las dos cosas a la vez.
+export const nombreTargetEscalamiento = "escalamiento";
+
+// El nombre que ve el Gateway (y con el que publica la métrica `Invocations`,
+// dimensión `Name`): `<target>___<tool>`, con TRES guiones bajos. El nombre de la
+// tool sale del schema (./tool-schemas.ts), que es donde se declara: así el
+// dashboard no repite el literal y no se desincroniza si el schema lo cambia.
+// Es un `Output` porque el `.d.ts` tipa `name` como `Input<string>`.
+export const nombreMcpEscalamiento = $interpolate`${nombreTargetEscalamiento}___${escalamientoToolSchema[0].name}`;
+
 export const targetEscalamiento = new awsnative.bedrockagentcore.GatewayTarget(
   "ToolEscalamientoTarget",
   {
     gatewayIdentifier: gateway.gatewayIdentifier,
-    name: "escalamiento",
+    name: nombreTargetEscalamiento,
     description: "Escalamiento del caso a una persona (dato de tenant)",
     targetConfiguration: {
       mcp: {

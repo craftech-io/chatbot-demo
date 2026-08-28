@@ -92,6 +92,78 @@ export interface ConfigCliente {
    */
   promptSistema: string;
 
+  /**
+   * Observabilidad del agente (spec §17): cuánto resuelve, cuánto deriva, cuánto
+   * cuesta y con qué detalle se puede mirar el interior de un turno.
+   *
+   * Las MÉTRICAS del servicio (el dashboard de `infra/sst/observabilidad.ts`) no
+   * dependen de nada de acá: existen sin instrumentar. Lo que se configura acá es
+   * la capa de TRAZAS — qué proporción se guarda, cuánto se ve de la
+   * conversación, y a dónde van.
+   */
+  observabilidad: {
+    /**
+     * Proporción de trazas que se conserva, entre 0 y 1 (0.05 = 5%). Lo aplica el
+     * contenedor como sampler (`parentbased_traceidratio`), así que la decisión se
+     * toma una vez por conversación: la traza entera queda completa o no existe,
+     * no se parte por la mitad.
+     *
+     * 1 (todo) es el default del SDK y **es la trampa de costo** de esta
+     * capacidad: sin collector, exportar el 100% de los spans puede multiplicar
+     * por veinte lo que cuesta la observabilidad. 0.05 alcanza para ver cómo se
+     * comporta el agente; para perseguir un problema puntual se sube, se mira y
+     * se baja.
+     */
+    muestreo: number;
+
+    /**
+     * Si las trazas llevan el CONTENIDO de la conversación (los mensajes del
+     * usuario, la respuesta del modelo, el prompt de sistema) además de la forma
+     * del turno.
+     *
+     * `false` por default, y es lo que corresponde: con esto apagado las trazas
+     * siguen mostrando qué tools se llamaron, cuánto tardó cada paso y cuántos
+     * tokens se gastaron —lo que hace falta para entender un turno— pero el texto
+     * viaja redactado.
+     *
+     * Prenderlo con `destino: "otlp"` es una DECISIÓN DE RESIDENCIA DE DATOS, no
+     * un ajuste de verbosidad: la conversación de los usuarios finales del
+     * cliente sale de su cuenta de AWS y queda en un servicio de terceros. Se
+     * acuerda con el cliente antes de tocar este campo, y suele necesitar que su
+     * política de privacidad lo contemple.
+     */
+    contenidoEnTrazas: boolean;
+
+    /**
+     * A dónde van las trazas.
+     *
+     * - `"cloudwatch"`: a la cuenta del propio cliente (X-Ray / Transaction
+     *   Search). Es el default y no necesita ningún secreto.
+     * - `"otlp"`: a un endpoint OTLP externo. El endpoint y el header de auth van
+     *   como secretos (`npx sst secret set ...`), nunca en este archivo: **el
+     *   header lleva la credencial**.
+     *
+     * Solo mueve las TRAZAS. Las métricas y los logs siguen en CloudWatch: los
+     * endpoints nativos son por señal, no uno solo para todo.
+     */
+    destino: "cloudwatch" | "otlp";
+
+    /**
+     * Porcentaje de spans que CloudWatch indexa para búsqueda (Transaction
+     * Search, `AWS::XRay::TransactionSearchConfig`), entre 1 y 100.
+     *
+     * No es el sampler: `muestreo` decide qué spans se emiten, esto decide qué
+     * proporción de los que llegaron se puede buscar después. Con un muestreo ya
+     * bajo, indexar parcial es apostar dos veces al mismo azar: la traza que
+     * buscás puede haber llegado y no estar indexada. Default 100.
+     *
+     * **Es un valor de CUENTA, no de stage:** dos stages en la misma cuenta
+     * comparten la configuración y gana el último deploy (ver
+     * `infra/sst/observabilidad.ts`).
+     */
+    indexadoTrazas: number;
+  };
+
   /** Ajustes de la búsqueda en los documentos (la Knowledge Base, spec §11). */
   documentos: {
     /**
@@ -140,6 +212,18 @@ export const cliente: ConfigCliente = {
     "6. Nunca digas que derivaste una consulta si la tool no confirmó que el escalamiento se creó. Si falló, decile que no pudiste derivarla y qué puede hacer mientras tanto.",
     "7. No pidas ni repitas datos sensibles (tarjetas, contraseñas, documentos de identidad). Si te los mandan, seguí sin usarlos.",
   ].join("\n"),
+  observabilidad: {
+    // 5% de las conversaciones. Ver el doc del campo: subirlo a 1 es la forma
+    // más rápida de multiplicar la factura de observabilidad.
+    muestreo: 0.05,
+    // Redactado por default. Prenderlo es una decisión de residencia de datos,
+    // no un ajuste de verbosidad.
+    contenidoEnTrazas: false,
+    // A la cuenta del cliente. `"otlp"` exige los dos secretos del endpoint.
+    destino: "cloudwatch",
+    // Indexar todo lo que llega: con el muestreo al 5% no sobra nada.
+    indexadoTrazas: 100,
+  },
   documentos: {
     topK: 5,
   },
