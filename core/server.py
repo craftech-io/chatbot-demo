@@ -26,6 +26,52 @@ PORT = 8080
 
 logger = logging.getLogger(__name__)
 
+# Estado de la guarda de instrumentación. Vive a nivel MÓDULO y no en el closure
+# de build_app porque lo que se engancha es global al PROCESO: el instrumentor de
+# OpenInference es un singleton y el dispatcher de LlamaIndex que modifica es uno
+# solo, compartido por todas las apps del proceso.
+_trazas_instrumentadas = False
+
+
+def _instrumentar_trazas(env, instrumentador_factory=None) -> bool:
+    """Engancha OpenInference al dispatcher de LlamaIndex si la env lo pide.
+
+    Hace falta llamarlo a mano: `opentelemetry-instrument` (el entrypoint del
+    contenedor, ver core/Dockerfile) NO conoce este instrumentor, no está entre
+    sus auto-instrumentaciones. Sin esta llamada el contenedor exporta los spans
+    de HTTP pero NINGUNO del interior del turno — ni el workflow, ni las tools,
+    ni los contadores de tokens del LLM.
+
+    Va detrás de una guarda de env a propósito: los tests y el modo local no
+    tienen por qué pagar el import ni un enganche global. La infra la prende en
+    el Runtime con `TRAZAS_OPENINFERENCE=1` (ver infra/CONTRACT.md).
+
+    Devuelve si instrumentó en ESTA llamada. El server no usa el valor; existe
+    para que la guarda sea observable desde los tests.
+    """
+    global _trazas_instrumentadas
+    if not env.get("TRAZAS_OPENINFERENCE"):
+        return False
+    if _trazas_instrumentadas:
+        # `LlamaIndexInstrumentor.instrument()` ya es idempotente por su cuenta
+        # (BaseInstrumentor es un singleton con un flag
+        # `_is_instrumented_by_opentelemetry`, y su `_instrument` además revisa
+        # el dispatcher antes de agregar handlers), pero la segunda llamada
+        # loguea un WARNING que no significa nada: mejor no hacerla.
+        return False
+    if instrumentador_factory is None:
+        # Import PEREZOSO, adentro de la guarda: el paquete arrastra
+        # `llama_index.core` y `openinference` entero, y con la guarda apagada
+        # no tiene por qué entrar al proceso.
+        from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
+
+        instrumentador_factory = LlamaIndexInstrumentor
+    instrumentador_factory().instrument()
+    _trazas_instrumentadas = True
+    # Sin nada del turno: este log dice QUE se instrumentó, y nada más.
+    logger.info("Trazas: instrumentacion de OpenInference activada")
+    return True
+
 
 class _EchoLLM:
     """LLM local que repite el mensaje. Solo se usa con FAKE_LLM=1.
@@ -53,9 +99,16 @@ def build_app(
     memoria_factory=None,
     tools_usuario_factory=None,
     tools_gateway_factory=None,
+    instrumentador_factory=None,
 ) -> Starlette:
     # `env` se inyecta en los tests; en el contenedor es os.environ.
     env = os.environ if env is None else env
+    # Lo PRIMERO: el instrumentor tiene que estar enganchado al dispatcher antes
+    # de que corra el primer turno. Sin try/except a propósito: si la env pide
+    # instrumentar y el import falla, la imagen está mal armada y es mejor no
+    # arrancar (misma razón que load_config) que servir turnos sin trazas y sin
+    # que nadie se entere.
+    _instrumentar_trazas(env, instrumentador_factory)
     # La config se carga al CONSTRUIR la app, no por request: si falta algo
     # obligatorio es preferible no arrancar (la misma razón de config.py).
     cfg = load_config(env)
@@ -146,6 +199,13 @@ def build_app(
 
 if __name__ == "__main__":
     import uvicorn
+
+    # Handler en el root logger. Sin esto, un `logger.info` del core no sale por
+    # ningún lado: Python solo tiene el "last resort" a nivel WARNING, así que
+    # los `logger.error` se veían y los `info` se perdían en silencio. Va acá y
+    # no a nivel módulo para no pisarle la config de logging a nadie que importe
+    # este archivo (los tests, otro proceso que use `build_app`).
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     # La app se construye recién acá: el contenedor falla al arrancar si falta
     # config, y el import del módulo (en los tests) no dispara load_config.

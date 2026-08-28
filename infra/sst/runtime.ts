@@ -20,6 +20,183 @@ import { apiClienteDemoUrl } from "./api-cliente";
 const region = aws.getRegionOutput().region;
 const accountId = aws.getCallerIdentityOutput().accountId;
 
+// ---------------------------------------------------------------------------
+// Observabilidad del contenedor (spec §17, capa 2)
+// ---------------------------------------------------------------------------
+// Las trazas del interior del turno se prenden desde acá, con env: el código del
+// agente no sabe que existen. Este módulo declara TODAS las env `OTEL_*` /
+// `OPENINFERENCE_*` del Runtime; el resto de la infra de observabilidad (el
+// Transaction Search y el dashboard) vive en ./observabilidad.ts.
+
+/** Forma del bloque `observabilidad` de `client.config.ts`. */
+type Observabilidad = {
+  /** Fracción de trazas que se muestrean, 0..1. */
+  muestreo: number;
+  /** Si el texto de la conversación viaja en las trazas. */
+  contenidoEnTrazas: boolean;
+  /** Destino de los spans. */
+  destino: "cloudwatch" | "otlp";
+};
+
+// El bloque lo DECLARA `client.config.ts` (con un campo más, `indexadoTrazas`,
+// que consume infra/sst/observabilidad.ts y no este módulo) y lo consume acá.
+//
+// El acceso va por un cast con default y no directo (`cliente.observabilidad`)
+// porque esta rama se escribió en paralelo con la que agrega el bloque: es una
+// COSTURA, y al mergear conviene colapsarla al acceso directo. El default que
+// queda mientras tanto es el CONSERVADOR: contenido redactado, destino en la
+// cuenta del cliente, muestreo bajo. Un config sin el bloque nunca puede
+// terminar con el contenido de la conversación saliendo.
+const observabilidad: Observabilidad = (
+  cliente as { observabilidad?: Observabilidad }
+).observabilidad ?? {
+  muestreo: 0.05,
+  contenidoEnTrazas: false,
+  destino: "cloudwatch",
+};
+
+// Destino OTLP externo. Van en `sst.Secret` y no en client.config.ts porque **el
+// header lleva la credencial** del backend de trazas (p. ej. un `Authorization:
+// Basic ...`): se setean con `npx sst secret set ObservabilidadOtlpHeaders '...'`
+// y no se loguean NUNCA — ni acá, ni en el core, ni en un `console.log` de debug.
+// Default "": con `destino: "cloudwatch"` no se usan y el deploy no corta.
+//
+// OJO: viajan como env del Runtime, así que quedan legibles con
+// `GetAgentRuntime` para quien tenga ese permiso, y en el state de Pulumi
+// (cifrado). Es el mismo trade-off que cualquier credencial que necesita un
+// contenedor sin sidecar; si el cliente no lo acepta, el destino es CloudWatch.
+const otlpEndpoint = new sst.Secret("ObservabilidadOtlpEndpoint", "");
+const otlpHeaders = new sst.Secret("ObservabilidadOtlpHeaders", "");
+
+// Endpoint OTLP nativo de X-Ray. Es lo que elige el exporter SigV4 del distro de
+// ADOT: la decisión la toma mirando ESTE valor (`_customize_span_exporter`
+// compara el host con el del servicio X-Ray), no una flag aparte. Solo HTTP, no
+// gRPC, y exige Transaction Search habilitado en la cuenta (./observabilidad.ts).
+const endpointXray = $interpolate`https://xray.${region}.amazonaws.com/v1/traces`;
+
+// Redacción. El default del template es REDACTADO: los ~14 `OPENINFERENCE_HIDE_*`
+// vienen en `False` de fábrica, o sea que sin estas env la conversación completa
+// y el prompt de sistema viajan en los spans.
+//
+// `HIDE_INPUTS`/`HIDE_OUTPUTS` solos ya tapan casi todo (en el `mask()` del
+// paquete cubren `input.value`, `output.value`, `llm.input_messages.*`,
+// `llm.output_messages.*`, `llm.tools`, `llm.prompts`, `llm.choices` y los
+// documentos del reranker). Las demás van igual, por el criterio de que en
+// redacción se pone la env de más: si mañana el instrumentor mueve un atributo
+// de lugar, la que sobra ya lo cubre.
+//
+// Lo que sobrevive a propósito: los contadores de tokens
+// (`llm.token_count.*`), que son la base del costo por conversación, los nombres
+// de las tools y las latencias. La traza sigue sirviendo para ver QUÉ pasó en el
+// turno; lo que no se ve es lo que se dijo.
+//
+// Las dos últimas no son de OpenInference y cierran los caminos que sus flags no
+// gobiernan:
+// - `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false` tapa el camino de
+//   botocore/GenAI. Hace falta explícita: el distro de ADOT hace
+//   `setdefault(..., "true")` cuando `AGENT_OBSERVABILITY_ENABLED` está prendido.
+// - `AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT=true` apaga el LLOHandler del distro,
+//   que EXTRAE `input.value`/`output.value`/`llm.*_messages.*.message.content`
+//   de los spans y los emite como LOG RECORDS a CloudWatch. O sea: sin esto, el
+//   contenido puede salir por logs aunque uno solo haya pensado en trazas.
+const envRedaccion = {
+  OPENINFERENCE_HIDE_INPUTS: "true",
+  OPENINFERENCE_HIDE_OUTPUTS: "true",
+  OPENINFERENCE_HIDE_INPUT_MESSAGES: "true",
+  OPENINFERENCE_HIDE_OUTPUT_MESSAGES: "true",
+  OPENINFERENCE_HIDE_INPUT_TEXT: "true",
+  OPENINFERENCE_HIDE_OUTPUT_TEXT: "true",
+  OPENINFERENCE_HIDE_INPUT_IMAGES: "true",
+  OPENINFERENCE_HIDE_PROMPTS: "true",
+  OPENINFERENCE_HIDE_CHOICES: "true",
+  OPENINFERENCE_HIDE_EMBEDDINGS_TEXT: "true",
+  OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "false",
+  AWS_GENAI_CONTENT_EXTRACTION_OPT_OUT: "true",
+};
+
+const envObservabilidad = {
+  // Prende el instrumentor de OpenInference DENTRO del core: los spans del
+  // interior del turno (workflow, tools, LLM con contadores de tokens) no los
+  // da `opentelemetry-instrument`, hay que llamar al instrumentor a mano y esta
+  // env es la guarda de esa llamada (ver `_instrumentar_trazas` en core/server.py).
+  TRAZAS_OPENINFERENCE: "1",
+
+  // Los DOS distros están instalados en el venv (`opentelemetry-distro` viene
+  // como dependencia de `aws-opentelemetry-distro`) y sus entry points compiten:
+  // `_load_distro` usa "el primero que aparezca" si nadie elige. Sin estas dos,
+  // qué distro gana depende del orden de los entry points — o sea, del azar del
+  // install — y con el genérico no hay exporter SigV4 ni endpoint de X-Ray.
+  OTEL_PYTHON_DISTRO: "aws_distro",
+  OTEL_PYTHON_CONFIGURATOR: "aws_configurator",
+
+  // Nombre del servicio en las trazas, y el stage para poder separarlas: el
+  // índice de Transaction Search es de CUENTA, así que dos stages de la misma
+  // cuenta caen en el mismo lugar.
+  OTEL_SERVICE_NAME: `${slugKebab}-agente`,
+  OTEL_RESOURCE_ATTRIBUTES: `deployment.environment=${$app.stage}`,
+
+  // Muestreo. Sin collector el default del SDK es `parentbased_always_on`, o sea
+  // el 100% de las trazas ("hasta 20x más volumen de ingesta y costo", palabras
+  // de la doc de AWS). `parentbased_*` y no `traceidratio` pelado para que la
+  // decisión del BFF/worker se respete: la cadena queda en una sola traza en vez
+  // de cortarse justo en el contenedor.
+  OTEL_TRACES_SAMPLER: "parentbased_traceidratio",
+  OTEL_TRACES_SAMPLER_ARG: String(observabilidad.muestreo),
+
+  // `AGENT_OBSERVABILITY_ENABLED` en false EXPLÍCITO, y no ausente: con esa flag
+  // prendida el configurador de ADOT agrega un `BatchUnsampledSpanProcessor`
+  // ("we always send 100% spans to AgentCore Runtime platform", dice su
+  // comentario) que exporta TODOS los spans y deja al sampler de arriba sin
+  // efecto. Prenderla también reactivaría el LLOHandler que manda el contenido a
+  // logs. Si algún día se quiere la experiencia nativa de AgentCore, se cambia
+  // acá — sabiendo que el muestreo deja de aplicar.
+  AGENT_OBSERVABILITY_ENABLED: "false",
+
+  // Application Signals incluye Transaction Search: con las dos prendidas se
+  // paga dos veces por lo mismo. `false` es además el default del distro; va
+  // explícito para que un cambio de default no nos duplique la factura.
+  OTEL_AWS_APPLICATION_SIGNALS_ENABLED: "false",
+
+  // ADOT auto-instrumenta `botocore` y eso DUPLICA el span del LLM (uno de
+  // OpenInference con la semántica buena, otro de botocore con el HTTP crudo).
+  // Solo apaga la instrumentación: el exporter SigV4 sigue usando botocore como
+  // librería para firmar, que es otra cosa.
+  //
+  // `jinja2` va en la misma lista porque LlamaIndex compila templates y cada
+  // compilación es un span: en una corrida local de UN turno salieron 10
+  // `jinja2.compile`. Es ruido puro y se paga por span ingestado. (ADOT también
+  // lo apaga en su propia lista por default.)
+  OTEL_PYTHON_DISABLED_INSTRUMENTATIONS: "botocore,jinja2",
+
+  // El health check de AgentCore pega a `/ping` sin parar, y cada llamada son 3
+  // spans (el request más los `http send` del ASGI). Excluirlo no pierde nada:
+  // que el contenedor está vivo lo dice el Runtime, no una traza.
+  OTEL_PYTHON_STARLETTE_EXCLUDED_URLS: "/ping",
+
+  // Solo trazas. Sin esto el SDK levanta también los pipelines de métricas y de
+  // logs apuntando al OTLP de localhost, que en la microVM no existe: son
+  // errores de export cada 60 segundos, por nada.
+  OTEL_TRACES_EXPORTER: "otlp",
+  OTEL_METRICS_EXPORTER: "none",
+  OTEL_LOGS_EXPORTER: "none",
+  // Los endpoints nativos de CloudWatch son HTTP, no gRPC. Es el default del
+  // distro; explícito porque si no coincide, el exporter SigV4 no se elige y el
+  // aviso queda en un warning que nadie lee.
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf",
+
+  // Destino. Es un adaptador de una sola env: misma clave, otro valor.
+  ...(observabilidad.destino === "otlp"
+    ? {
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: otlpEndpoint.value,
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS: otlpHeaders.value,
+      }
+    : { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: endpointXray }),
+
+  // Redacción por default. El opt-in es de una sola línea en client.config.ts, y
+  // con un destino externo es además una decisión de residencia de datos.
+  ...(observabilidad.contenidoEnTrazas ? {} : envRedaccion),
+};
+
 // Se exporta para publicar su nombre como output del stack: el CI lo lee de
 // `.sst/outputs.json` en vez de rearmarlo a mano (ver .github/workflows/deploy.yml).
 export const repo = new aws.ecr.Repository("CoreRepo", {
@@ -114,6 +291,20 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
         Resource: [$interpolate`${memoria.memoryArn}*`],
       },
       {
+        // Tarifas para el costo por conversación (`core/src/agent/costo.py`).
+        // La Price List API NO soporta scoping por recurso: `"*"` es lo único
+        // que existe. Es read-only y devuelve el catálogo PÚBLICO de precios de
+        // AWS, no datos de la cuenta.
+        //
+        // Sin este permiso la falla es silenciosa y cara de diagnosticar: el
+        // costo sale siempre `null` con un warning por microVM, el chat funciona
+        // igual y el deploy no se queja. Aparece semanas después, cuando alguien
+        // pregunta por qué el dashboard no tiene costos.
+        Effect: "Allow",
+        Action: ["pricing:GetProducts"],
+        Resource: "*",
+      },
+      {
         // Tools de tenant: el core firma los requests MCP al Gateway con SigV4
         // (inbound AWS_IAM). Además del ARN pelado va el wildcard de
         // sub-recursos porque el authz puede evaluar el target como
@@ -127,6 +318,23 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
     ],
   }),
 });
+
+// Escritura de spans al endpoint OTLP de X-Ray (spec §17, capa 2). Va como la
+// policy ADMINISTRADA `AWSXrayWriteOnlyPolicy` y no como statement propio a
+// propósito: es la que la doc de AWS indica para el camino collector-less de
+// ADOT, y el set de acciones que necesita ese endpoint lo fue cambiando
+// (`xray:PutTraceSegments` y después `xray:PutSpans`) — una lista escrita a mano
+// se queda vieja y el fallo sale como un 403 del exporter, en un log que nadie
+// mira, sin ningún síntoma en el turno.
+//
+// Solo con `destino: "cloudwatch"`: con un destino OTLP externo el contenedor no
+// le habla a X-Ray y el permiso sobraría.
+if (observabilidad.destino === "cloudwatch") {
+  new aws.iam.RolePolicyAttachment("RuntimeXrayWrite", {
+    role: role.name,
+    policyArn: "arn:aws:iam::aws:policy/AWSXrayWriteOnlyPolicy",
+  });
+}
 
 export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   // El recurso exige `[a-zA-Z][a-zA-Z0-9_]*`: stages con guion (p.ej. `pr-123`)
@@ -175,6 +383,9 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
     ...(cliente.promptSistema
       ? { PROMPT_SISTEMA_B64: Buffer.from(cliente.promptSistema, "utf8").toString("base64") }
       : {}),
+    // Observabilidad del contenedor: todas las env están armadas y comentadas
+    // arriba, derivadas de `cliente.observabilidad`.
+    ...envObservabilidad,
   },
 });
 
