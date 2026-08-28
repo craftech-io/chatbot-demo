@@ -9,7 +9,7 @@
 // como puente hacia lo que el cliente ya usa: Zapier, n8n, una Lambda propia).
 // Lo que es contrato NO es el webhook, es la INTERFAZ de la tool:
 //   entrada  { resumen, detalle?, usuario?, conversacion? }
-//   salida   { creado: true, referencia, link? } | { creado: false, nota }
+//   salida   { creado: true, referencia?, link?, nota? } | { creado: false, nota }
 // Un adaptador de un sistema concreto (Jira Service Management, Jira, Slack,
 // email) se implementa en el clon del cliente, donde existen las credenciales
 // para probarlo: un adaptador sin verificar en el template es peor que ninguno,
@@ -27,11 +27,13 @@
 //
 // Regla dura: si el POST no fue 2xx, esta tool NUNCA dice que creó el
 // escalamiento. Mentirle al usuario ("ya te derivé") cuando el ticket no
-// existe es el peor resultado posible de esta capacidad.
+// existe es el peor resultado posible de esta capacidad. La otra mitad de la
+// misma regla: si el webhook no devolvió referencia, la tool NO se la inventa
+// —una referencia con formato de ticket que ningún sistema conoce es una
+// mentira igual de cara— y avisa por dónde llega.
 //
 // Sobre `Resource` en packages/bff: igual que en ./documentos.ts — la lógica
 // recibe el webhook inyectado y solo el `handler` del final lee SST.
-import { randomUUID } from "node:crypto";
 import { Resource } from "sst";
 
 // El turno del agente no puede quedarse colgado esperando al sistema del
@@ -47,6 +49,11 @@ export const NOTA_SIN_WEBHOOK =
 // falló pudo haber llegado igual (un 500 después de crear el ticket, una
 // conexión cortada al leer la respuesta). Lo único que la tool sabe con
 // certeza es que NO tiene una referencia que darle al usuario.
+// 2xx sin referencia en el cuerpo: el caso ESTÁ creado (por eso `creado: true`),
+// pero no hay identificador que darle al usuario. Es texto para transmitir tal
+// cual, no un error.
+export const NOTA_SIN_REFERENCIA =
+  "El caso quedó recibido, pero el sistema de soporte no devolvió una referencia: la referencia llega por el canal de soporte.";
 export const NOTA_FALLO =
   "No pude confirmar el escalamiento: el sistema de soporte no respondió bien y no hay una referencia para darle al usuario. Conviene reintentar en un rato.";
 // Nota propia para el 3xx: no es una caída del sistema de soporte, es el URL
@@ -68,7 +75,9 @@ export type EntradaEscalamiento = {
 };
 
 export type RespuestaEscalamiento =
-  | { creado: true; referencia: string; link?: string }
+  // `referencia` es opcional a propósito: hay webhooks que aceptan el caso y no
+  // devuelven identificador. En ese caso viaja `nota` en su lugar.
+  | { creado: true; referencia?: string; link?: string; nota?: string }
   | { creado: false; nota: string };
 
 type DepsEscalamiento = {
@@ -76,8 +85,6 @@ type DepsEscalamiento = {
   webhookUrl: string;
   /** Inyectable para testear sin red. */
   fetch?: typeof globalThis.fetch;
-  /** Inyectable para testear; por defecto una referencia local `ESC-xxxxxxxx`. */
-  generarReferencia?: () => string;
   timeoutMs?: number;
 };
 
@@ -146,13 +153,11 @@ function motivoDeError(e: unknown): string {
 }
 
 /**
- * Fábrica de la tool: recibe el webhook (y opcionalmente `fetch` y el generador
- * de referencias) inyectados, así se testea sin red ni SST.
+ * Fábrica de la tool: recibe el webhook (y opcionalmente `fetch`) inyectados,
+ * así se testea sin red ni SST.
  */
 export function crearEscalarAHumano(deps: DepsEscalamiento) {
   const hacerFetch = deps.fetch ?? globalThis.fetch;
-  const generarReferencia =
-    deps.generarReferencia ?? (() => `ESC-${randomUUID().slice(0, 8).toUpperCase()}`);
   const timeoutMs = deps.timeoutMs ?? TIMEOUT_MS;
 
   return async function escalarAHumano(
@@ -215,7 +220,7 @@ export function crearEscalarAHumano(deps: DepsEscalamiento) {
     }
 
     // Un 2xx sin cuerpo JSON (204, o un webhook que responde texto) es un
-    // escalamiento creado igual: se sigue con una referencia generada.
+    // escalamiento creado igual: lo que falta es la referencia, no el caso.
     let cuerpo: unknown;
     try {
       cuerpo = await respuesta.json();
@@ -225,7 +230,7 @@ export function crearEscalarAHumano(deps: DepsEscalamiento) {
     const { referencia, link } = datosDelTicket(cuerpo, deps.webhookUrl);
     return {
       creado: true,
-      referencia: referencia ?? generarReferencia(),
+      ...(referencia ? { referencia } : { nota: NOTA_SIN_REFERENCIA }),
       ...(link ? { link } : {}),
     };
   };

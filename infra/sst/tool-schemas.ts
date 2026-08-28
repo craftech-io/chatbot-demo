@@ -46,7 +46,7 @@ export const escalamientoToolSchema: ToolSchema = [
   {
     name: "escalar_a_humano",
     description:
-      "Crea el escalamiento para que una persona del equipo siga el caso. Usala SOLO después de que el usuario haya aceptado explícitamente que lo derives: primero ofrecé, y recién cuando diga que sí, llamala. Devuelve { creado: true, referencia } si quedó registrado: pasale esa referencia al usuario. Si devuelve { creado: false, nota }, NO hay escalamiento confirmado — explicale al usuario lo que dice la nota, nunca le digas que ya lo derivaste.",
+      "Crea el escalamiento para que una persona del equipo siga el caso. Usala SOLO después de que el usuario haya aceptado explícitamente que lo derives: primero ofrecé, y recién cuando diga que sí, llamala. Devuelve { creado: true } si el caso quedó registrado: si trae `referencia` (y `link`), pasáselos al usuario; si en cambio trae `nota`, el caso quedó recibido igual y lo que hay que transmitir es esa nota — no inventes una referencia. Si devuelve { creado: false, nota }, NO hay escalamiento confirmado — explicale al usuario lo que dice la nota, nunca le digas que ya lo derivaste.",
     inputSchema: {
       type: "object",
       properties: {

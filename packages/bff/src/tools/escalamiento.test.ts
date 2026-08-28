@@ -3,6 +3,7 @@ import {
   crearEscalarAHumano,
   NOTA_FALLO,
   NOTA_REDIRECCION,
+  NOTA_SIN_REFERENCIA,
   NOTA_SIN_RESUMEN,
   NOTA_SIN_WEBHOOK,
 } from "./escalamiento";
@@ -63,26 +64,30 @@ describe("escalar_a_humano", () => {
     expect(cuerpoDelPost(espia)).toEqual(CASO);
   });
 
-  it("si el webhook no devuelve referencia, genera una", async () => {
+  // Una referencia INVENTADA con el formato de un ticket real (`ESC-` + hex) es
+  // indistinguible de una que el usuario puede reclamar por el canal de
+  // soporte, y el schema le dice al modelo que se la pase. Sin referencia del
+  // webhook, el caso está creado pero no hay identificador que dar.
+  it("un 2xx sin referencia NO inventa una: creado con la nota de que llega por soporte", async () => {
     const { fetch } = fetchFalso(async () => respuesta(200, { ok: true }));
-    const escalar = crearEscalarAHumano({
-      webhookUrl: WEBHOOK,
-      fetch,
-      generarReferencia: () => "ESC-generada",
-    });
+    const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
 
-    expect(await escalar(CASO)).toEqual({ creado: true, referencia: "ESC-generada" });
+    const r = await escalar(CASO);
+
+    expect(r).toEqual({ creado: true, nota: NOTA_SIN_REFERENCIA });
+    expect(r).not.toHaveProperty("referencia");
+    // Nada con forma de ticket en lo que vuelve.
+    expect(JSON.stringify(r)).not.toMatch(/ESC-/);
   });
 
-  it("un cuerpo que no es JSON no rompe el 2xx: sigue creado con referencia generada", async () => {
+  it("un cuerpo que no es JSON no rompe el 2xx: sigue creado, tampoco con referencia inventada", async () => {
     const { fetch } = fetchFalso(async () => respuesta(204));
-    const escalar = crearEscalarAHumano({
-      webhookUrl: WEBHOOK,
-      fetch,
-      generarReferencia: () => "ESC-generada",
-    });
+    const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
 
-    expect(await escalar(CASO)).toEqual({ creado: true, referencia: "ESC-generada" });
+    const r = await escalar(CASO);
+
+    expect(r).toEqual({ creado: true, nota: NOTA_SIN_REFERENCIA });
+    expect(r).not.toHaveProperty("referencia");
   });
 
   it("NUNCA dice creado si el POST no fue 2xx", async () => {
@@ -190,11 +195,7 @@ describe("escalar_a_humano", () => {
 
     for (const cuerpo of cuerposQueReflejanElHook) {
       const { fetch } = fetchFalso(async () => respuesta(200, cuerpo));
-      const escalar = crearEscalarAHumano({
-        webhookUrl: WEBHOOK,
-        fetch,
-        generarReferencia: () => "ESC-generada",
-      });
+      const escalar = crearEscalarAHumano({ webhookUrl: WEBHOOK, fetch });
 
       const devuelto = JSON.stringify(await escalar(CASO));
 
