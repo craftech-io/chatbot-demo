@@ -57,13 +57,13 @@ export const NOTA_SIN_WEBHOOK =
 // falló pudo haber llegado igual (un 500 después de crear el ticket, una
 // conexión cortada al leer la respuesta). Lo único que la tool sabe con
 // certeza es que NO tiene una referencia que darle al usuario.
+export const NOTA_FALLO =
+  "No pude confirmar el escalamiento: el sistema de soporte no respondió bien y no hay una referencia para darle al usuario. Conviene reintentar en un rato.";
 // 2xx sin referencia en el cuerpo: el caso ESTÁ creado (por eso `creado: true`),
 // pero no hay identificador que darle al usuario. Es texto para transmitir tal
 // cual, no un error.
 export const NOTA_SIN_REFERENCIA =
-  "El caso quedó recibido, pero el sistema de soporte no devolvió una referencia: la referencia llega por el canal de soporte.";
-export const NOTA_FALLO =
-  "No pude confirmar el escalamiento: el sistema de soporte no respondió bien y no hay una referencia para darle al usuario. Conviene reintentar en un rato.";
+  "El caso quedó recibido, pero el sistema de soporte no devolvió una referencia para darle al usuario: le va a llegar por el canal de soporte.";
 // Nota propia para el 3xx: no es una caída del sistema de soporte, es el URL
 // configurado. Lo dice explícito para que el operador que lea la conversación
 // (o el log) sepa dónde mirar en vez de reintentar contra un destino que jamás
