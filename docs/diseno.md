@@ -238,7 +238,9 @@ Se expone al agente como tool de tenant **`consultar_documentos`**, un target La
 del Gateway (§7) que llama `Retrieve` — **no `RetrieveAndGenerate`**: recupera pasajes
 y el agente sintetiza, así el workflow controla la respuesta y puede **citar la
 fuente**. En asesoría IA una respuesta sin fuente no sirve. La tool devuelve, por
-pasaje, el texto, el score y la URI del documento.
+pasaje, el texto, el score, la URI del documento y los atributos que el cliente
+haya declarado en el sidecar de metadata (típicamente `titulo` y `url`, que es lo
+que hace citable la respuesta en lenguaje humano y no con la ruta del bucket).
 
 Lo citable de forma fiable es la **URI del documento**, no el título ni la página: la
 metadata que Bedrock inyecta trae ids de chunk y de data source, nada legible. El
@@ -268,8 +270,12 @@ Cuando el agente no encuentra la respuesta en los documentos, **no inventa y no 
 solo**: dice que no lo encontró y ofrece derivar a una persona. El ticket se crea
 únicamente si el usuario acepta. Esa doble regla vive en el prompt (§11.2), y la
 ejecución en la tool de tenant **`escalar_a_humano`** (target Lambda del Gateway), que
-recibe un resumen del caso y devuelve el identificador y el link del ticket creado
-para que el agente se lo pase al usuario.
+recibe un resumen del caso y devuelve la referencia y el link del ticket **cuando el
+destino los informa** — si el destino confirma la recepción sin devolver un
+identificador, la tool lo dice en vez de inventar una referencia con formato de ticket
+que soporte no podría buscar. La tool NO recibe la identidad del usuario: el agente
+solo puede pasarle lo que tiene en la conversación, así que el resumen es lo que
+permite retomar el caso.
 
 El destino es un **adaptador**: la interfaz de la tool es genérica y cada cliente
 enchufa el suyo. El adaptador de referencia es un **webhook** (POST con el payload del
