@@ -60,3 +60,28 @@ incompatible con `mcp` 2.x — desempaca tres valores del transporte
 streamable-http, que yieldea dos. Si se cambia alguno de los dos paquetes, la
 verificación no es que las versiones *resuelvan*: es un `tools/list` real contra
 un servidor.
+
+## Conocimiento y escalamiento: qué esperar
+
+**Ingesta.** Indexar un corpus chico (4 documentos markdown con sus sidecars de
+metadata) tarda menos de un minuto de punta a punta. Bedrock no sincroniza solo:
+cada vez que cambian los documentos hay que disparar un ingestion job — el
+workflow `ingesta` es el camino recomendado (corre con el rol de deploy, así que
+nadie necesita credenciales de Bedrock en su máquina).
+
+**Latencia de un turno con conocimiento.** Entre 16 y 27 segundos: el agente
+hace una llamada al modelo para decidir la tool, la búsqueda en la knowledge
+base, y otra llamada para redactar la respuesta con los pasajes. Un turno con
+escalamiento suma otra ronda del loop de tools. Está en el mismo orden que
+cualquier turno con tools (ver arriba); la búsqueda vectorial en sí es la parte
+rápida.
+
+**Las citas dependen de los sidecars.** Sin `<archivo>.metadata.json`, lo único
+citable es la URI del documento — es decir, el nombre del bucket interno en el
+chat del usuario. Con el sidecar, el agente cita el título y ofrece el link
+público. Es la diferencia entre "según s3://…-documentos-bctazkrk/politica.md" y
+"según la Política de devoluciones", así que vale la pena poblarlos.
+
+**Costo del vector store en reposo:** centavos por mes con S3 Vectors, contra
+cientos con OpenSearch Serverless. Es la razón por la que el conector nativo de
+Confluence (que exige OpenSearch) queda fuera del núcleo.
