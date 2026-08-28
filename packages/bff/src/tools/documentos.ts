@@ -179,7 +179,11 @@ let consultar: ReturnType<typeof crearConsultarDocumentos> | undefined;
 // `clientContext.custom.bedrockAgentCoreToolName`) no se lee.
 export const handler = async (event: EntradaDocumentos): Promise<RespuestaDocumentos> => {
   consultar ??= crearConsultarDocumentos({
-    knowledgeBaseId: Resource.KnowledgeBase.id,
+    // `KNOWLEDGE_BASE_ID` primero y el linkable después: la env es lo que declara
+    // infra/CONTRACT.md (el contrato es multi-IaC y un sabor sin SST inyecta la
+    // env), y el linkable es cómo la resuelve el sabor SST. Con `??`, si la env
+    // está seteada no se toca `Resource` — que en un sabor sin SST lanzaría.
+    knowledgeBaseId: process.env.KNOWLEDGE_BASE_ID ?? Resource.KnowledgeBase.id,
     cliente: clienteDefault,
     // La infra la setea desde `documentos.topK` de client.config.ts. Ausente o
     // vacía ⇒ NaN ⇒ el default del template.
