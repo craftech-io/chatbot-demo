@@ -108,7 +108,7 @@ Eso tiene dos consecuencias de diseño:
 | `core/` (Python, contenedor) | El harness: workflow de LlamaIndex con un paso por responsabilidad. Es la única pieza que un cliente con otro IaC recibe intacta | Bedrock, AgentCore Memory/Gateway, KB. Config por env/SSM — **nunca `Resource`** |
 | `packages/bff/` — Messages Backend (TS, Lambda) | Frontera de confianza: valida el token, aplica topes y guardrail de entrada, escribe y lista mensajes (`MessagesTable`) y encola el turno. **Sin lógica de agente y sin invocar al Runtime** | SQS, Dynamo, guardrail |
 | `packages/worker/` (TS, Lambda) | El único que invoca AgentCore: consume la cola FIFO, hace el debounce contra el store, agrega los mensajes del usuario en un turno, invoca el Runtime y escribe la respuesta en el store | SQS, AgentCore Runtime, MessagesTable |
-| `packages/widget/` (TS) | Bundle embebible: un `<script>` + `mount()`. Sin React expuesto, para no chocar con el stack del cliente | BFF, `/chat-token` del cliente |
+| `packages/widget/` (TS) | Bundle embebible: un `<script>` + `mount()`. Sin React expuesto, para no chocar con el stack del cliente. Renderiza el markdown de las respuestas del agente (negrita, itálica, código, listas y links) construyendo nodos con `createElement`: **nunca interpreta HTML del modelo**, y solo `http`/`https`/`mailto` pueden ser un link | BFF, `/chat-token` del cliente |
 | `packages/web/` (React) | Standalone: misma UI de chat con login propio (Cognito). Demo comercial y entorno de prueba | BFF, Cognito |
 | `packages/shared/` (TS) | Contratos y registros centrales compartidos entre BFF, widget y web | — |
 | `infra/sst/` | Sabor de referencia del IaC | Contrato de `infra/CONTRACT.md` |

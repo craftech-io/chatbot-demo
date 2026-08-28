@@ -1,6 +1,7 @@
 // El widget: lo que el cliente pega en su app. Sin framework, para no chocar con
 // su stack. Toda la UI es DOM plano; los textos visibles viven en MENSAJES.
 import { TokenSource } from "./token";
+import { renderMarkdown } from "./markdown";
 import { MENSAJES_LIMITE } from "@craftech-ai-chat/shared/mensajes";
 
 // Registro de textos visibles: el producto es en español y los literales no se
@@ -96,6 +97,40 @@ const CSS_WIDGET = `
       opacity: .6;
     }
   }
+
+  /* Los nodos que produce markdown.ts. La burbuja conserva white-space
+     pre-wrap para los saltos que no son párrafo, así que el primero y el
+     último van sin margen: si no, se suma el espacio del bloque al del wrap y
+     la burbuja queda con aire de más. */
+  .cc-respuesta p,
+  .cc-respuesta ul,
+  .cc-respuesta ol {
+    margin: .5em 0;
+  }
+  .cc-respuesta > :first-child { margin-top: 0; }
+  .cc-respuesta > :last-child { margin-bottom: 0; }
+
+  .cc-respuesta ul,
+  .cc-respuesta ol {
+    padding-left: 1.35em;
+  }
+  .cc-respuesta li { margin: .15em 0; }
+
+  .cc-respuesta code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .9em;
+    /* color-mix sobre el fondo de la burbuja: el chip de código funciona igual
+       si el host redefine --cc-fondo-resp (contrato de theming). */
+    background: color-mix(in srgb, var(--cc-texto-resp) 8%, transparent);
+    padding: .1em .3em;
+    border-radius: 4px;
+  }
+
+  .cc-respuesta a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
 }
 `;
 
@@ -151,8 +186,11 @@ export function mount(
   // Nace con el indicador de "escribiendo" (3 puntos por DOM, sin innerHTML):
   // vive hasta que el polling trae la respuesta del asistente o se da por
   // vencido (error o timeout).
-  function crearBurbujaRespuesta(): HTMLParagraphElement {
-    const burbuja = document.createElement("p");
+  // Es un <div> y no un <p> a propósito: markdown.ts le mete párrafos y listas
+  // adentro, y un <p> no puede contener <p> ni <ul> (anidado inválido). Los
+  // estilos van por la clase, así que el cambio de etiqueta no los toca.
+  function crearBurbujaRespuesta(): HTMLDivElement {
+    const burbuja = document.createElement("div");
     burbuja.className = "cc-respuesta cc-escribiendo";
     for (let i = 0; i < 3; i++) {
       const punto = document.createElement("span");
@@ -273,7 +311,11 @@ export function mount(
         pollerActivo = false;
         cursorInicial = null;
         apagarEscribiendo(burbuja);
-        burbuja.textContent = resultado.texto;
+        // La respuesta del agente viene en markdown: se renderiza a nodos (ver
+        // markdown.ts, que nunca interpreta HTML del modelo). Los mensajes
+        // propios del widget —errores, límites— siguen con textContent: son
+        // literales nuestros y no tienen markdown que interpretar.
+        renderMarkdown(burbuja, resultado.texto);
         autoScroll();
         return;
       }

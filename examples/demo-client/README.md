@@ -134,6 +134,11 @@ Un par de cosas de cómo está hecho, porque se ven en el código:
   las keywords: "sí" es substring de "así", y un "no, dejemos así" no puede
   crear un escalamiento que nadie aceptó.
 
+Las respuestas se muestran **renderizadas**: el agente escribe en markdown y el
+widget lo convierte en negrita, itálica, código, listas y links. Nunca interpreta
+HTML del modelo — construye los nodos él mismo (`packages/widget/src/markdown.ts`)
+y solo deja pasar links `http`, `https` y `mailto`.
+
 En modo real esto tampoco lo simula nadie: `consultar_documentos` hace
 `Retrieve` contra la Knowledge Base (Bedrock, S3 Vectors) y `escalar_a_humano`
 postea al webhook del adaptador de escalamiento; la política de no inventar,
