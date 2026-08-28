@@ -76,6 +76,36 @@ export interface ConfigCliente {
    * bajarlo es una decisión de política de datos del cliente.
    */
   retencionMemoriaDias: number;
+
+  /**
+   * Prompt del sistema del agente: la POLÍTICA de comportamiento (spec §11.2).
+   * Viaja al core como `PROMPT_SISTEMA` (ver `infra/CONTRACT.md`) y entra como
+   * mensaje `system` al principio de cada turno.
+   *
+   * Vacío ⇒ el core corre sin mensaje de sistema (el comportamiento previo a
+   * esta capacidad). El default codifica la política del spec: no inventar,
+   * citar la fuente, y ofrecer derivar a una persona cuando la respuesta no
+   * está en los documentos.
+   *
+   * Es lo primero que se toca al adoptar el template: acá van el nombre de la
+   * empresa, el tono, y qué está y qué no está en alcance.
+   */
+  promptSistema: string;
+
+  /** Ajustes de la búsqueda en los documentos (la Knowledge Base, spec §11). */
+  documentos: {
+    /**
+     * Cuántos pasajes devuelve cada búsqueda (el `numberOfResults` del Retrieve
+     * de Bedrock) cuando la llamada de la tool no pide otro número.
+     *
+     * Trade-off: más pasajes = más contexto y menos chance de que el dato bueno
+     * quede afuera, pero también más ruido (pasajes apenas relacionados que el
+     * modelo puede tomar como respuesta), más tokens de entrada y más latencia.
+     * 5 es el punto razonable para un corpus chico de documentos de negocio;
+     * con un corpus grande y homogéneo conviene subirlo.
+     */
+    topK: number;
+  };
 }
 
 export const cliente: ConfigCliente = {
@@ -88,4 +118,29 @@ export const cliente: ConfigCliente = {
   },
   origenesCors: ["*"],
   retencionMemoriaDias: 30,
+  // Se arma con `join("\n")` y no con un template literal multilínea para que la
+  // indentación del archivo no se cuele en el prompt (el modelo la lee como
+  // parte del texto). Sigue siendo dato plano: sin globals de SST, sin imports.
+  //
+  // Las tools se nombran por su nombre exacto (`consultar_documentos`,
+  // `escalar_a_humano`). Ojo: AgentCore suele prefijar las tools MCP con el
+  // nombre del target (`<target>___<tool>`), así que lo que ve el modelo puede
+  // llevar prefijo — igual reconoce el sufijo, y el punto del prompt es CUÁNDO
+  // usar cada una, no clavar el identificador.
+  promptSistema: [
+    "Sos el asistente virtual de la empresa. Respondés en el idioma en el que te escriben, con precisión y sin rodeos.",
+    "",
+    "Reglas que no se negocian:",
+    "",
+    "1. Antes de responder cualquier cosa sobre la empresa, sus productos, sus precios, sus plazos o sus políticas, buscá en los documentos con la tool `consultar_documentos`. No respondas de memoria ni por sentido común.",
+    "2. Respondé SOLO con lo que digan los documentos o lo que devuelvan las tools. Si el dato no está ahí, no lo sabés: no lo completes, no lo estimes y no lo generalices desde un caso parecido.",
+    "3. Citá siempre de dónde sacaste el dato, con el título o el nombre del documento, para que la persona pueda verificarlo.",
+    "4. Si los documentos no tienen la respuesta, decilo con claridad —sin disculpas largas— y ofrecé derivar la consulta a una persona del equipo.",
+    "5. Derivá SOLO si la persona acepta explícitamente. Recién ahí usá la tool `escalar_a_humano`, y devolvele la referencia del escalamiento que la tool confirme.",
+    "6. Nunca digas que derivaste una consulta si la tool no confirmó que el escalamiento se creó. Si falló, decile que no pudiste derivarla y qué puede hacer mientras tanto.",
+    "7. No pidas ni repitas datos sensibles (tarjetas, contraseñas, documentos de identidad). Si te los mandan, seguí sin usarlos.",
+  ].join("\n"),
+  documentos: {
+    topK: 5,
+  },
 };

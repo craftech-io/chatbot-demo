@@ -40,6 +40,13 @@ export default $config({
     // ./runtime — ambos módulos ya se ejecutaron por los imports de arriba
     // (Node cachea el módulo, no se duplican recursos).
     await import("./infra/sst/worker");
+    // La Knowledge Base va importada acá y no desde ./runtime: el Runtime no
+    // consume ningún output suyo (la política del agente le llega por
+    // `PROMPT_SISTEMA`, que sale de client.config.ts), así que colgarla de ese
+    // import sería inventar una dependencia. Quien sí la consume es el módulo
+    // de las tools, que la importa por su cuenta — Node cachea el módulo, no
+    // se duplican recursos.
+    await import("./infra/sst/conocimiento");
     // `awsnative.bedrockagentcore.Runtime` no expone un `.arn` genérico: el
     // output con el ARN se llama `agentRuntimeArn`.
     //
