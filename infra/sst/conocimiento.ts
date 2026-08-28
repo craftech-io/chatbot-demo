@@ -1,8 +1,7 @@
 // Conocimiento (RAG): Bedrock Knowledge Base VECTOR sobre S3 Vectors, con un
 // bucket de S3 como fuente de los documentos del cliente (spec §11).
 //
-// Mismo diseño que ya corre en producción en el proyecto hermano
-// `msp-platform` (`infra/agent-kb.ts`). Piezas:
+// Mismo diseño que ya corre en producción en otro stack nuestro. Piezas:
 //   - sst.aws.Bucket                              : fuente (los documentos)  [nativo SST]
 //   - awsnative.s3vectors.VectorBucket + Index    : el vector store          [Cloud Control]
 //   - aws.iam.Role/RolePolicy                     : rol de ejecución de la KB [classic]
@@ -133,7 +132,7 @@ const kbRolePolicy = new aws.iam.RolePolicy("KbRolePolicy", {
           // valida ningún `.d.ts` (mismo caso que el data plane de Memory, ver
           // infra/CONTRACT.md) y una acción que falte de la lista explícita sale
           // como un fallo opaco a mitad de la ingesta, no como error de deploy.
-          // Es la forma que ya corre en producción en msp-platform.
+          // Es la forma que ya corre en producción.
           Sid: "S3Vectors",
           Effect: "Allow",
           Action: ["s3vectors:*"],
