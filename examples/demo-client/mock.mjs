@@ -72,10 +72,18 @@ const TEXTO_ESCALAMIENTO_CREADO =
 // producto que este escenario existe para mostrar.
 const AFIRMACIONES = new Set(["si", "sí", "dale", "ok", "claro", "acepto"]);
 
+// La otra mitad del mismo cuidado: "claro" y "ok" son afirmaciones y aparecen
+// adentro de negaciones ("claro que no", "ok, pero no"), así que una negación
+// manda sobre cualquier afirmación del mismo mensaje. Alcanza con dos palabras:
+// "mejor no" y "no, dejalo" entran por "no", y "nada de eso" por "nada".
+const NEGACIONES = new Set(["no", "nada"]);
+
 function esAfirmacion(minusculas) {
   // Se parte por todo lo que no sea letra (comas, signos, espacios) para
   // comparar palabra por palabra.
-  return minusculas.split(/[^a-záéíóúüñ]+/).some((palabra) => AFIRMACIONES.has(palabra));
+  const palabras = minusculas.split(/[^a-záéíóúüñ]+/);
+  if (palabras.some((palabra) => NEGACIONES.has(palabra))) return false;
+  return palabras.some((palabra) => AFIRMACIONES.has(palabra));
 }
 
 // ¿El mensaje anterior de esta conversación fue el paso 1? Este escenario

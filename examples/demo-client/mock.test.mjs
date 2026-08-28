@@ -184,6 +184,41 @@ describe("escenarios de conocimiento y escalamiento", () => {
     expect(plan.frames.at(-1).text).not.toContain("ESC-");
   });
 
+  // La otra mitad del mismo cuidado: el matching por palabra evita que "así"
+  // cuente como "sí", pero "claro" y "ok" SON palabras de aceptación y aparecen
+  // dentro de negaciones ("claro que no", "ok, pero no"). Crear el escalamiento
+  // ahí es exactamente lo que este escenario existe para no hacer.
+  it("una negación con una palabra de aceptación adentro no crea el escalamiento", () => {
+    const negaciones = [
+      "claro que no",
+      "ok, pero no",
+      "no, mejor no",
+      "dale... no, nada",
+      "si no, dejalo",
+      "nada de eso",
+    ];
+
+    for (const mensaje of negaciones) {
+      const plan = planificarRespuesta(mensaje, "A", {
+        turnos: 1,
+        historial: ["necesito escalar esto"],
+      });
+
+      expect(`${mensaje} -> ${plan.frames.at(-1).text}`).not.toContain("ESC-");
+    }
+  });
+
+  it("las aceptaciones sin negación siguen creando el escalamiento", () => {
+    for (const mensaje of ["claro", "ok", "dale", "acepto", "sí", "sí, dale"]) {
+      const plan = planificarRespuesta(mensaje, "A", {
+        turnos: 1,
+        historial: ["necesito escalar esto"],
+      });
+
+      expect(`${mensaje} -> ${plan.frames.at(-1).text}`).toContain("ESC-2043");
+    }
+  });
+
   // La lección del matching por inclusión (ver el comentario de "error500" en
   // server.mjs): una keyword contenida en otra necesita orden explícito. Estas
   // dos son independientes de todas las que ya había.
