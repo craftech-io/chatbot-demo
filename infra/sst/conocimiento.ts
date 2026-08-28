@@ -24,6 +24,7 @@
 //     del DataSource — por eso acá NO se declara chunking: se toma el default del
 //     servicio (fixed-size), y el día que haga falta tunearlo hay que asumir la
 //     recreación del data source + una reingesta completa.
+import { createHash } from "node:crypto";
 import { slugKebab } from "./nombres";
 
 // Región del provider activo, sin hardcodes: el deploy la toma de
@@ -79,19 +80,43 @@ const PREFIJO_ROL_KB = "AmazonBedrockExecutionRoleForKnowledgeBase_";
 // prefijo obligatorio se come 43, así que quedan 21 para el sufijo. Con el slug
 // del template (`craftech-ai-chat`, 16) y un stage largo (`production`, 10) el
 // nombre completo se pasaría — y el error saldría recién al crear el rol.
-// Se recorta el SLUG y se preserva el stage entero: dentro de una misma cuenta
-// (el template es BYOC, una cuenta por cliente) lo que distingue dos stacks es
-// el stage, y dos roles con el mismo nombre serían el mismo recurso.
+//
+// Qué se sacrifica y en qué orden. Lo que distingue dos stacks dentro de una
+// misma cuenta (el template es BYOC, una cuenta por cliente) es el STAGE, y dos
+// roles con el mismo nombre son el mismo recurso, así que el stage es lo último
+// que se toca:
+//   1. si `slug-stage` entra, va entero;
+//   2. si no, se recorta el SLUG y el stage viaja completo;
+//   3. y si ni el stage solo entra en el presupuesto, NO se lo trunca: se lo
+//      recorta y se le cuelga un hash corto del stage COMPLETO. Truncarlo sería
+//      peor que ilegible: dos stages que comparten los primeros caracteres
+//      (`pr-1234-una-rama-muy-larga` y `pr-1234-una-rama-muy-corta`) darían el
+//      MISMO nombre de rol — el segundo deploy muere con EntityAlreadyExists, y
+//      borrar el primer stack se llevaría el rol del segundo.
 const PRESUPUESTO_SUFIJO = 64 - PREFIJO_ROL_KB.length;
+
+// No es criptografía, es desambiguación: 8 hex de sha256 alcanzan para que dos
+// stages distintos no compartan nombre de rol, y el nombre sigue siendo
+// determinístico (mismo stage ⇒ mismo rol, sin recrearlo en cada deploy).
+const LARGO_HASH_STAGE = 8;
+const hashStage = createHash("sha256")
+  .update(stageSaneado)
+  .digest("hex")
+  .slice(0, LARGO_HASH_STAGE);
+
+// Recorta y saca los guiones que queden al final: `craftech--production` IAM lo
+// acepta, pero no se lee.
+const recorta = (valor: string, largo: number) =>
+  valor.slice(0, Math.max(0, largo)).replace(/-+$/, "");
+
 const sufijoCompleto = `${slugKebab}-${stageSaneado}`;
+const espacioParaElSlug = PRESUPUESTO_SUFIJO - stageSaneado.length - 1;
 const sufijoRolKb =
   sufijoCompleto.length <= PRESUPUESTO_SUFIJO
     ? sufijoCompleto
-    : `${slugKebab
-        .slice(0, Math.max(1, PRESUPUESTO_SUFIJO - stageSaneado.length - 1))
-        // Si el recorte cae justo en un guion quedaría `craftech--production`:
-        // IAM lo acepta, pero no se lee.
-        .replace(/-+$/, "")}-${stageSaneado}`.slice(0, PRESUPUESTO_SUFIJO);
+    : espacioParaElSlug >= 1
+      ? `${recorta(slugKebab, espacioParaElSlug)}-${stageSaneado}`
+      : `${recorta(stageSaneado, PRESUPUESTO_SUFIJO - LARGO_HASH_STAGE - 1)}-${hashStage}`;
 
 const kbRole = new aws.iam.Role("KbRole", {
   name: `${PREFIJO_ROL_KB}${sufijoRolKb}`,
