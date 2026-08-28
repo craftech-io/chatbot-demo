@@ -1,8 +1,21 @@
 /// <reference path="../../../../sst-env.d.ts" />
-// EL ÚNICO archivo del BFF que importa `Resource` de SST o lee `process.env`
-// directamente. Cualquier otro import de "sst" (o lectura de env) en
-// packages/bff es un error de revisión: rompe la portabilidad que vende el
-// paquete.
+// El único lugar del BFF que traduce SST (`Resource`, `process.env`) al
+// `BffConfig` que consume el backend de mensajes. El código de producto habla
+// solo con `BffConfig`, así que cambiar de sabor de IaC toca este archivo y
+// nada más.
+//
+// Bordes de infra sancionados, fuera de esta traducción: los handlers de las
+// tools de tenant (`src/tools/documentos.ts` y `src/tools/escalamiento.ts`)
+// también leen `Resource`/`process.env`, cada uno en su propio `handler` del
+// final del archivo. No rompen la regla: cada tool es SU PROPIA Lambda, con su
+// propio linkeo, y no comparte el `BffConfig` de la Function del chat — que es
+// justamente lo que no se puede compartir, porque el proxy `Resource` LANZA al
+// leer un recurso que la Function no tiene linkeado y `fromResource()` corre por
+// request (ver infra/CONTRACT.md, "Variables que recibe el worker"). Meter el
+// KnowledgeBase o el webhook acá mataría todos los requests del chat.
+//
+// Cualquier OTRO import de "sst" (o lectura de env) en packages/bff sigue siendo
+// un error de revisión: rompe la portabilidad que vende el paquete.
 import { Resource } from "sst";
 import type { BffConfig } from "./index";
 
@@ -54,8 +67,8 @@ export function fromResource(): BffConfig {
       sesiones: Resource.SessionsTable.name,
       limites: Resource.LimitsTable.name,
     },
-    // Único lugar que toca env en el BFF (además de los Resource de arriba):
-    // los topes son el default del template — client.config.ts los ajusta por
+    // Env, igual que los Resource de arriba: la config del backend de mensajes
+    // se arma toda acá. Los topes son el default del template — client.config.ts los ajusta por
     // cliente.
     topes: {
       diario: Number(process.env.LIMITE_DIARIO ?? "50"),

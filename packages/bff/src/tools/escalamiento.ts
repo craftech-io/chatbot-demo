@@ -40,7 +40,8 @@
 // mentira igual de cara— y avisa por dónde llega.
 //
 // Sobre `Resource` en packages/bff: igual que en ./documentos.ts — la lógica
-// recibe el webhook inyectado y solo el `handler` del final lee SST.
+// recibe el webhook inyectado y solo el `handler` del final lee SST, como borde
+// de infra de ESTA Lambda (ver la excepción sancionada en config/resource.ts).
 import { Resource } from "sst";
 
 // El turno del agente no puede quedarse colgado esperando al sistema del
