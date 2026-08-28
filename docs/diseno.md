@@ -406,10 +406,55 @@ terminada.**
 
 ## 17. Observabilidad
 
-En asesoría IA la observabilidad es parte del producto, no telemetría interna.
-Traces del workflow por paso, y métricas de latencia, tools invocadas, tokens y costo
-por sesión, e intervenciones de guardrail. El paquete incluye un dashboard mínimo: el
-cliente que paga su propio Bedrock quiere verlo desde el día 1.
+En asesoría IA la observabilidad es parte del producto, no telemetría interna: el
+cliente que paga su propio Bedrock quiere ver desde el día 1 cuánto resuelve el
+agente, cuánto deriva y cuánto le cuesta.
+
+Se apoya en tres capas distintas, y conviene no confundirlas porque tienen costos y
+dueños distintos.
+
+**1. Métricas del servicio, que ya existen sin instrumentar nada.** AgentCore publica
+en CloudWatch (namespace `AWS/Bedrock-AgentCore`) `Sessions`, `Invocations`, `Latency`,
+`Errors` y `Throttles` del Runtime, y del Gateway las mismas **con una dimensión por
+nombre de tool**. De ahí sale la métrica que justifica el producto —consultas resueltas
+contra derivadas a una persona— con una expresión matemática, sin una línea de código:
+la señal es la invocación de nuestras propias tools (`escalar_a_humano` llamada =
+derivada). Los tokens por modelo salen gratis de `AWS/Bedrock`, agregados por `ModelId`.
+El template trae un **dashboard** con eso.
+
+**2. Trazas del interior del agente, que sí hay que instrumentar.** El servicio emite un
+solo span por invocación (`InvokeAgentRuntime`) y nada de lo que pasa adentro; los spans
+del Gateway por tool y los de Memory existen, pero cuelgan de una traza que tiene que
+**arrancar en el contenedor**: sin instrumentar, quedan apagados. La instrumentación es
+automática (OpenTelemetry + OpenInference sobre el dispatcher de LlamaIndex) y no toca
+el código del agente: rinde un span por paso del workflow, uno por tool call con sus
+argumentos, y uno por llamada al modelo con los contadores de tokens.
+
+**3. Costo por conversación**, que es lo único que exige código propio: el adaptador del
+LLM tiene que dejar de descartar el uso de tokens que devuelve Bedrock (en el camino de
+streaming el chunk que los trae es justo el que se filtra por venir sin texto), y las
+tarifas salen de la Pricing API — nunca hardcodeadas.
+
+**El destino de las trazas es un adaptador, con default local.** Se exporta OTLP por
+HTTP, y el default es CloudWatch, que ya está en la cuenta del cliente y no agrega
+proveedores ni costo fijo. Un cliente que use una plataforma de observabilidad de LLM
+(Langfuse y equivalentes) la enchufa por configuración —endpoint y credencial— sin
+cambiar código, porque los spans salen en un vocabulario que esas plataformas leen
+nativamente. Los endpoints de OTLP son **por señal**, así que mandar las trazas afuera
+no mueve las métricas del punto 1: la métrica del producto sigue viviendo en la cuenta
+del cliente.
+
+**Las trazas llevan el contenido de la conversación, y eso es una decisión de datos.**
+Las instrumentaciones de LLM mandan prompts y respuestas por default. Como el producto
+se apoya en que los datos del cliente son suyos, el template va **redactado por
+default**: se emiten la estructura del turno, las latencias y los contadores de tokens,
+y el texto solo si el cliente lo habilita explícitamente. Habilitarlo cuando el destino
+es un proveedor externo es una decisión de residencia de datos, no una preferencia de
+debugging.
+
+**Y el muestreo se declara.** Sin collector, el default de OTel es capturar el 100% de
+las trazas, lo que multiplica el volumen de ingesta; el template arranca con un
+porcentaje bajo y configurable.
 
 ## 18. Fases de entrega
 
