@@ -32,3 +32,14 @@ La deploya `infra/sst/api-cliente.ts` como `sst.aws.Function` con Function URL
 pública; `infra/sst/gateway.ts` registra `/catalogo` como target OpenAPI del
 Gateway, y `infra/sst/runtime.ts` le pasa la base URL al core como
 `CLIENT_API_URL`.
+
+## `POST /escalamientos`
+
+Recibe el escalamiento que crea la tool `escalar_a_humano` y devuelve una
+referencia con su link. Hace de "sistema de soporte del cliente": es el destino
+al que se apunta el secreto `EscalamientoWebhookUrl` para poder demostrar el
+flujo completo sin depender de un servicio de terceros.
+
+DEMO ONLY: no persiste nada ni valida el cuerpo. En un cliente real este
+endpoint es su mesa de ayuda (Jira Service Management, Zendesk, un webhook de
+Slack), y el adaptador se implementa contra su API — ver `docs/diseno.md` §11.1.

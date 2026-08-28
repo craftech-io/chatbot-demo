@@ -9,6 +9,11 @@
 // - GET /pedidos  → exige `Authorization: Bearer <actToken>`; sin header →
 //   401. Dato per-usuario: NUNCA pasa por el gateway (regla dura del spec §7),
 //   lo llama el core por HTTP directo con el actToken del usuario.
+// - POST /escalamientos → recibe el escalamiento que crea la tool
+//   `escalar_a_humano` y devuelve una referencia. Hace de "sistema de soporte
+//   del cliente": es el destino al que apunta el secreto
+//   EscalamientoWebhookUrl, para poder demostrar el flujo completo sin
+//   depender de un servicio de terceros.
 //
 // Lambda pelada (sin framework), payload v2 de Function URL — mismo espíritu
 // que el server del demo-client: node puro, cero dependencias.
@@ -56,6 +61,17 @@ export async function handler(event) {
       return respuesta(401, { error: "falta el token" });
     }
     return respuesta(200, PEDIDOS);
+  }
+
+  if (metodo === "POST" && ruta === "/escalamientos") {
+    // DEMO ONLY: no se persiste nada ni se valida el cuerpo; la referencia se
+    // arma con el reloj para que sea distinta en cada llamada. El sistema real
+    // del cliente crearía acá el ticket y devolvería SU identificador.
+    const referencia = `SOP-${String(Date.now()).slice(-6)}`;
+    return respuesta(201, {
+      referencia,
+      link: `https://soporte.example/casos/${referencia}`,
+    });
   }
 
   return respuesta(404, { error: "no existe" });
