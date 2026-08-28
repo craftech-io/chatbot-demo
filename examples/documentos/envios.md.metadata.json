@@ -1,0 +1,15 @@
+{
+  "metadataAttributes": {
+    "title": {
+      "value": { "type": "STRING", "stringValue": "Envíos y plazos de entrega" },
+      "includeForEmbedding": true
+    },
+    "url": {
+      "value": {
+        "type": "STRING",
+        "stringValue": "https://ayuda.ciclosaurora.example/envios"
+      },
+      "includeForEmbedding": false
+    }
+  }
+}

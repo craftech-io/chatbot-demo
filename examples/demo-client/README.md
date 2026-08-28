@@ -106,6 +106,40 @@ En modo real esas tools no las simula nadie: las ejecuta el agente en AWS —
 `listar_catalogo` vía el AgentCore Gateway (MCP) y `mis_pedidos` llamando a
 la API del cliente por HTTP con el token del usuario.
 
+#### Documentos y escalamiento en modo local
+
+El agente también responde desde los documentos del cliente y, cuando no
+encuentra la respuesta, ofrece derivar a una persona. Los dos escenarios citan
+el corpus ficticio de `examples/documentos` (la empresa inventada Ciclos
+Aurora):
+
+- `documento` → responde como si hubiera usado la tool `consultar_documentos`,
+  **con la cita**: "Según *Política de devoluciones* (`politica-devoluciones.md`)
+  …". Es un turno normal: pasa por el debounce.
+- `escalar` → el flujo de consentimiento, en **dos pasos**. Primero dice que no
+  encontró eso en los documentos (y no improvisa) y pregunta si querés que te
+  derive. Recién si contestás **"sí"** (o "si", "dale", "ok", "claro",
+  "acepto") crea el escalamiento y te da la referencia `ESC-2043`. Si contestás
+  cualquier otra cosa, no se crea nada: ese ida y vuelta es la regla del
+  producto, no un detalle de la demo.
+
+Un par de cosas de cómo está hecho, porque se ven en el código:
+
+- El segundo paso se reconoce por el **mensaje anterior de la conversación**
+  (el historial que el server ya guarda para el escenario `memoria`), así que
+  `planificarRespuesta` sigue siendo pura. Ojo con el debounce: si mandás
+  `escalar` y `sí` en menos de 1200ms se agrupan en un solo turno y el mock
+  contesta el paso 1 — hay que esperar la primera respuesta.
+- La aceptación se matchea **por palabra**, no por inclusión como el resto de
+  las keywords: "sí" es substring de "así", y un "no, dejemos así" no puede
+  crear un escalamiento que nadie aceptó.
+
+En modo real esto tampoco lo simula nadie: `consultar_documentos` hace
+`Retrieve` contra la Knowledge Base (Bedrock, S3 Vectors) y `escalar_a_humano`
+postea al webhook del adaptador de escalamiento; la política de no inventar,
+citar y ofrecer derivar es el prompt del sistema (`promptSistema` en
+`client.config.ts`).
+
 ### Modo real: contra un deploy
 
 Primero, generar el secreto compartido (una sola vez por stage) y guardarlo

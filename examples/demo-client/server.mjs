@@ -68,7 +68,23 @@ const MOCK_HINT_HTML =
   // Con "pedido"/"catálogo" el mock responde como si el agente hubiera usado
   // sus tools (mis_pedidos / listar_catalogo). El chip lleva la tilde porque
   // así se escribe; el mock acepta las dos grafías.
-  ["error", "error500", "vencido", "lento", "memoria", "tope", "bloqueado", "pedido", "catálogo"]
+  // "documento" y "escalar" son las dos capacidades de conocimiento:
+  // "documento" contesta con la cita del corpus de examples/documentos, y
+  // "escalar" arranca el flujo de consentimiento — hay que contestarle "sí"
+  // (a mano, no hay chip) para que recién ahí cree el escalamiento.
+  [
+    "error",
+    "error500",
+    "vencido",
+    "lento",
+    "memoria",
+    "tope",
+    "bloqueado",
+    "pedido",
+    "catálogo",
+    "documento",
+    "escalar",
+  ]
     .map((palabra) => `<button type="button" class="chip-esc">${palabra}</button>`)
     .join("") +
   "</div>";

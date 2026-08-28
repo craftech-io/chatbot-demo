@@ -33,6 +33,64 @@ const TEXTO_MIS_PEDIDOS =
 const TEXTO_LISTAR_CATALOGO =
   "Tenemos 3 productos: Casco MTB ($45.000), Luz trasera USB ($12.000) y Kit de parches ($3.500).";
 
+// Modo local del conocimiento (RAG) y del escalamiento: los mismos textos que
+// daría el agente real usando `consultar_documentos` y `escalar_a_humano`,
+// citando el CORPUS FICTICIO de examples/documentos (la empresa inventada
+// Ciclos Aurora). Si ese corpus cambia, cambiar acá también — mock y realidad
+// cuentan la misma historia. La cita nombra el título del sidecar
+// `.metadata.json` y el archivo, que es lo que la tool real devuelve como
+// `fuente`: la URI del documento en S3, lo único citable de forma fiable (ver
+// docs/diseno.md §11).
+const TEXTO_CONSULTAR_DOCUMENTOS =
+  "Según *Política de devoluciones* (`politica-devoluciones.md`): tenés 30 días " +
+  "corridos desde que recibís el pedido para iniciar el cambio o la devolución, " +
+  "con el producto sin uso y en su embalaje original. El reintegro sale por el " +
+  "mismo medio de pago dentro de los 10 días hábiles.";
+
+// Paso 1 del escalamiento: no encontró la respuesta, NO inventa y NO escala
+// solo — ofrece derivar y espera (docs/diseno.md §11.1). Enumera el corpus para
+// que se vea qué sí sabe contestar.
+const TEXTO_SIN_RESPUESTA_EN_DOCUMENTOS =
+  "No encontré nada sobre eso en los documentos de Ciclos Aurora (tengo la " +
+  "política de devoluciones, los horarios de atención, la garantía y los " +
+  "envíos) y no te voy a improvisar una respuesta. ¿Querés que derive tu " +
+  "consulta a una persona del equipo?";
+
+// Paso 2: recién ahora "crea" el escalamiento. La referencia es fija porque el
+// mock es un fixture y los tests la pinean; en el sistema real la devuelve el
+// webhook del adaptador de escalamiento.
+const TEXTO_ESCALAMIENTO_CREADO =
+  "Listo: derivé tu consulta a una persona del equipo con la referencia " +
+  "ESC-2043. Te van a contactar en el próximo día hábil (atención al cliente: " +
+  "lunes a viernes de 9 a 18).";
+
+// Palabras con las que el usuario acepta ser derivado. Acá el matching es por
+// PALABRA, no por inclusión como el resto de las keywords: "sí" es substring de
+// "así" y "si" de "necesito", así que por inclusión un "no, dejemos así"
+// crearía un escalamiento que el usuario nunca aceptó — justo la decisión de
+// producto que este escenario existe para mostrar.
+const AFIRMACIONES = new Set(["si", "sí", "dale", "ok", "claro", "acepto"]);
+
+function esAfirmacion(minusculas) {
+  // Se parte por todo lo que no sea letra (comas, signos, espacios) para
+  // comparar palabra por palabra.
+  return minusculas.split(/[^a-záéíóúüñ]+/).some((palabra) => AFIRMACIONES.has(palabra));
+}
+
+// ¿El mensaje anterior de esta conversación fue el paso 1? Este escenario
+// necesita estado por conversación, pero no un Map propio como el de "vencido"
+// en server.mjs (ese corta el request antes de llegar hasta acá): alcanza con
+// el historial que el server ya mantiene por conversación y pasa en `contexto`
+// — el mismo que usa el escenario "memoria". Así `planificarRespuesta` sigue
+// siendo pura.
+// Se mira SOLO el mensaje inmediatamente anterior: la aceptación vale para la
+// pregunta que se acaba de hacer, no para una de hace diez turnos.
+function pidioEscalamiento(mensajeAnterior) {
+  return String(mensajeAnterior ?? "")
+    .toLowerCase()
+    .includes("escalar");
+}
+
 /**
  * Decide qué le contesta el mock a un mensaje. No sabe nada de sockets ni de
  * tiempo real: devuelve un plan `{ demoraMs, frames }` para que el server lo
@@ -112,6 +170,34 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
     return {
       demoraMs,
       frames: [{ type: "done", text: TEXTO_LISTAR_CATALOGO }],
+    };
+  }
+
+  // Conocimiento y escalamiento. Mismo cuidado con el matching por inclusión:
+  // ni "documento" ni "escalar" contienen ninguna de las keywords anteriores ni
+  // están contenidas en ellas (hay un test que lo fija), así que el orden entre
+  // estas dos y las de arriba no cambia nada.
+  if (minusculas.includes("documento")) {
+    return {
+      demoraMs,
+      frames: [{ type: "done", text: TEXTO_CONSULTAR_DOCUMENTOS }],
+    };
+  }
+
+  // Paso 2 antes que el paso 1: el mensaje de la aceptación ("sí") no trae la
+  // keyword "escalar", así que se reconoce por el turno anterior. Va primero
+  // para que un "sí, escalalo" no vuelva a hacer la pregunta.
+  if (esAfirmacion(minusculas) && pidioEscalamiento(contexto.historial.at(-1))) {
+    return {
+      demoraMs,
+      frames: [{ type: "done", text: TEXTO_ESCALAMIENTO_CREADO }],
+    };
+  }
+
+  if (minusculas.includes("escalar")) {
+    return {
+      demoraMs,
+      frames: [{ type: "done", text: TEXTO_SIN_RESPUESTA_EN_DOCUMENTOS }],
     };
   }
 
