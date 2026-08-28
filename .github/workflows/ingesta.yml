@@ -1,0 +1,77 @@
+# Ingesta de la Knowledge Base, a pedido.
+#
+# Bedrock NO sincroniza solo: subir un documento al bucket no lo indexa, hay que
+# disparar un ingestion job. Este workflow es ese disparador, y corre con el
+# mismo rol de deploy (OIDC) para que nadie necesite credenciales de admin en su
+# máquina.
+#
+# Cuándo usarlo: cada vez que se agregan, cambian o borran documentos del bucket
+# de conocimiento. La primera corrida indexa todo; las siguientes son
+# incrementales (Bedrock detecta qué cambió).
+name: ingesta
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage cuya Knowledge Base se re-indexa"
+        required: false
+        default: staging
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  ingesta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: disparar y esperar el ingestion job
+        run: |
+          set -euo pipefail
+          stage="${{ inputs.stage }}"
+          # El slug sale de client.config.ts, la única fuente de configuración
+          # por cliente. Node 24 ejecuta TypeScript directo (type stripping).
+          slug=$(node --experimental-strip-types -e \
+            'import("./client.config.ts").then((m) => console.log(m.cliente.slug))')
+          nombre="${slug}-conocimiento-${stage}"
+          kb=$(aws bedrock-agent list-knowledge-bases \
+            --query "knowledgeBaseSummaries[?name=='${nombre}'].knowledgeBaseId | [0]" --output text)
+          [ "$kb" != "None" ] && [ -n "$kb" ] || { echo "No encontré la Knowledge Base '${nombre}'"; exit 1; }
+          ds=$(aws bedrock-agent list-data-sources --knowledge-base-id "$kb" \
+            --query 'dataSourceSummaries[0].dataSourceId' --output text)
+          echo "Knowledge Base ${nombre} (${kb}), data source ${ds}"
+
+          job=$(aws bedrock-agent start-ingestion-job \
+            --knowledge-base-id "$kb" --data-source-id "$ds" \
+            --query 'ingestionJob.ingestionJobId' --output text)
+          echo "Ingestion job ${job} arrancado; esperando…"
+
+          # Un job puede tardar minutos con muchos documentos. 20 min de tope.
+          estado="SIN_RESPUESTA"
+          for _ in $(seq 1 120); do
+            sleep 10
+            estado=$(aws bedrock-agent get-ingestion-job --knowledge-base-id "$kb" \
+              --data-source-id "$ds" --ingestion-job-id "$job" \
+              --query 'ingestionJob.status' --output text)
+            echo "  estado: ${estado}"
+            case "$estado" in
+              COMPLETE | FAILED | STOPPED) break ;;
+            esac
+          done
+
+          aws bedrock-agent get-ingestion-job --knowledge-base-id "$kb" \
+            --data-source-id "$ds" --ingestion-job-id "$job" \
+            --query 'ingestionJob.{estado:status,estadisticas:statistics,fallas:failureReasons}' --output json
+
+          [ "$estado" = "COMPLETE" ] || { echo "La ingesta no completó"; exit 1; }

@@ -59,6 +59,18 @@ título" del `promptSistema`.
   (`numberValue`), `BOOLEAN` (`booleanValue`) y `STRING_LIST`
   (`stringListValue`).
 
+## Disparar la ingesta
+
+Bedrock no sincroniza solo: subir un documento al bucket no lo indexa. Hay dos
+formas de disparar el ingestion job:
+
+- **Desde CI (recomendado):** el workflow `ingesta` (Actions → ingesta → Run
+  workflow) lo dispara con el rol de deploy y espera el resultado. Nadie
+  necesita credenciales de AWS en su máquina.
+- **A mano**, si tenés permisos de Bedrock Agent en la cuenta: los comandos de
+  abajo.
+
+
 ## Subir el corpus y disparar la ingesta
 
 Bedrock **no sincroniza solo**: subir un archivo al bucket no lo indexa. Hay
