@@ -89,6 +89,9 @@ npm run typecheck                 # typecheck de los workspaces de npm
 
 ## Dónde seguir leyendo
 
+- `docs/arquitectura.excalidraw` — el diagrama de la arquitectura (un turno de
+  punta a punta). Se abre y se edita en [excalidraw.com](https://excalidraw.com)
+  o en cualquier instancia de Excalidraw.
 - `docs/adopcion.md` — el paso a paso para adoptarlo en el repo de un cliente:
   prerequisitos de cuenta, rol de deploy, secretos, ingesta y verificación.
 - `docs/diseno.md` — el diseño completo.
