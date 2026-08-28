@@ -22,6 +22,11 @@ class ChatDone(StopEvent):
     El campo se llama `texto`, no `result`: declarar `result` acá lo haría colisionar
     con el `result` de `StopEvent`. Esa colisión no es solo un warning de pydantic:
     puede dejar `result` como un `property object` en vez del string, en silencio.
+
+    `tools_usadas` son los nombres de las tools que el turno EJECUTÓ, en orden:
+    lo que el cierre del turno necesita para contar (p. ej. escalamientos) sin
+    tener que mirar el contenido de la conversación. Vacía en el camino de streaming.
     """
 
     texto: str
+    tools_usadas: list[str] = []

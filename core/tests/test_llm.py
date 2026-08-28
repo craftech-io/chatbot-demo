@@ -4,6 +4,7 @@ from llama_index.core.base.llms.types import ChatMessage, ChatResponse
 from llama_index.core.llms.llm import ToolSelection
 
 from agent.config import load_config
+from agent.costo import UsoTokens
 from agent.llm import BedrockAdapter
 from agent.workflow import LlamadaTool
 
@@ -15,17 +16,34 @@ ENV = {
 }
 
 
+# Lo que `_get_response_token_counts` de bedrock_converse pone en
+# `additional_kwargs` del chunk de metadata (nombres de LlamaIndex, no de la API
+# de Converse).
+USO_DEL_STREAM = {
+    "prompt_tokens": 1200,
+    "completion_tokens": 300,
+    "total_tokens": 1500,
+    "cache_read_input_tokens": 800,
+    "cache_creation_input_tokens": 40,
+}
+
+
 class FakeConverse:
     """Doble de BedrockConverse: registra cómo fue construido y qué recibió."""
 
     kwargs: dict = {}
+    # Puesto en False, el stream termina sin chunk de metadata: el proveedor no
+    # reportó el uso de tokens.
+    con_uso = True
 
     def __init__(self, **kwargs):
         FakeConverse.kwargs = kwargs
         self.recibido: list[ChatMessage] = []
+        self.con_uso = FakeConverse.con_uso
 
     async def astream_chat(self, messages):
         self.recibido = messages
+        con_uso = self.con_uso
 
         async def gen():
             # El chunk de delta="" en el medio pinea el filtro de deltas vacíos:
@@ -40,6 +58,14 @@ class FakeConverse:
                 yield ChatResponse(
                     message=ChatMessage(role="assistant", content=texto),
                     delta=delta,
+                )
+            if con_uso:
+                # El chunk final del stream real: `delta=""` y el uso de tokens
+                # en additional_kwargs. Es el que el guard de deltas descartaba.
+                yield ChatResponse(
+                    message=ChatMessage(role="assistant", content="Hola mundo"),
+                    delta="",
+                    additional_kwargs=dict(USO_DEL_STREAM),
                 )
 
         return gen()
@@ -100,6 +126,9 @@ class FakeConverseConTools:
         self.selecciones: list[ToolSelection] = []
         self.texto = ""
         self.visto: dict = {}
+        # Igual que en el stream, pero sin chunks: achat lo pone directo en la
+        # respuesta. Un dict vacío = el proveedor no reportó uso.
+        self.uso: dict = {"prompt_tokens": 500, "completion_tokens": 120}
 
     async def achat_with_tools(self, tools, user_msg=None, chat_history=None, **kw):
         # `chat_history` se guarda como COPIA: es lo que el adaptador mandó en
@@ -111,7 +140,10 @@ class FakeConverseConTools:
         # el test de acumulación sin que nada lo delate.
         if user_msg is not None:
             chat_history.append(ChatMessage(role="user", content=user_msg))
-        return ChatResponse(message=ChatMessage(role="assistant", content=self.texto))
+        return ChatResponse(
+            message=ChatMessage(role="assistant", content=self.texto),
+            additional_kwargs=dict(self.uso),
+        )
 
     def get_tool_calls_from_response(self, respuesta, error_on_no_tool_call=True, **kw):
         assert error_on_no_tool_call is False  # sin tool calls NO es un error
@@ -124,11 +156,11 @@ async def test_con_tools_manda_el_mensaje_y_mapea_las_tool_calls():
         ToolSelection(tool_id="t1", tool_name="mis_pedidos", tool_kwargs={})
     ]
 
-    texto, llamadas = await adapter.aresponder_con_tools("¿mi pedido?", [], tools=["tool-a"])
+    respuesta = await adapter.aresponder_con_tools("¿mi pedido?", [], tools=["tool-a"])
 
     # Sin contenido de texto el adaptador normaliza a None (no "").
-    assert texto is None
-    assert llamadas == [LlamadaTool(id="t1", nombre="mis_pedidos", argumentos={})]
+    assert respuesta.texto is None
+    assert respuesta.llamadas == [LlamadaTool(id="t1", nombre="mis_pedidos", argumentos={})]
     assert adapter.client.visto["user_msg"] == "¿mi pedido?"
     assert adapter.client.visto["tools"] == ["tool-a"]
 
@@ -149,10 +181,10 @@ async def test_en_rondas_siguientes_no_repite_el_mensaje_y_traduce_el_turno():
         {"role": "tool", "content": "A-1001 en camino", "tool_call_id": "t1"},
     ]
 
-    texto, llamadas = await adapter.aresponder_con_tools("¿mi pedido?", history, tools=[])
+    respuesta = await adapter.aresponder_con_tools("¿mi pedido?", history, tools=[])
 
-    assert texto == "Tu pedido está en camino."
-    assert llamadas == []
+    assert respuesta.texto == "Tu pedido está en camino."
+    assert respuesta.llamadas == []
     assert adapter.client.visto["user_msg"] is None
     mensajes = adapter.client.visto["chat_history"]
     # Traducción al formato que messages_to_converse_messages espera:
@@ -262,3 +294,60 @@ async def test_el_prompt_del_sistema_no_se_acumula_entre_turnos():
     await con_tools.aresponder_con_tools("¿mi pedido?", [], tools=[])
     await con_tools.aresponder_con_tools("¿y el otro?", [], tools=[])
     assert [m.role for m in con_tools.client.visto["chat_history"]] == ["system"]
+
+
+# --- uso de tokens (observabilidad, spec §17) ---
+
+
+async def test_el_chunk_de_metadata_deja_el_uso_y_no_emite_texto_vacio():
+    """El chunk que trae los tokens es el que tiene `delta=""`: se lee sin
+    emitirlo, así que el consumidor del generador ve exactamente lo de antes."""
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverse)
+
+    deltas = [c async for c in adapter.astream("¿hola?", [])]
+
+    assert deltas == ["Hola", " mundo"]
+    assert adapter.uso_del_turno == UsoTokens(
+        entrada=1200, salida=300, cache_lectura=800, cache_escritura=40
+    )
+
+
+async def test_sin_chunk_de_metadata_el_uso_queda_en_none():
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverse)
+    adapter.client.con_uso = False
+
+    deltas = [c async for c in adapter.astream("¿hola?", [])]
+
+    assert deltas == ["Hola", " mundo"]
+    # None, no un uso en cero: "no lo sabemos" y "no gastó tokens" no son lo mismo.
+    assert adapter.uso_del_turno is None
+
+
+async def test_con_tools_el_uso_vuelve_en_la_respuesta_y_queda_en_el_adaptador():
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverseConTools)
+
+    respuesta = await adapter.aresponder_con_tools("¿mi pedido?", [], tools=["tool-a"])
+
+    assert respuesta.uso == UsoTokens(entrada=500, salida=120)
+    assert adapter.uso_del_turno == respuesta.uso
+
+
+async def test_el_uso_se_acumula_entre_las_rondas_del_turno():
+    # El adaptador vive UN turno (server.py arma uno por request), así que lo
+    # que acumula es el uso del turno: el loop de tools llama al modelo varias veces.
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverseConTools)
+
+    await adapter.aresponder_con_tools("¿mi pedido?", [], tools=["tool-a"])
+    await adapter.aresponder_con_tools("¿mi pedido?", HISTORY_TRAS_TOOL, tools=["tool-a"])
+
+    assert adapter.uso_del_turno == UsoTokens(entrada=1000, salida=240)
+
+
+async def test_una_respuesta_sin_uso_no_inventa_tokens():
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverseConTools)
+    adapter.client.uso = {}
+
+    respuesta = await adapter.aresponder_con_tools("¿mi pedido?", [], tools=["tool-a"])
+
+    assert respuesta.uso is None
+    assert adapter.uso_del_turno is None

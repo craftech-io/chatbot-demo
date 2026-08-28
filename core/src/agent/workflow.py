@@ -11,6 +11,7 @@ from typing import Protocol
 
 from workflows import Context, Workflow, step
 
+from .costo import UsoTokens
 from .events import ChatDone, ChatStart, TextDelta
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,24 @@ class LlamadaTool:
     argumentos: dict
 
 
+@dataclass(frozen=True)
+class RespuestaLLM:
+    """Lo que devuelve una ronda del camino con tools.
+
+    Era una tupla `(texto, llamadas)`; el uso de tokens habría hecho una tupla de
+    tres, así que pasó a dataclass.
+
+    `uso` es el uso de ESA llamada al modelo (None si el proveedor no lo
+    reportó). El workflow no lo mira: el turno completo lo acumula el adaptador
+    (`uso_del_turno` en agent/llm.py), que es el que sabe traducir lo que reporta
+    su proveedor. Viaja acá igual para que el contrato sea explícito.
+    """
+
+    texto: str | None
+    llamadas: list[LlamadaTool]
+    uso: UsoTokens | None = None
+
+
 class AdaptadorLLM(Protocol):
     """El workflow no conoce Bedrock: solo este protocolo (duck typing). Lo
     implementa agent/llm.py y, en los tests, los dobles de LLM."""
@@ -42,13 +61,12 @@ class AdaptadorLLM(Protocol):
 
     async def aresponder_con_tools(
         self, message: str, history: list[dict], tools: list
-    ) -> tuple[str | None, list[LlamadaTool]]:
+    ) -> RespuestaLLM:
         """Opcional: solo se invoca cuando el workflow recibió tools.
 
-        Devuelve (texto_final | None, tool_calls pendientes). El history usa el
-        formato de dicts neutral, extendido para el turno con tools:
-        `tool_calls` (lista de {id, nombre, argumentos}) en mensajes assistant
-        y `tool_call_id` en mensajes con role `tool`.
+        El history usa el formato de dicts neutral, extendido para el turno con
+        tools: `tool_calls` (lista de {id, nombre, argumentos}) en mensajes
+        assistant y `tool_call_id` en mensajes con role `tool`.
         """
         ...
 
@@ -83,13 +101,17 @@ class ChatWorkflow(Workflow):
         # no es nuestro (la memoria persiste solo pregunta y respuesta final).
         historial = list(ev.history)
         turno_apendeado = False
+        # Qué tools se ejecutaron en el turno: el consumidor lo usa para contar
+        # (p. ej. si hubo escalamiento). Solo nombres, ningún argumento ni resultado.
+        tools_usadas: list[str] = []
         for _ in range(MAX_RONDAS_TOOLS):
-            texto, llamadas = await self.llm.aresponder_con_tools(
+            respuesta = await self.llm.aresponder_con_tools(
                 ev.message, historial, self.tools
             )
+            texto, llamadas = respuesta.texto, respuesta.llamadas
             if not llamadas:
                 if texto:
-                    return ChatDone(texto=texto)
+                    return ChatDone(texto=texto, tools_usadas=tools_usadas)
                 break  # ni texto ni llamadas: no hay más que hacer
             if not turno_apendeado:
                 # La pregunta entra al historial UNA vez, recién cuando el turno
@@ -107,12 +129,16 @@ class ChatWorkflow(Workflow):
                 }
             )
             for llamada in llamadas:
+                if llamada.nombre in tools_por_nombre:
+                    # Se anota la que EXISTE: un nombre alucinado no se ejecutó,
+                    # y contarlo inflaría la métrica.
+                    tools_usadas.append(llamada.nombre)
                 resultado = await self._ejecutar_tool(tools_por_nombre, llamada)
                 historial.append(
                     {"role": "tool", "content": resultado, "tool_call_id": llamada.id}
                 )
         # Rondas agotadas (o una ronda muda): respuesta humana, nunca un turno colgado.
-        return ChatDone(texto=MENSAJE_FALLBACK_TOOLS)
+        return ChatDone(texto=MENSAJE_FALLBACK_TOOLS, tools_usadas=tools_usadas)
 
     @staticmethod
     async def _ejecutar_tool(tools_por_nombre: dict, llamada: LlamadaTool) -> str:

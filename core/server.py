@@ -16,11 +16,12 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from agent.config import load_config
+from agent.costo import UsoTokens, costo_estimado
 from agent.events import TextDelta
 from agent.llm import BedrockAdapter
 from agent.memoria import Memoria
-from agent.tools import crear_tools_usuario, tools_de_gateway
-from agent.workflow import ChatWorkflow, LlamadaTool
+from agent.tools import NOMBRE_TOOL_ESCALAMIENTO, crear_tools_usuario, tools_de_gateway
+from agent.workflow import ChatWorkflow, LlamadaTool, RespuestaLLM
 
 PORT = 8080
 
@@ -34,6 +35,12 @@ class _EchoLLM:
     `mis_pedidos`: así el loop de tools se ejercita entero sin Bedrock ni red.
     """
 
+    def __init__(self):
+        # Uso de tokens de mentira: hace visible el log de cierre del turno en
+        # modo local, sin Bedrock. El costo queda en null porque el MODEL_ID
+        # local no está en la tabla de tarifas (agent/costo.py).
+        self.uso_del_turno = UsoTokens(entrada=42, salida=17)
+
     async def astream(self, message: str, history: list[dict]):
         for palabra in f"eco: {message}".split(" "):
             yield palabra + " "
@@ -41,10 +48,45 @@ class _EchoLLM:
     async def aresponder_con_tools(self, message: str, history: list[dict], tools: list):
         if history and history[-1].get("role") == "tool":
             # Segunda ronda: "redacta" la respuesta con el resultado de la tool.
-            return f"eco tools: {history[-1]['content']}", []
+            return RespuestaLLM(texto=f"eco tools: {history[-1]['content']}", llamadas=[])
         if "pedido" in message.lower():
-            return None, [LlamadaTool(id="eco-1", nombre="mis_pedidos", argumentos={})]
-        return f"eco: {message}", []
+            return RespuestaLLM(
+                texto=None,
+                llamadas=[LlamadaTool(id="eco-1", nombre="mis_pedidos", argumentos={})],
+            )
+        return RespuestaLLM(texto=f"eco: {message}", llamadas=[])
+
+
+def _loguear_cierre(sesion: str, cfg, adaptador, escalado: bool, estimador_de_costo) -> None:
+    """Cierre del turno en una línea de JSON: ids, tokens, costo y escalamiento.
+
+    **Sin el texto de la conversación**, ni la pregunta ni la respuesta ni el
+    resultado de ninguna tool. Eso es lo que hace la métrica consultable por
+    Logs Insights aunque las trazas se exporten a un destino externo.
+
+    El uso lo trae el adaptador (`uso_del_turno`, ver agent/llm.py). Un doble, el
+    modo local o un proveedor que no lo reporte dejan los tokens en cero y el
+    costo en null: acá nunca se inventa un número y nunca se tumba el turno.
+    """
+    uso = getattr(adaptador, "uso_del_turno", None)
+    # Sin uso reportado los contadores van en cero y el costo en null: el turno
+    # se cuenta igual.
+    tokens = uso or UsoTokens()
+    logger.info(
+        json.dumps(
+            {
+                "evento": "turno_cerrado",
+                "sessionId": sesion,
+                "modelo": cfg.model_id,
+                "tokensEntrada": tokens.entrada,
+                "tokensSalida": tokens.salida,
+                "tokensCacheLectura": tokens.cache_lectura,
+                "tokensCacheEscritura": tokens.cache_escritura,
+                "costoUsd": estimador_de_costo(uso, cfg.model_id, cfg.region),
+                "escalado": escalado,
+            }
+        )
+    )
 
 
 def build_app(
@@ -53,6 +95,7 @@ def build_app(
     memoria_factory=None,
     tools_usuario_factory=None,
     tools_gateway_factory=None,
+    estimador_de_costo=None,
 ) -> Starlette:
     # `env` se inyecta en los tests; en el contenedor es os.environ.
     env = os.environ if env is None else env
@@ -71,6 +114,9 @@ def build_app(
     memoria = memoria_factory(cfg) if memoria_factory else None
     tools_usuario_factory = tools_usuario_factory or crear_tools_usuario
     tools_gateway_factory = tools_gateway_factory or tools_de_gateway
+    # Se inyecta en los tests para no pegarle a la Pricing API. El default es
+    # fail-open de punta a punta: sin tarifa, el turno se loguea sin costo.
+    estimador_de_costo = estimador_de_costo or costo_estimado
     # Cache de las tools de tenant: una lista por microVM, no por turno
     # (build_app corre una vez por proceso). Vive en el closure y no a nivel
     # módulo para que cada app de test tenga su propio cache.
@@ -111,10 +157,14 @@ def build_app(
         # loguea ni se persiste.
         tools = await armar_tools(payload.get("actToken"))
 
-        workflow = ChatWorkflow(llm=llm_factory(cfg), tools=tools or None, timeout=120)
+        # El adaptador se guarda: vive este turno y al final se le pide el uso de
+        # tokens que acumuló (`uso_del_turno`).
+        adaptador = llm_factory(cfg)
+        workflow = ChatWorkflow(llm=adaptador, tools=tools or None, timeout=120)
         handler = workflow.run(message=message, history=history)
 
         async def eventos():
+            escalado = False
             # Nada tumba la conversación: si el workflow falla a mitad del stream
             # (throttling de Bedrock, guardrail, timeout), los deltas ya emitidos
             # quedan como están y el turno se cierra con un evento terminal de
@@ -126,7 +176,13 @@ def build_app(
                 # `.texto` explícito: await sobre el handler devuelve el ChatDone, no un
                 # string (el framework no desenvuelve subtipos de StopEvent), y el campo
                 # se llama `texto` para no colisionar con el `result` de StopEvent.
-                texto = (await handler).texto
+                done = await handler
+                texto = done.texto
+                # El core no mira el contenido del escalamiento: le alcanza el
+                # nombre de la tool que se ejecutó.
+                escalado = any(
+                    NOMBRE_TOOL_ESCALAMIENTO in nombre for nombre in done.tools_usadas
+                )
                 # Se persiste ANTES de emitir el `done`: el turno queda guardado aunque
                 # el cliente corte al recibirlo. El costo es la latencia de una llamada
                 # a Memory (fail-open: si falla, no impide emitir el evento final).
@@ -136,6 +192,13 @@ def build_app(
             except Exception as exc:
                 logger.error("Fallo el workflow del agente a mitad del stream: %s", exc)
                 yield f"data: {json.dumps({'type': 'error', 'code': 'agent_error'})}\n\n"
+            finally:
+                # DESPUÉS del evento final a propósito: resolver la tarifa puede
+                # costar una llamada a la Pricing API la primera vez de cada
+                # microVM, y el usuario no la espera. En `finally` para que un
+                # turno que se cayó también quede contado (y es código síncrono:
+                # nada que await en el cierre del generador).
+                _loguear_cierre(sesion, cfg, adaptador, escalado, estimador_de_costo)
 
         return StreamingResponse(eventos(), media_type="text/event-stream")
 
@@ -147,6 +210,20 @@ def build_app(
 if __name__ == "__main__":
     import uvicorn
 
+    # Sin esto el log de cierre del turno (INFO) se perdería: uvicorn configura
+    # sus propios loggers y deja el root en WARNING, así que `logger.info` no
+    # llegaría nunca a CloudWatch.
+    #
+    # El root queda en WARNING y solo nuestros módulos suben a INFO: botocore y
+    # compañía loguean cosas como "Found credentials in ..." en INFO y no vale
+    # pagar por eso en cada microVM. `__name__` acá es "__main__", que es
+    # justamente el logger de este archivo cuando se corre como script.
+    #
+    # El formato es solo el mensaje: así la línea del cierre del turno es JSON
+    # puro y Logs Insights la parsea sin `parse` ni regex.
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.getLogger("agent").setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
     # La app se construye recién acá: el contenedor falla al arrancar si falta
     # config, y el import del módulo (en los tests) no dispara load_config.
     uvicorn.run(build_app(), host="0.0.0.0", port=PORT)

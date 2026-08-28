@@ -1,11 +1,13 @@
 from llama_index.core.tools import FunctionTool
 
 from agent.events import TextDelta
+from agent.costo import UsoTokens
 from agent.workflow import (
     MAX_RONDAS_TOOLS,
     MENSAJE_FALLBACK_TOOLS,
     ChatWorkflow,
     LlamadaTool,
+    RespuestaLLM,
 )
 
 
@@ -40,13 +42,13 @@ async def test_emite_un_delta_por_chunk_y_devuelve_el_texto_completo():
 
 
 class FakeLLMConTools:
-    """Doble del camino con tools: responde según un guion de (texto, llamadas).
+    """Doble del camino con tools: responde según un guion de RespuestaLLM.
 
     Si el guion se agota, repite la última entrada — sirve para simular un LLM
     que nunca da texto final.
     """
 
-    def __init__(self, guion: list[tuple]):
+    def __init__(self, guion: list[RespuestaLLM]):
         self.guion = list(guion)
         self.vistos: list[dict] = []
 
@@ -72,7 +74,16 @@ def tool_mis_pedidos():
 async def test_con_tools_ejecuta_la_llamada_y_el_texto_final_sale_por_chatdone():
     llamada = LlamadaTool(id="t1", nombre="mis_pedidos", argumentos={})
     llm = FakeLLMConTools(
-        [(None, [llamada]), ("Tu pedido A-1001 está en camino.", [])]
+        [
+            RespuestaLLM(texto=None, llamadas=[llamada]),
+            # El uso de tokens viaja en la respuesta y el workflow lo ignora: lo
+            # acumula el adaptador (agent/llm.py), que es quien vive el turno.
+            RespuestaLLM(
+                texto="Tu pedido A-1001 está en camino.",
+                llamadas=[],
+                uso=UsoTokens(entrada=500, salida=120),
+            ),
+        ]
     )
     handler = ChatWorkflow(llm=llm, tools=[tool_mis_pedidos()], timeout=10).run(
         message="¿dónde está mi pedido?", history=[]
@@ -96,7 +107,12 @@ async def test_con_tools_ejecuta_la_llamada_y_el_texto_final_sale_por_chatdone()
 
 async def test_una_tool_desconocida_no_rompe_el_loop():
     llm = FakeLLMConTools(
-        [(None, [LlamadaTool(id="t1", nombre="inexistente", argumentos={})]), ("ok", [])]
+        [
+            RespuestaLLM(
+                texto=None, llamadas=[LlamadaTool(id="t1", nombre="inexistente", argumentos={})]
+            ),
+            RespuestaLLM(texto="ok", llamadas=[]),
+        ]
     )
     handler = ChatWorkflow(llm=llm, tools=[tool_mis_pedidos()], timeout=10).run(
         message="hola", history=[]
@@ -112,7 +128,7 @@ async def test_una_tool_desconocida_no_rompe_el_loop():
 
 async def test_si_nunca_hay_texto_final_responde_el_fallback_a_las_cuatro_rondas():
     llamada = LlamadaTool(id="t1", nombre="mis_pedidos", argumentos={})
-    llm = FakeLLMConTools([(None, [llamada])])  # nunca da texto final
+    llm = FakeLLMConTools([RespuestaLLM(texto=None, llamadas=[llamada])])  # nunca da texto final
     handler = ChatWorkflow(llm=llm, tools=[tool_mis_pedidos()], timeout=10).run(
         message="¿mi pedido?", history=[]
     )
@@ -124,7 +140,7 @@ async def test_si_nunca_hay_texto_final_responde_el_fallback_a_las_cuatro_rondas
 
 
 async def test_sin_texto_ni_llamadas_cae_al_fallback_sin_agotar_rondas():
-    llm = FakeLLMConTools([(None, [])])
+    llm = FakeLLMConTools([RespuestaLLM(texto=None, llamadas=[])])
     handler = ChatWorkflow(llm=llm, tools=[tool_mis_pedidos()], timeout=10).run(
         message="hola", history=[]
     )
@@ -142,3 +158,53 @@ async def test_sin_tools_el_workflow_streamea_la_respuesta():
     handler = ChatWorkflow(llm=llm, tools=None, timeout=10).run(message="hola", history=[])
     done = await handler
     assert done.texto == "igual que antes"
+
+
+# --- qué tools se usaron en el turno (para la métrica de derivación, spec §17) ---
+
+
+async def test_el_evento_final_dice_que_tools_se_ejecutaron():
+    llamada = LlamadaTool(id="t1", nombre="mis_pedidos", argumentos={})
+    llm = FakeLLMConTools(
+        [
+            RespuestaLLM(texto=None, llamadas=[llamada]),
+            RespuestaLLM(texto="Listo.", llamadas=[]),
+        ]
+    )
+    handler = ChatWorkflow(llm=llm, tools=[tool_mis_pedidos()], timeout=10).run(
+        message="¿mi pedido?", history=[]
+    )
+
+    done = await handler
+
+    # Nombres, no argumentos ni resultados: el consumidor lo usa para contar, y
+    # el contenido de la conversación no sale por acá.
+    assert done.tools_usadas == ["mis_pedidos"]
+
+
+async def test_una_tool_que_no_existe_no_cuenta_como_ejecutada():
+    llm = FakeLLMConTools(
+        [
+            RespuestaLLM(
+                texto=None, llamadas=[LlamadaTool(id="t1", nombre="inexistente", argumentos={})]
+            ),
+            RespuestaLLM(texto="ok", llamadas=[]),
+        ]
+    )
+    handler = ChatWorkflow(llm=llm, tools=[tool_mis_pedidos()], timeout=10).run(
+        message="hola", history=[]
+    )
+
+    done = await handler
+
+    assert done.tools_usadas == []
+
+
+async def test_sin_tools_el_evento_final_no_reporta_ninguna_usada():
+    handler = ChatWorkflow(llm=FakeLLM(["ok"]), tools=None, timeout=10).run(
+        message="hola", history=[]
+    )
+
+    done = await handler
+
+    assert done.tools_usadas == []
