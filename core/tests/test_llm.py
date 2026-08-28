@@ -102,7 +102,15 @@ class FakeConverseConTools:
         self.visto: dict = {}
 
     async def achat_with_tools(self, tools, user_msg=None, chat_history=None, **kw):
-        self.visto = {"tools": tools, "user_msg": user_msg, "chat_history": chat_history}
+        # `chat_history` se guarda como COPIA: es lo que el adaptador mandó en
+        # esta llamada, y abajo mutamos la lista real.
+        self.visto = {"tools": tools, "user_msg": user_msg, "chat_history": list(chat_history)}
+        # MUTA la lista recibida, igual que `_prepare_chat_with_tools` de
+        # LlamaIndex, que apendea el `user_msg` a la `chat_history` que le pasan.
+        # Sin esto, un adaptador que compartiera la lista entre turnos pasaría
+        # el test de acumulación sin que nada lo delate.
+        if user_msg is not None:
+            chat_history.append(ChatMessage(role="user", content=user_msg))
         return ChatResponse(message=ChatMessage(role="assistant", content=self.texto))
 
     def get_tool_calls_from_response(self, respuesta, error_on_no_tool_call=True, **kw):
@@ -234,12 +242,23 @@ async def test_sin_prompt_del_sistema_el_camino_con_tools_no_manda_ningun_system
 
 
 async def test_el_prompt_del_sistema_no_se_acumula_entre_turnos():
-    # El adaptador vive un turno o varios: si el mensaje de sistema se guardara
-    # en una lista reusada, la segunda ronda mandaría dos.
-    adapter = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverseConTools)
+    """El adaptador vive varios turnos: `_mensajes_iniciales` devuelve una lista
+    NUEVA cada vez, y este test cubre las dos formas de que eso se rompa.
 
-    await adapter.aresponder_con_tools("¿mi pedido?", [], tools=[])
-    await adapter.aresponder_con_tools("¿y el otro?", [], tools=[])
+    1. Por el propio adaptador: `astream` hace `messages += [...]`, que MUTA la
+       lista devuelta por `_mensajes_iniciales`. Si esa lista fuera cacheada, el
+       segundo turno mandaría el `system` dos veces.
+    2. Por el cliente: `_prepare_chat_with_tools` de LlamaIndex APENDEA el
+       `user_msg` a la `chat_history` que recibe — `FakeConverseConTools` hace lo
+       mismo a propósito—, así que una lista compartida crecería turno a turno.
+    """
+    en_stream = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverse)
+    for pregunta in ("nueva", "y otra"):
+        async for _ in en_stream.astream(pregunta, []):
+            pass
+    assert [m.role for m in en_stream.client.recibido] == ["system", "user"]
 
-    mensajes = adapter.client.visto["chat_history"]
-    assert [m.role for m in mensajes] == ["system"]
+    con_tools = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverseConTools)
+    await con_tools.aresponder_con_tools("¿mi pedido?", [], tools=[])
+    await con_tools.aresponder_con_tools("¿y el otro?", [], tools=[])
+    assert [m.role for m in con_tools.client.visto["chat_history"]] == ["system"]
