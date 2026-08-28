@@ -153,7 +153,23 @@ const envObservabilidad = {
   // compilación es un span: en una corrida local de UN turno salieron 10
   // `jinja2.compile`. Es ruido puro y se paga por span ingestado. (ADOT también
   // lo apaga en su propia lista por default.)
-  OTEL_PYTHON_DISABLED_INSTRUMENTATIONS: "botocore,jinja2",
+  // `aws_llama-index` y `aws_mcp` son los instrumentors PROPIOS del distro de
+  // AWS, y apagarlos es una medida de PRIVACIDAD, no de ruido: emiten
+  // `gen_ai.system_instructions`, `gen_ai.input.messages`,
+  // `gen_ai.output.messages`, `gen_ai.tool.call.arguments` y
+  // `gen_ai.tool.call.result` con el texto completo — el prompt de sistema, el
+  // historial, la respuesta del modelo, los argumentos de las tools y los
+  // documentos que devuelve la Knowledge Base por MCP.
+  //
+  // Las `OPENINFERENCE_HIDE_*` NO los gobiernan: usan un tracer pelado, no el
+  // de OpenInference con su `mask()`. Y el propio distro tiene un skip para no
+  // cargarlos, pero está adentro de un `if agent_observability_enabled`, que
+  // acá va en false (por el muestreo, ver más arriba), así que el skip nunca
+  // corre. Dos decisiones correctas que se combinan mal.
+  //
+  // Van FUERA del bloque de redacción: con `contenidoEnTrazas: true` también
+  // hay que apagarlos, porque duplican cada span del LLM y de las tools.
+  OTEL_PYTHON_DISABLED_INSTRUMENTATIONS: "botocore,jinja2,aws_llama-index,aws_mcp",
 
   // El health check de AgentCore pega a `/ping` sin parar, y cada llamada son 3
   // spans (el request más los `http send` del ASGI). Excluirlo no pierde nada:
@@ -174,7 +190,20 @@ const envObservabilidad = {
   // Destino. Es un adaptador de una sola env: misma clave, otro valor.
   ...(observabilidad.destino === "otlp"
     ? {
-        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: otlpEndpoint.value,
+        // El segundo argumento de `sst.Secret` es un PLACEHOLDER, no un default:
+        // sin `sst secret set` el valor es "" y el deploy no cortaría. Un
+        // endpoint vacío deja un exporter que falla en cada export, en un log que
+        // nadie mira — semanas sin una sola traza y todo "verde". Mejor fallar en
+        // el synth, que es donde se puede leer el mensaje.
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: otlpEndpoint.value.apply((url) => {
+          if (!url) {
+            throw new Error(
+              'observabilidad.destino es "otlp" pero el secreto ObservabilidadOtlpEndpoint está vacío. ' +
+                "Seteálo con: npx sst secret set ObservabilidadOtlpEndpoint <url> --stage <stage>",
+            );
+          }
+          return url;
+        }),
         OTEL_EXPORTER_OTLP_TRACES_HEADERS: otlpHeaders.value,
       }
     : { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: endpointXray }),

@@ -72,6 +72,10 @@ CAMPO_POR_SUFIJO_USAGETYPE = {
     "InputTokenCount-Units": "entrada_por_1k",
     "OutputTokenCount-Units": "salida_por_1k",
     "CacheReadInputTokenCount-Units": "cache_lectura_por_1k",
+    # Único sufijo NO verificado contra la API: derivado por analogía con los de
+    # arriba. Hoy es inocuo porque no usamos prompt caching, así que la escritura
+    # de cache siempre es 0 y nunca se le pide tarifa. Si se activa el caching y
+    # el costo empieza a salir null, mirar acá primero.
     "CacheWriteInputTokenCount-Units": "cache_escritura_por_1k",
 }
 

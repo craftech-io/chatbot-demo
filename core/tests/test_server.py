@@ -268,7 +268,7 @@ def test_el_cierre_del_turno_se_loguea_en_una_linea_json_sin_texto_de_la_convers
         "tokensCacheLectura": 800,
         "tokensCacheEscritura": 40,
         "costoUsd": 0.0126,
-        "escalado": False,
+        "intentoEscalamiento": False,
     }
     # Ni la pregunta ni la respuesta viajan en el log: es lo que hace consultable
     # la métrica sin exponer la conversación.
@@ -342,6 +342,6 @@ def test_el_log_marca_el_escalamiento_cuando_el_agente_usa_esa_tool(caplog):
         )
 
     assert r.status_code == 200
-    assert log_del_cierre(caplog)["escalado"] is True
+    assert log_del_cierre(caplog)["intentoEscalamiento"] is True
     # El resultado de la tool tampoco sale en el log.
     assert "ACME-42" not in caplog.text

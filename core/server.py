@@ -6,6 +6,7 @@ La invocación llega por InvokeAgentRuntime con IAM, así que el payload lo arm�
 BFF después de validar al usuario: es CONFIABLE. No se valida identidad acá.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -129,7 +130,7 @@ def _loguear_cierre(sesion: str, cfg, adaptador, escalado: bool, estimador_de_co
                 "tokensCacheLectura": tokens.cache_lectura,
                 "tokensCacheEscritura": tokens.cache_escritura,
                 "costoUsd": estimador_de_costo(uso, cfg.model_id, cfg.region),
-                "escalado": escalado,
+                "intentoEscalamiento": escalado,
             }
         )
     )
@@ -169,7 +170,11 @@ def build_app(
     tools_gateway_factory = tools_gateway_factory or tools_de_gateway
     # Se inyecta en los tests para no pegarle a la Pricing API. El default es
     # fail-open de punta a punta: sin tarifa, el turno se loguea sin costo.
-    estimador_de_costo = estimador_de_costo or costo_estimado
+    # En modo local no se estima costo: evita pegarle a la Pricing API (si el
+    # MODEL_ID es uno real) y evita una línea de warning no-JSON por turno en el
+    # mismo log que Logs Insights parsea.
+    if estimador_de_costo is None:
+        estimador_de_costo = (lambda *_: None) if env.get("FAKE_LLM") else costo_estimado
     # Cache de las tools de tenant: una lista por microVM, no por turno
     # (build_app corre una vez por proceso). Vive en el closure y no a nivel
     # módulo para que cada app de test tenga su propio cache.
@@ -234,7 +239,7 @@ def build_app(
                 # El core no mira el contenido del escalamiento: le alcanza el
                 # nombre de la tool que se ejecutó.
                 escalado = any(
-                    NOMBRE_TOOL_ESCALAMIENTO in nombre for nombre in done.tools_usadas
+                    nombre.endswith(NOMBRE_TOOL_ESCALAMIENTO) for nombre in done.tools_usadas
                 )
                 # Se persiste ANTES de emitir el `done`: el turno queda guardado aunque
                 # el cliente corte al recibirlo. El costo es la latencia de una llamada
@@ -249,9 +254,17 @@ def build_app(
                 # DESPUÉS del evento final a propósito: resolver la tarifa puede
                 # costar una llamada a la Pricing API la primera vez de cada
                 # microVM, y el usuario no la espera. En `finally` para que un
-                # turno que se cayó también quede contado (y es código síncrono:
-                # nada que await en el cierre del generador).
-                _loguear_cierre(sesion, cfg, adaptador, escalado, estimador_de_costo)
+                # turno que se cayó también quede contado.
+                #
+                # Va en un thread y no inline: `_loguear_cierre` es SÍNCRONO y la
+                # resolución de tarifas construye un cliente boto3 y pagina la
+                # Pricing API. Inline eso bloquea el event loop más de un segundo
+                # en el primer turno de cada microVM, con la respuesta HTTP
+                # todavía abierta y el health check de AgentCore pegándole a
+                # /ping en el medio.
+                await asyncio.to_thread(
+                    _loguear_cierre, sesion, cfg, adaptador, escalado, estimador_de_costo
+                )
 
         return StreamingResponse(eventos(), media_type="text/event-stream")
 

@@ -7,6 +7,7 @@ proceso, y con la env prendida el instrumentor se llama UNA sola vez aunque
 `build_app` corra dos veces.
 """
 
+import os
 import sys
 
 import pytest
@@ -70,3 +71,69 @@ def test_con_la_env_instrumenta_una_sola_vez():
     # engancharlo dos veces duplicaría cada span del turno.
     _app({"MODEL_ID": "fake", "TRAZAS_OPENINFERENCE": "1"}, espia)
     assert espia.llamadas == 1
+
+
+# La prueba que faltaba, y la que caza la clase de bug más caro de esta capa:
+# afirmar sobre los ATRIBUTOS REALES de los spans, no sobre las variables de
+# entorno. Las env son la intención; los atributos son lo que sale del proceso.
+#
+# El caso real: el distro de AWS carga instrumentors propios de llama_index y de
+# MCP que emiten el texto completo en `gen_ai.*` con un tracer que las flags de
+# OpenInference no gobiernan. Todas las env estaban bien puestas y la
+# conversación salía igual.
+@pytest.mark.asyncio
+async def test_ningun_span_lleva_el_texto_de_la_conversacion():
+    pytest.importorskip("opentelemetry.sdk.trace")
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from agent.workflow import ChatWorkflow
+
+    instrumentor = pytest.importorskip(
+        "openinference.instrumentation.llama_index"
+    ).LlamaIndexInstrumentor
+
+    # Las MISMAS env de redacción que declara infra/sst/runtime.ts para el caso
+    # `contenidoEnTrazas: false`. El test corre la configuración que se
+    # despliega, no la de fábrica de la librería: si alguien saca una env de la
+    # infra, este test tiene que ponerse rojo.
+    for flag in (
+        "INPUTS", "OUTPUTS", "INPUT_MESSAGES", "OUTPUT_MESSAGES",
+        "INPUT_TEXT", "OUTPUT_TEXT", "INPUT_IMAGES", "PROMPTS",
+        "CHOICES", "EMBEDDINGS_TEXT",
+    ):
+        os.environ[f"OPENINFERENCE_HIDE_{flag}"] = "true"
+    os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "false"
+
+    exporter = InMemorySpanExporter()
+    proveedor = TracerProvider()
+    proveedor.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(proveedor)
+
+    SECRETOS = ("mi-tarjeta-es-4111", "el-documento-dice-XYZ", "no-inventes-nada")
+
+    inst = instrumentor()
+    inst.instrument(tracer_provider=proveedor)
+    try:
+        class LLMConSecretos:
+            async def astream(self, message, history):
+                yield "listo"
+
+            async def aresponder_con_tools(self, message, history, tools):
+                from agent.llm import RespuestaLLM
+
+                return RespuestaLLM(texto=f"resultado: {SECRETOS[1]}", llamadas=[], uso=None)
+
+        wf = ChatWorkflow(llm=LLMConSecretos(), timeout=10)
+        await wf.run(message=SECRETOS[0], history=[{"role": "system", "content": SECRETOS[2]}])
+    finally:
+        inst.uninstrument()
+
+    atributos = " ".join(
+        f"{k}={v}" for span in exporter.get_finished_spans() for k, v in (span.attributes or {}).items()
+    )
+    assert exporter.get_finished_spans(), "no se capturó ningún span: el test no probaría nada"
+    for secreto in SECRETOS:
+        assert secreto not in atributos, f"el span filtró {secreto!r}"

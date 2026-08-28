@@ -82,11 +82,23 @@ const region = aws.getRegionOutput().region;
 // El `.d.ts` del recurso expone `accountId` como OUTPUT (read-only): el único
 // argumento de entrada es `indexingPercentage`. No hay nada de nuestra cuenta
 // escrito acá.
-export const busquedaDeTransacciones = new awsnative.xray.TransactionSearchConfig(
-  "TransactionSearch",
-  { indexingPercentage: cliente.observabilidad.indexadoTrazas },
-  { retainOnDelete: true },
-);
+// Es OPT-IN, y no siempre, por lo que dice la nota de arriba: la configuración
+// es de CUENTA, así que el segundo stage de la misma cuenta que la declare se
+// come un AlreadyExists de Cloud Control y el deploy CORTA. Un template genérico
+// no puede asumir un stage por cuenta: un `pr-123` de preview haría fallar un CI
+// que no tiene nada que ver con el cambio.
+//
+// Quien la administra la declara una vez (el stage designado en
+// `client.config.ts`); los demás stages la consumen sin declararla — la
+// configuración ya está activa en la cuenta y les sirve igual.
+export const busquedaDeTransacciones =
+  cliente.observabilidad.stageQueAdministraLaBusqueda === $app.stage
+    ? new awsnative.xray.TransactionSearchConfig(
+        "TransactionSearch",
+        { indexingPercentage: cliente.observabilidad.indexadoTrazas },
+        { retainOnDelete: true },
+      )
+    : undefined;
 
 // ---------------------------------------------------------------------------
 // 2. Tracing activo en las Lambdas del stack
@@ -226,6 +238,11 @@ export function crearDashboard(args: ArgsDashboard) {
                 "no haya derivado no significa que haya respondido bien. Si la línea sube, el agente está",
                 "resolviendo menos que antes; el porqué está en las trazas.",
                 "",
+                "Ojo con el vacío: la métrica de la tool no existe hasta la primera derivación, así que",
+                "**\"sin datos\" es también el estado bueno** (nadie derivó). Si el widget está vacío y",
+                "querés distinguirlo de un problema, mirá el de invocaciones del Gateway: si ahí llegan",
+                "métricas, el tablero está sano.",
+                "",
                 "Los tokens son del namespace `AWS/Bedrock` y son de la CUENTA, no del stage: incluyen el",
                 "modelo de embeddings de la Knowledge Base y cualquier otro consumidor de Bedrock.",
               ].join("\n"),
@@ -335,7 +352,7 @@ export function crearDashboard(args: ArgsDashboard) {
                       "Sum",
                     ),
                     id: "fallosRuntime",
-                    label: "Runtime",
+                    label: "Runtime ${PROP('MetricName')}",
                   },
                 ],
                 [
@@ -347,7 +364,7 @@ export function crearDashboard(args: ArgsDashboard) {
                       "Sum",
                     ),
                     id: "fallosGateway",
-                    label: "Gateway",
+                    label: "Gateway ${PROP('MetricName')}",
                   },
                 ],
               ],

@@ -162,6 +162,19 @@ export interface ConfigCliente {
      * `infra/sst/observabilidad.ts`).
      */
     indexadoTrazas: number;
+
+    /**
+     * Qué stage declara la configuración de búsqueda de transacciones de X-Ray.
+     *
+     * Esa configuración es de CUENTA, no de stage: si dos stages de la misma
+     * cuenta la declaran, el segundo deploy corta con un AlreadyExists. Acá se
+     * nombra al stage que la administra; los demás la consumen sin declararla,
+     * porque ya está activa en la cuenta.
+     *
+     * Con una cuenta por ambiente, poné el nombre del único stage. Con varios
+     * stages en la misma cuenta (previews por PR), poné el estable.
+     */
+    stageQueAdministraLaBusqueda: string;
   };
 
   /** Ajustes de la búsqueda en los documentos (la Knowledge Base, spec §11). */
@@ -223,6 +236,7 @@ export const cliente: ConfigCliente = {
     destino: "cloudwatch",
     // Indexar todo lo que llega: con el muestreo al 5% no sobra nada.
     indexadoTrazas: 100,
+    stageQueAdministraLaBusqueda: "staging",
   },
   documentos: {
     topK: 5,
