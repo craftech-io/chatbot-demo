@@ -154,3 +154,92 @@ async def test_en_rondas_siguientes_no_repite_el_mensaje_y_traduce_el_turno():
     ]
     assert mensajes[2].role == "tool"
     assert mensajes[2].additional_kwargs["tool_call_id"] == "t1"
+
+
+# --- prompt del sistema (env PROMPT_SISTEMA, ver infra/CONTRACT.md) ---
+
+PROMPT = "Sos el asistente de Acme. No inventes: citá los documentos."
+ENV_CON_PROMPT = ENV | {"PROMPT_SISTEMA": PROMPT}
+
+
+async def test_el_prompt_del_sistema_abre_la_lista_de_mensajes_en_el_stream():
+    adapter = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverse)
+    history = [{"role": "user", "content": "previo"}, {"role": "assistant", "content": "ok"}]
+
+    async for _ in adapter.astream("nuevo", history):
+        pass
+
+    assert [(m.role, m.content) for m in adapter.client.recibido] == [
+        ("system", PROMPT),
+        ("user", "previo"),
+        ("assistant", "ok"),
+        ("user", "nuevo"),
+    ]
+
+
+async def test_sin_prompt_del_sistema_el_stream_no_manda_ningun_system():
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverse)
+
+    async for _ in adapter.astream("nuevo", []):
+        pass
+
+    assert [m.role for m in adapter.client.recibido] == ["user"]
+
+
+HISTORY_TRAS_TOOL = [
+    {"role": "user", "content": "¿mi pedido?"},
+    {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "t1", "nombre": "mis_pedidos", "argumentos": {}}],
+    },
+    {"role": "tool", "content": "A-1001 en camino", "tool_call_id": "t1"},
+]
+
+
+async def test_el_prompt_del_sistema_va_primero_en_el_camino_con_tools():
+    adapter = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverseConTools)
+
+    await adapter.aresponder_con_tools("¿mi pedido?", HISTORY_TRAS_TOOL, tools=[])
+
+    mensajes = adapter.client.visto["chat_history"]
+    assert mensajes[0].role == "system"
+    assert mensajes[0].content == PROMPT
+    # El sistema se agrega ANTES del historial y no altera el orden del turno de
+    # tools: la pregunta sigue adentro del historial y no se repite como
+    # user_msg después del toolResult (orden que Converse no acepta).
+    assert [m.role for m in mensajes] == ["system", "user", "assistant", "tool"]
+    assert adapter.client.visto["user_msg"] is None
+
+
+async def test_el_prompt_del_sistema_tambien_va_en_la_primera_ronda_con_tools():
+    adapter = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverseConTools)
+
+    await adapter.aresponder_con_tools("¿mi pedido?", [], tools=["tool-a"])
+
+    mensajes = adapter.client.visto["chat_history"]
+    assert [(m.role, m.content) for m in mensajes] == [("system", PROMPT)]
+    # En la primera ronda la pregunta viaja como user_msg: el adaptador de
+    # LlamaIndex la apendea al final del chat_history, detrás del sistema.
+    assert adapter.client.visto["user_msg"] == "¿mi pedido?"
+
+
+async def test_sin_prompt_del_sistema_el_camino_con_tools_no_manda_ningun_system():
+    adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverseConTools)
+
+    await adapter.aresponder_con_tools("¿mi pedido?", HISTORY_TRAS_TOOL, tools=[])
+
+    mensajes = adapter.client.visto["chat_history"]
+    assert [m.role for m in mensajes] == ["user", "assistant", "tool"]
+
+
+async def test_el_prompt_del_sistema_no_se_acumula_entre_turnos():
+    # El adaptador vive un turno o varios: si el mensaje de sistema se guardara
+    # en una lista reusada, la segunda ronda mandaría dos.
+    adapter = BedrockAdapter(load_config(ENV_CON_PROMPT), client_factory=FakeConverseConTools)
+
+    await adapter.aresponder_con_tools("¿mi pedido?", [], tools=[])
+    await adapter.aresponder_con_tools("¿y el otro?", [], tools=[])
+
+    mensajes = adapter.client.visto["chat_history"]
+    assert [m.role for m in mensajes] == ["system"]

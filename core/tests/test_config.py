@@ -60,3 +60,17 @@ def test_lee_las_urls_de_tools_del_entorno():
     )
     assert cfg.gateway_url == "https://gw/mcp"
     assert cfg.client_api_url == "http://api"
+
+
+def test_el_prompt_del_sistema_es_opcional():
+    # Sin PROMPT_SISTEMA el agente se comporta como siempre: sin mensaje de
+    # sistema. Vacía (o con solo espacios) cuenta como ausente, mismo criterio
+    # que el guardrail y la memoria.
+    assert load_config({"MODEL_ID": "m"}).prompt_sistema is None
+    assert load_config({"MODEL_ID": "m", "PROMPT_SISTEMA": ""}).prompt_sistema is None
+    assert load_config({"MODEL_ID": "m", "PROMPT_SISTEMA": "   \n"}).prompt_sistema is None
+
+
+def test_lee_el_prompt_del_sistema_del_entorno():
+    cfg = load_config({"MODEL_ID": "m", "PROMPT_SISTEMA": "Sos el asistente de Acme."})
+    assert cfg.prompt_sistema == "Sos el asistente de Acme."

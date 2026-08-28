@@ -45,9 +45,27 @@ class BedrockAdapter:
                 "guardrail_stream_processing_mode": "sync",
             }
         self.client = client_factory(**kwargs)
+        self.prompt_sistema = cfg.prompt_sistema
+
+    def _mensajes_iniciales(self) -> list[ChatMessage]:
+        """La política de comportamiento, si está configurada, abre la lista.
+
+        Lista NUEVA en cada llamada a propósito: `_prepare_chat_with_tools` de
+        LlamaIndex apendea el `user_msg` a la lista que recibe, así que una lista
+        compartida acumularía mensajes turno a turno.
+
+        No hay riesgo con el orden que Converse exige después de un `toolResult`:
+        `messages_to_converse_messages` SACA los mensajes `system` de la lista y
+        los manda en el campo `system` de la request, así que el prompt nunca
+        queda como un turno más entre el resultado de la tool y lo que sigue.
+        """
+        if not self.prompt_sistema:
+            return []
+        return [ChatMessage(role="system", content=self.prompt_sistema)]
 
     async def astream(self, message: str, history: list[dict]) -> AsyncIterator[str]:
-        messages = [_a_chat_message(h) for h in history]
+        messages = self._mensajes_iniciales()
+        messages += [_a_chat_message(h) for h in history]
         messages.append(ChatMessage(role="user", content=message))
         stream = await self.client.astream_chat(messages)
         async for response in stream:
@@ -66,7 +84,8 @@ class BedrockAdapter:
         respuesta = await self.client.achat_with_tools(
             tools=tools,
             user_msg=user_msg,
-            chat_history=[_a_chat_message(h) for h in history],
+            chat_history=self._mensajes_iniciales()
+            + [_a_chat_message(h) for h in history],
         )
         llamadas = [
             LlamadaTool(id=s.tool_id, nombre=s.tool_name, argumentos=s.tool_kwargs)
