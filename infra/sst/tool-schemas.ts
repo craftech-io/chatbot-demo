@@ -21,7 +21,7 @@ export const documentosToolSchema: ToolSchema = [
   {
     name: "consultar_documentos",
     description:
-      "Busca en los documentos del negocio (políticas, horarios, garantías, procedimientos) y devuelve los pasajes más parecidos, cada uno con su score y su fuente. Usala SIEMPRE antes de responder cualquier cosa sobre el negocio: no contestes de memoria. Citá la fuente del pasaje que usaste. Si vuelve con una nota de que no encontró nada, decilo y ofrecé derivar el caso a una persona.",
+      "Busca en los documentos del negocio (políticas, horarios, garantías, procedimientos) y devuelve los pasajes más parecidos. Cada pasaje trae `texto`, `score`, `fuente` (la URI del documento) y, cuando el documento las declara, `titulo` y `url`. Usala SIEMPRE antes de responder cualquier cosa sobre el negocio: no contestes de memoria. Citá el pasaje que usaste por su `titulo` —si no vino, por el nombre de archivo de la `fuente`— y pasale la `url` al usuario cuando exista. Si vuelve con una nota de que no encontró nada, decilo y ofrecé derivar el caso a una persona.",
     inputSchema: {
       type: "object",
       properties: {

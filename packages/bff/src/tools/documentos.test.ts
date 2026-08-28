@@ -10,9 +10,16 @@ import {
 
 const KB_ID = "kb-de-prueba";
 
-// Pasaje crudo como lo devuelve Retrieve: solo los campos que la tool aplana.
-function pasaje(texto: string, score: number, uri: string) {
-  return { content: { text: texto }, score, location: { s3Location: { uri } } };
+// Pasaje crudo como lo devuelve Retrieve. `metadata` es el mapa PLANO que
+// arma Bedrock: los atributos que declaró el cliente en el sidecar
+// `<archivo>.metadata.json` MÁS los que inyecta el servicio.
+function pasaje(texto: string, score: number, uri: string, metadata?: Record<string, unknown>) {
+  return {
+    content: { text: texto },
+    score,
+    location: { s3Location: { uri } },
+    ...(metadata ? { metadata } : {}),
+  };
 }
 
 // Cliente falso del data-plane de Bedrock: se inyecta por factory, no se mockea
@@ -51,6 +58,83 @@ describe("consultar_documentos", () => {
     const input = send.mock.calls[0]![0].input;
     expect(input.knowledgeBaseId).toBe(KB_ID);
     expect(input.retrievalQuery).toEqual({ text: "¿cuántos días tengo para devolver?" });
+  });
+
+  // La metadata del sidecar es la ÚNICA forma de citar por título (spec §11):
+  // sin esto los `.metadata.json` de examples/documentos son inertes y la regla
+  // "citá con el título" del prompt del sistema no se puede cumplir.
+  it("superficializa los atributos del cliente: `title` -> titulo, `url` -> url", async () => {
+    const { cliente } = clienteFalso([
+      pasaje("Tenés 30 días corridos.", 0.9, "s3://docs/politica-devoluciones.md", {
+        title: "  Política de devoluciones  ",
+        url: "https://ayuda.ciclosaurora.example/devoluciones",
+      }),
+    ]);
+    const consultar = crearConsultarDocumentos({ knowledgeBaseId: KB_ID, cliente });
+
+    const r = await consultar({ consulta: "devoluciones" });
+
+    expect(r.resultados[0]).toEqual({
+      texto: "Tenés 30 días corridos.",
+      score: 0.9,
+      fuente: "s3://docs/politica-devoluciones.md",
+      titulo: "Política de devoluciones",
+      url: "https://ayuda.ciclosaurora.example/devoluciones",
+    });
+  });
+
+  it("los demás atributos del cliente viajan en `metadata` (no se tiran)", async () => {
+    const { cliente } = clienteFalso([
+      pasaje("Cambio sin uso.", 0.7, "s3://docs/x.md", {
+        title: "Devoluciones",
+        vigencia: "2026-01-01",
+        publico: true,
+      }),
+    ]);
+    const consultar = crearConsultarDocumentos({ knowledgeBaseId: KB_ID, cliente });
+
+    const r = await consultar({ consulta: "devoluciones" });
+
+    expect(r.resultados[0]!.metadata).toEqual({ vigencia: "2026-01-01", publico: true });
+  });
+
+  it("descarta la metadata que inyecta Bedrock (AMAZON_BEDROCK_*, x-amz-bedrock-*)", async () => {
+    const { cliente } = clienteFalso([
+      pasaje("Horario de 9 a 18.", 0.5, "s3://docs/horarios.md", {
+        AMAZON_BEDROCK_TEXT: "Horario de 9 a 18.",
+        AMAZON_BEDROCK_METADATA: '{"source":"s3://docs/horarios.md"}',
+        "x-amz-bedrock-kb-chunk-id": "1%3A0%3Aabcd",
+        "x-amz-bedrock-kb-data-source-id": "DS123",
+        "x-amz-bedrock-kb-source-uri": "s3://docs/horarios.md",
+        title: "Horarios de atención",
+      }),
+    ]);
+    const consultar = crearConsultarDocumentos({ knowledgeBaseId: KB_ID, cliente });
+
+    const r = await consultar({ consulta: "horarios" });
+
+    // Solo lo del cliente: ni una clave del servicio, ni un `metadata` vacío.
+    expect(r.resultados[0]).toEqual({
+      texto: "Horario de 9 a 18.",
+      score: 0.5,
+      fuente: "s3://docs/horarios.md",
+      titulo: "Horarios de atención",
+    });
+  });
+
+  it("un pasaje sin metadata no rompe ni agrega claves vacías", async () => {
+    const { cliente } = clienteFalso([
+      pasaje("Sin sidecar.", 0.4, "s3://docs/sin-sidecar.md"),
+      pasaje("Sidecar vacío.", 0.3, "s3://docs/vacio.md", {}),
+    ]);
+    const consultar = crearConsultarDocumentos({ knowledgeBaseId: KB_ID, cliente });
+
+    const r = await consultar({ consulta: "cualquier cosa" });
+
+    expect(r.resultados).toEqual([
+      { texto: "Sin sidecar.", score: 0.4, fuente: "s3://docs/sin-sidecar.md" },
+      { texto: "Sidecar vacío.", score: 0.3, fuente: "s3://docs/vacio.md" },
+    ]);
   });
 
   it("sin resultados devuelve la nota humana (el agente ofrece derivar)", async () => {

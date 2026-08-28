@@ -38,9 +38,10 @@ const TEXTO_LISTAR_CATALOGO =
 // citando el CORPUS FICTICIO de examples/documentos (la empresa inventada
 // Ciclos Aurora). Si ese corpus cambia, cambiar acá también — mock y realidad
 // cuentan la misma historia. La cita nombra el título del sidecar
-// `.metadata.json` y el archivo, que es lo que la tool real devuelve como
-// `fuente`: la URI del documento en S3, lo único citable de forma fiable (ver
-// docs/diseno.md §11).
+// `.metadata.json` y el nombre del archivo, que es exactamente lo que la tool
+// real le da al modelo: `titulo` (el `title` del sidecar) y `fuente` (la URI del
+// documento en S3, cuyo último segmento es ese archivo) — ver
+// packages/bff/src/tools/documentos.ts y docs/diseno.md §11.
 const TEXTO_CONSULTAR_DOCUMENTOS =
   "Según *Política de devoluciones* (`politica-devoluciones.md`): tenés 30 días " +
   "corridos desde que recibís el pedido para iniciar el cambio o la devolución, " +

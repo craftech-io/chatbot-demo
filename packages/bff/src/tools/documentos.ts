@@ -5,16 +5,23 @@
 // que devolvemos —JSON-serializable— el Gateway lo envuelve como toolResult.
 //
 // Es `Retrieve`, NO `RetrieveAndGenerate`: recuperamos pasajes y la síntesis la
-// hace el agente. Así el prompt controla la respuesta y puede CITAR la fuente
-// (`fuente` = URI del documento en S3), que es el punto de todo esto: una
-// respuesta sobre el negocio del cliente sin fuente no sirve.
+// hace el agente. Así el prompt controla la respuesta y puede CITAR la fuente,
+// que es el punto de todo esto: una respuesta sobre el negocio del cliente sin
+// fuente no sirve. Citable hay dos cosas y son distintas:
+//   - `fuente`: la URI del documento en S3, que existe siempre;
+//   - `titulo`/`url`: los atributos que el CLIENTE declara en el sidecar
+//     `<archivo>.metadata.json` (ver examples/documentos/). Son lo legible, y
+//     por eso se superficializan: sin ellos, "citá con el título" (regla 3 del
+//     `promptSistema`) solo se puede cumplir pegando la URI de un bucket
+//     interno.
 //
 // Sobre `Resource` en packages/bff: la regla del paquete (ver
 // config/resource.ts) es que el código de producto no toque SST. Acá se cumple
 // igual — toda la lógica vive en `crearConsultarDocumentos`, que recibe el KB y
 // el cliente inyectados; el único punto que lee `Resource` es el `handler` del
-// final, que es el borde de infra de esta Lambda (mismo rol que
-// chat/lambda.ts).
+// final, el borde de infra de esta Lambda. No pasa por `config/resource.ts`
+// porque ese módulo arma el `BffConfig` del backend de mensajes, que es OTRA
+// Function con otro linkeo (ver la excepción sancionada en ese archivo).
 import {
   BedrockAgentRuntimeClient,
   RetrieveCommand,
@@ -43,8 +50,14 @@ export type EntradaDocumentos = {
 export type ResultadoDocumento = {
   texto?: string;
   score?: number;
-  /** URI del documento en S3: es lo único citable de forma fiable (spec §11). */
+  /** URI del documento en S3. Existe siempre; legible, no tanto. */
   fuente?: string;
+  /** `title` del sidecar del documento: con esto se cita por título. */
+  titulo?: string;
+  /** `url` del sidecar: link público al documento, si el cliente lo declaró. */
+  url?: string;
+  /** El resto de los atributos que el cliente declaró en el sidecar. */
+  metadata?: Record<string, unknown>;
 };
 
 export type RespuestaDocumentos = { resultados: ResultadoDocumento[]; nota?: string };
@@ -55,6 +68,43 @@ type DepsDocumentos = {
   /** Default por cliente (`documentos.topK`). Ausente o absurdo ⇒ TOP_K_DEFAULT. */
   topKDefault?: number;
 };
+
+// La metadata de un pasaje llega MEZCLADA: los atributos que declaró el cliente
+// en el sidecar `<archivo>.metadata.json` conviven con los que INYECTA Bedrock
+// (`AMAZON_BEDROCK_TEXT`/`_METADATA` y los `x-amz-bedrock-kb-*`: ids de chunk y
+// de data source, la URI de origen). Los del servicio no son legibles para nadie
+// y solo gastarían tokens del turno; los del cliente son justamente el dato que
+// hace citable la respuesta. Se filtra por PREFIJO y no por lista de claves:
+// Bedrock agrega claves nuevas sin avisar, y una clave del cliente jamás
+// arranca así.
+const PREFIJOS_METADATA_BEDROCK = ["AMAZON_BEDROCK_", "x-amz-bedrock-"];
+
+/**
+ * Parte la metadata cruda del pasaje en lo que el modelo puede usar: `title` y
+ * `url` salen con nombre propio (son los que el prompt del sistema pide citar) y
+ * cualquier otro atributo del cliente viaja tal cual en `metadata`.
+ */
+function atributosDelCliente(
+  cruda: Record<string, unknown> | undefined,
+): Pick<ResultadoDocumento, "titulo" | "url" | "metadata"> {
+  const conNombre: { titulo?: string; url?: string } = {};
+  const resto: Record<string, unknown> = {};
+
+  for (const [clave, valor] of Object.entries(cruda ?? {})) {
+    if (PREFIJOS_METADATA_BEDROCK.some((prefijo) => clave.startsWith(prefijo))) continue;
+    // Solo un string no vacío puede citarse: un `title` numérico o nulo no se
+    // pierde, cae en `metadata` como cualquier otro atributo.
+    const alias = clave === "title" ? "titulo" : clave === "url" ? "url" : undefined;
+    const limpio = typeof valor === "string" ? valor.trim() : "";
+    if (alias && limpio) conNombre[alias] = limpio;
+    else resto[clave] = valor;
+  }
+
+  return {
+    ...conNombre,
+    ...(Object.keys(resto).length > 0 ? { metadata: resto } : {}),
+  };
+}
 
 // El topK llega de dos lados poco confiables: el modelo (que puede mandar
 // cualquier cosa) y la config del cliente. Un valor no numérico, cero o
@@ -92,14 +142,15 @@ export function crearConsultarDocumentos(deps: DepsDocumentos) {
         }),
       );
 
-      // Se aplana a lo mínimo útil para el modelo: el texto del chunk, su score
-      // y la URI de origen. La metadata que inyecta Bedrock
-      // (AMAZON_BEDROCK_*, ids de chunk y de data source) no es legible y solo
-      // gastaría tokens.
+      // Se aplana a lo útil para el modelo: el texto del chunk, su score, la
+      // URI de origen y los atributos que el cliente declaró en el sidecar
+      // (ver `atributosDelCliente`, que es lo que descarta la metadata del
+      // servicio).
       const resultados = (salida.retrievalResults ?? []).map((r) => ({
         texto: r.content?.text,
         score: r.score,
         fuente: r.location?.s3Location?.uri,
+        ...atributosDelCliente(r.metadata),
       }));
 
       if (resultados.length === 0) {
