@@ -2,6 +2,7 @@ import { guardrail, guardrailLink } from "./guardrail";
 import { sessionsTableLink, limitsTableLink } from "./tablas";
 import { messagesTableLink, mensajesColaLink } from "./mensajeria";
 import { cliente } from "../../client.config";
+import { permisosTrazas, trazasActivas } from "./observabilidad";
 
 // El emisor de tokens del cliente: JWKS (preferido) o HMAC. Los dos llevan default
 // vacío para que se setee SOLO el que aplica sin que el deploy corte por el otro.
@@ -43,7 +44,14 @@ export const chat = new sst.aws.Function("Chat", {
     },
   },
   link: [clientAuth, guardrailLink, sessionsTableLink, limitsTableLink, messagesTableLink, mensajesColaLink],
+  // Tracing activo: sin esto la traza se corta en cada salto y el camino
+  // BFF → cola → worker → Runtime queda como cuatro trazas sueltas. En sst no
+  // hay prop `tracing`: va por `transform.function` (ver ./observabilidad.ts).
+  transform: { function: trazasActivas },
   permissions: [
+    // Los permisos de X-Ray no vienen con el tracing: el rol que arma sst lleva
+    // solo AWSLambdaBasicExecutionRole (ver ./observabilidad.ts).
+    ...permisosTrazas,
     {
       // Acotado al propio Guardrail: el recurso expone `guardrailArn` como
       // output, así que no hace falta armar el ARN a mano.

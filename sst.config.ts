@@ -48,7 +48,22 @@ export default $config({
     // Las tools de tenant que son Lambda propia (documentos + escalamiento).
     // Va después: consume la knowledge base de arriba y el gateway (ya
     // ejecutado por ./runtime). Node cachea los módulos, no se duplican recursos.
-    await import("./infra/sst/tools");
+    const { nombreMcpEscalamiento } = await import("./infra/sst/tools");
+    // Observabilidad (spec §17). El módulo ya está cargado —lo importan las
+    // Lambdas para prender el tracing, y de ahí sale también el recurso de
+    // Transaction Search— pero el DASHBOARD se arma acá, llamando a
+    // `crearDashboard`: ese módulo no puede importar ./gateway, ./runtime ni
+    // ./tools sin cerrar un ciclo (`api-cliente → observabilidad → gateway →
+    // api-cliente`), así que recibe los nombres desde el único lugar donde todos
+    // los módulos ya se ejecutaron. Los nombres siguen saliendo de los módulos
+    // de infra: ninguno se escribe a mano.
+    const { gateway } = await import("./infra/sst/gateway");
+    const { crearDashboard } = await import("./infra/sst/observabilidad");
+    crearDashboard({
+      runtimeArn: runtime.agentRuntimeArn,
+      gatewayArn: gateway.gatewayArn,
+      toolEscalamiento: nombreMcpEscalamiento,
+    });
     // `awsnative.bedrockagentcore.Runtime` no expone un `.arn` genérico: el
     // output con el ARN se llama `agentRuntimeArn`.
     //

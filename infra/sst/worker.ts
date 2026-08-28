@@ -4,6 +4,7 @@
 // "Worker": el nombre de componente está libre.
 import { messagesTableLink, mensajesCola } from "./mensajeria";
 import { runtime, runtimeLink } from "./runtime";
+import { permisosTrazas, trazasActivas } from "./observabilidad";
 
 export const worker = new sst.aws.Function("Worker", {
   handler: "packages/worker/src/lambda.handler",
@@ -16,7 +17,15 @@ export const worker = new sst.aws.Function("Worker", {
   // permiso acá. runtimeLink solo expone el ARN como property (no auto-grant,
   // ver el permiso de InvokeAgentRuntime abajo).
   link: [messagesTableLink, runtimeLink],
+  // Tracing activo: sin esto la traza se corta en cada salto y el camino
+  // BFF → cola → worker → Runtime queda como cuatro trazas sueltas. En sst no
+  // hay prop `tracing`: va por `transform.function` (ver ./observabilidad.ts).
+  transform: { function: trazasActivas },
   permissions: [
+    // Los permisos de X-Ray no vienen con el tracing: el rol que arma sst lleva
+    // solo AWSLambdaBasicExecutionRole (ver ./observabilidad.ts). Acá cierran la
+    // traza del turno: es el salto donde vive el debounce.
+    ...permisosTrazas,
     {
       // Acotado al Runtime propio, MÁS el sub-recurso runtime-endpoint/*: el
       // invoke real apunta ahí, no al ARN pelado del runtime — sin el wildcard
