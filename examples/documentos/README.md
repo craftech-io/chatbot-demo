@@ -41,10 +41,14 @@ formato real:
 }
 ```
 
-Por qué existen: lo único que la tool `consultar_documentos` puede citar de
-forma fiable es la **URI del documento** en S3 — la metadata que Bedrock
-inyecta sola trae ids de chunk y de data source, nada legible (ver
-`docs/diseno.md` §11). El título y el link legibles se aportan acá.
+Por qué existen: sin ellos, lo único que la tool `consultar_documentos` puede
+citar es la **URI del documento** en S3 — la metadata que Bedrock inyecta sola
+trae ids de chunk y de data source, nada legible (ver `docs/diseno.md` §11). El
+título y el link legibles se aportan acá, y la tool los pasa al agente como
+`titulo` y `url` de cada pasaje (los nombres de atributo que reconoce con
+nombre propio son exactamente `title` y `url`; cualquier otro atributo que
+declares viaja en `metadata`). Es lo que hace posible la regla "citá con el
+título" del `promptSistema`.
 
 - `includeForEmbedding: true` mete el valor del atributo **en el texto que se
   embedea**, así que suma al recall: una pregunta por "devoluciones" matchea
