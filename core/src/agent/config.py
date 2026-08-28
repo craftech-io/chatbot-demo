@@ -23,6 +23,10 @@ class Config:
     # CLIENT_API_URL no hay tools de usuario. El chat sigue igual.
     gateway_url: str | None
     client_api_url: str | None
+    # Política de comportamiento del agente (no inventar, citar la fuente,
+    # ofrecer derivar). Opcional: sin prompt el modelo responde con su
+    # comportamiento por defecto, igual que antes de que esto existiera.
+    prompt_sistema: str | None
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -49,4 +53,8 @@ def load_config(env: Mapping[str, str]) -> Config:
         memory_id=env.get("MEMORY_ID") or None,
         gateway_url=env.get("GATEWAY_URL") or None,
         client_api_url=env.get("CLIENT_API_URL") or None,
+        # Se strippea antes de decidir: un prompt de solo espacios es lo mismo
+        # que no tener prompt, y mandarlo generaría un bloque `system` vacío
+        # que Converse rechaza.
+        prompt_sistema=(env.get("PROMPT_SISTEMA") or "").strip() or None,
     )
