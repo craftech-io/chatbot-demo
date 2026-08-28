@@ -223,12 +223,78 @@ DEL AGENTE (lo que el modelo ve como historial). Conviven a propósito: la dupli
 es el precio de que el lado del chatbot y el de mensajes sean independientes.
 `SESSIONS_TABLE` conserva el índice de hilos (metadata).
 
-## 11. RAG
+## 11. Conocimiento (RAG)
 
-Bedrock Knowledge Base sobre S3 Vectors. El cliente sube documentos a un bucket y el
-data source sincroniza. Se expone al workflow como tool `buscar_conocimiento` usando
-`retrieve` (no `retrieveAndGenerate`), para que el workflow controle la síntesis y
-pueda devolver **citas al widget**: en asesoría IA una respuesta sin fuente no sirve.
+Bedrock Knowledge Base **VECTOR sobre S3 Vectors**, con data source **S3**: el cliente
+sube documentos a un bucket y el data source los indexa. Embeddings con Titan Text v2
+(1024 dimensiones, distancia coseno).
+
+Por qué S3 Vectors y no OpenSearch: en reposo cuesta centavos por mes contra cientos, y
+el cliente paga su propia cuenta — un vector store que cuesta más que el resto del
+stack junto hace invendible el producto. El precio de esa elección está declarado:
+S3 Vectors hace **búsqueda semántica, no híbrida**, y no expone número de página.
+
+Se expone al agente como tool de tenant **`consultar_documentos`**, un target Lambda
+del Gateway (§7) que llama `Retrieve` — **no `RetrieveAndGenerate`**: recupera pasajes
+y el agente sintetiza, así el workflow controla la respuesta y puede **citar la
+fuente**. En asesoría IA una respuesta sin fuente no sirve. La tool devuelve, por
+pasaje, el texto, el score y la URI del documento.
+
+Lo citable de forma fiable es la **URI del documento**, no el título ni la página: la
+metadata que Bedrock inyecta trae ids de chunk y de data source, nada legible. El
+título se aporta con un sidecar `<archivo>.metadata.json` junto a cada documento
+(`metadataAttributes`, con `includeForEmbedding` para que sume al recall).
+
+**Otras fuentes** (Confluence, SharePoint, web) existen como data sources nativos pero
+hoy están en preview y **solo funcionan con OpenSearch Serverless**, así que quedan
+fuera: contradicen la decisión de costo. Para ingerir de un sistema externo sin pagar
+ese peaje, el camino es un data source `CUSTOM` alimentado por un ingestor propio
+(`IngestKnowledgeBaseDocuments`), que además permite adjuntar título y deep-link
+reales. Es una extensión por cliente, no parte del núcleo.
+
+**Ingesta:** no existe sincronización automática en Bedrock — hay que disparar
+`StartIngestionJob`. Se documenta el comando; agendarlo (EventBridge Scheduler con el
+target universal `aws-sdk:bedrockagent:startIngestionJob`, sin Lambda intermedia) es
+una mejora opcional por cliente.
+
+**Trampas de IaC a respetar:** el storage y la configuración vectorial de la KB son
+`createOnly` — cambiar de vector store o de modelo de embeddings **recrea la KB** (y
+`ChunkingConfiguration` recrea el data source). Y `DataDeletionPolicy` va en `RETAIN`:
+con el default, borrar el stack puede dejar la KB en `DELETE_UNSUCCESSFUL`.
+
+## 11.1. Escalamiento a un humano
+
+Cuando el agente no encuentra la respuesta en los documentos, **no inventa y no escala
+solo**: dice que no lo encontró y ofrece derivar a una persona. El ticket se crea
+únicamente si el usuario acepta. Esa doble regla vive en el prompt (§11.2), y la
+ejecución en la tool de tenant **`escalar_a_humano`** (target Lambda del Gateway), que
+recibe un resumen del caso y devuelve el identificador y el link del ticket creado
+para que el agente se lo pase al usuario.
+
+El destino es un **adaptador**: la interfaz de la tool es genérica y cada cliente
+enchufa el suyo. El adaptador de referencia es un **webhook** (POST con el payload del
+escalamiento a una URL configurable), que sirve tal cual o como puente hacia lo que el
+cliente ya usa. Los adaptadores de sistemas concretos (Jira Service Management, Jira,
+Slack, email) se implementan en el clon del cliente, donde existen las credenciales
+para probarlos: un adaptador sin verificar en el template es peor que ninguno, porque
+parece listo.
+
+Nota de auth para quien implemente el adaptador de Atlassian: los API tokens con Basic
+auth vencen anualmente por política de Atlassian. El camino sostenible es OAuth 2.0
+`client_credentials` con una service account, cacheando el access token de 60 minutos y
+renovándolo con margen. Y crear el ticket por la API de service desk, no por la de
+Jira core, es lo que lo hace aparecer como pedido en el portal con su SLA.
+
+**El token del sistema externo nunca toca el core:** vive en la Lambda detrás del
+Gateway. El agente pide "escalá esto" y no ve credencial alguna.
+
+## 11.2. Política de comportamiento (prompt del sistema)
+
+El agente necesita instrucciones explícitas, no solo tools: no inventar sobre el
+negocio del cliente, citar la fuente cuando responde desde los documentos, y ofrecer
+derivar cuando no encuentra la respuesta. Eso es el prompt del sistema, y es
+**configuración de cliente** (el tono y las reglas de uno no son los de otro): vive en
+`client.config.ts`, no hardcodeado en el core.
 
 ## 12. Límites de costo
 
