@@ -28,6 +28,11 @@ El template es genérico: lo específico de cada cliente vive en
 Al clonar el template en el repo de un cliente, lo único que se edita del IaC es
 **`client.config.ts`**:
 
+> El paso a paso completo —de una cuenta de AWS vacía a un chat andando, con los
+> prerequisitos de cuenta que el stack **no** hace y sus modos de falla— está en
+> **[`docs/adopcion.md`](docs/adopcion.md)**. Esta sección es solo el mapa de qué
+> define cada campo.
+
 | Campo | Qué define |
 |---|---|
 | `slug` | Nombre de la app de SST y prefijo de TODOS los nombres físicos: repo ECR, Guardrail, Gateway, AgentCore Runtime y Memory |
@@ -36,6 +41,9 @@ Al clonar el template en el repo de un cliente, lo único que se edita del IaC e
 | `topes` | `LIMITE_DIARIO` y `LIMITE_POR_SESION` del BFF |
 | `origenesCors` | Los orígenes permitidos en la Function URL del BFF |
 | `retencionMemoriaDias` | Días que AgentCore Memory retiene los eventos de la conversación |
+| `promptSistema` | La POLÍTICA del agente (spec §11.2): tono, alcance, cuándo buscar en los documentos y cuándo derivar. Viaja al core como `PROMPT_SISTEMA`. **El default habla de "la empresa" en genérico: es lo primero que se toca** |
+| `observabilidad` | La capa de TRAZAS (spec §17): `muestreo`, si viajan con el contenido de la conversación, y a dónde van (`cloudwatch` u `otlp`). Las métricas del dashboard no dependen de nada de acá |
+| `documentos` | `topK`: cuántos pasajes devuelve cada búsqueda en la Knowledge Base |
 
 `infra/sst/nombres.ts` traduce el `slug` a los alfabetos distintos que exige cada
 servicio (ECR/Guardrail/Gateway: minúsculas con guiones; Runtime y Memory:
@@ -81,6 +89,8 @@ npm run typecheck                 # typecheck de los workspaces de npm
 
 ## Dónde seguir leyendo
 
+- `docs/adopcion.md` — el paso a paso para adoptarlo en el repo de un cliente:
+  prerequisitos de cuenta, rol de deploy, secretos, ingesta y verificación.
 - `docs/diseno.md` — el diseño completo.
 - `docs/notas-tecnicas.md` — expectativas operativas: latencias, cold start,
   tamaño de la imagen, la observabilidad (qué se ve sin instrumentar nada, cómo
