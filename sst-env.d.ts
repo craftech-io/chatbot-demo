@@ -43,10 +43,18 @@ declare module "sst" {
       "type": "sst.sst.Secret"
       "value": string
     }
+    "EscalamientoWebhookUrl": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "Guardrail": {
       "id": string
       "type": "sst.sst.Linkable"
       "version": string
+    }
+    "KnowledgeBase": {
+      "id": string
+      "type": "sst.sst.Linkable"
     }
     "LimitsTable": {
       "name": string
@@ -83,6 +91,14 @@ declare module "sst" {
     "SessionsTableDb": {
       "name": string
       "type": "sst.aws.Dynamo"
+    }
+    "ToolDocumentos": {
+      "name": string
+      "type": "sst.aws.Function"
+    }
+    "ToolEscalamiento": {
+      "name": string
+      "type": "sst.aws.Function"
     }
     "Worker": {
       "name": string

@@ -40,6 +40,11 @@ export default $config({
     // ./runtime — ambos módulos ya se ejecutaron por los imports de arriba
     // (Node cachea el módulo, no se duplican recursos).
     await import("./infra/sst/worker");
+    // Las tools de tenant que son Lambda propia (documentos + escalamiento).
+    // Va como import propio porque nadie más las importa: cuelgan del gateway
+    // (ya ejecutado por ./runtime) y de la knowledge base, no las consume otro
+    // módulo de infra.
+    await import("./infra/sst/tools");
     // `awsnative.bedrockagentcore.Runtime` no expone un `.arn` genérico: el
     // output con el ARN se llama `agentRuntimeArn`.
     //
