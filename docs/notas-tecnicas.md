@@ -318,3 +318,20 @@ llamada a Bedrock, esa variable se perdió en el camino.
 Los nombres exactos de las variables de entorno que recibe el contenedor están en
 la tabla de env del core de `infra/CONTRACT.md`: eso es el contrato, esto es la
 guía de operación.
+
+### Números medidos
+
+Un turno con búsqueda en documentos, sobre un corpus chico y con el prompt del
+sistema completo, mueve del orden de **5.000 tokens de entrada y 300 de salida**,
+y cuesta **unos 2 centavos de dólar**. La entrada domina el costo: es el
+historial de la conversación más los pasajes recuperados. Si el costo importa,
+los knobs son la cantidad de pasajes (`documentos.topK`) y el largo del prompt,
+no el modelo de salida.
+
+El costo aparece en el log de cierre de cada turno (`costoUsd`), y sale `null`
+—con un warning que nombra el motivo— cuando la tarifa no se pudo resolver.
+Nunca se estima con un precio inventado.
+
+Sobre la métrica de derivación: en una ventana sin derivaciones el widget se ve
+vacío, igual que si estuviera roto. Para distinguirlos, mirá el widget de
+invocaciones del Gateway: si ahí llegan métricas, el tablero está sano.
