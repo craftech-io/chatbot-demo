@@ -65,27 +65,31 @@ PREFIJO_USAGETYPE_POR_REGION = {
     "sa-east-1": "SAE1",
 }
 
-# Sufijo del usagetype → campo de `Tarifas`. El medio del usagetype varía
-# (`-MP:`, y algún día otra cosa), así que se matchea por prefijo de región +
-# sufijo de componente, no por el string completo.
-CAMPO_POR_SUFIJO_USAGETYPE = {
+# Componente del usagetype → campo de `Tarifas`.
+#
+# El usagetype tiene la forma `<PREFIJO>-MP:<PREFIJO>_<Componente>`, y el
+# componente se matchea EXACTO, no por sufijo. Que no sea por sufijo es la
+# lección de un costo mal calculado en producción: `CacheReadInputTokenCount` y
+# `CacheWrite1hInputTokenCount` TERMINAN los dos con `InputTokenCount`, así que
+# un match por sufijo le asigna a "entrada" el precio de la escritura de cache a
+# una hora (5x más caro) y la ambigüedad deja el turno sin costo. Ordenar por
+# longitud tapa una de las variantes pero no las que todavía no existen: exacto
+# es la única forma que no se rompe cuando AWS agrega un componente nuevo.
+CAMPO_POR_COMPONENTE_USAGETYPE = {
     "InputTokenCount-Units": "entrada_por_1k",
     "OutputTokenCount-Units": "salida_por_1k",
     "CacheReadInputTokenCount-Units": "cache_lectura_por_1k",
-    # Único sufijo NO verificado contra la API: derivado por analogía con los de
-    # arriba. Hoy es inocuo porque no usamos prompt caching, así que la escritura
-    # de cache siempre es 0 y nunca se le pide tarifa. Si se activa el caching y
-    # el costo empieza a salir null, mirar acá primero.
     "CacheWriteInputTokenCount-Units": "cache_escritura_por_1k",
 }
 
-# Del más largo al más corto, y NO es cosmético: `CacheReadInputTokenCount-Units`
-# TERMINA con `InputTokenCount-Units`, así que probar los sufijos en el orden de
-# la tabla contaría los tokens de cache como tokens de entrada (dos precios para
-# el mismo componente → ambigüedad → turno sin costo). Gana el más específico.
-_SUFIJOS_USAGETYPE = sorted(
-    CAMPO_POR_SUFIJO_USAGETYPE.items(), key=lambda par: -len(par[0])
-)
+
+def _componente_de(usagetype: str) -> str:
+    """El componente del usagetype: lo que sigue al último `_`.
+
+    `USE1-MP:USE1_InputTokenCount-Units` → `InputTokenCount-Units`.
+    """
+    return usagetype.rsplit("_", 1)[-1]
+
 
 # Cuántos tokens cuesta una unidad del precio. La API declara la unidad y no la
 # adivinamos: una unidad que no esté acá deja la tarifa sin resolver (y el log
@@ -300,10 +304,7 @@ def _tarifas_de_productos(
         usagetype = atributos.get("usagetype") or ""
         if not usagetype.startswith(prefijo):
             continue  # otra región del mismo modelo
-        campo = next(
-            (c for sufijo, c in _SUFIJOS_USAGETYPE if usagetype.endswith(sufijo)),
-            None,
-        )
+        campo = CAMPO_POR_COMPONENTE_USAGETYPE.get(_componente_de(usagetype))
         if campo is None:
             continue  # otro componente facturable que no entra en el costo del turno
         precio = _precio_por_1k(producto, usagetype)

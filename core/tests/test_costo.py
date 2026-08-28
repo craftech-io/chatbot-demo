@@ -215,3 +215,25 @@ def test_sin_uso_no_se_consulta_la_pricing_api():
     pricing = FakePricing()
     assert costo_estimado(None, MODELO, REGION, cliente=pricing) is None
     assert pricing.llamadas == []
+
+
+# El bug que apareció en producción: el costo salía siempre null porque
+# `CacheWrite1hInputTokenCount-Units` TERMINA con `InputTokenCount-Units`, y el
+# match por sufijo le daba a "entrada" dos precios (3,30 y 6,60 por millón) →
+# ambigüedad → turno sin costo. Con match exacto por componente, el usagetype
+# que no está en la tabla simplemente no aporta.
+def test_un_componente_desconocido_no_contamina_la_tarifa_de_entrada():
+    from agent.costo import _tarifas_de_productos
+
+    productos = [
+        json.loads(_producto("USE1-MP:USE1_InputTokenCount-Units", "3.30", "1M tokens")),
+        # el que rompía: mismo sufijo, otro componente, 5x el precio
+        json.loads(_producto("USE1-MP:USE1_CacheWrite1hInputTokenCount-Units", "6.60", "1M tokens")),
+        json.loads(_producto("USE1-MP:USE1_OutputTokenCount-Units", "16.50", "1M tokens")),
+    ]
+
+    tarifas = _tarifas_de_productos(productos, "USE1", "un modelo")
+
+    assert tarifas is not None, "la ambigüedad falsa dejaba el turno sin costo"
+    assert round(tarifas.entrada_por_1k, 6) == 0.0033
+    assert round(tarifas.salida_por_1k, 6) == 0.0165
