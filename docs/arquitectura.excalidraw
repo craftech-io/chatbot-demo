@@ -689,6 +689,10 @@
         {
           "id": "flecha-014",
           "type": "arrow"
+        },
+        {
+          "id": "flecha-langfuse",
+          "type": "arrow"
         }
       ],
       "updated": 1,
@@ -3263,6 +3267,185 @@
       "verticalAlign": "top",
       "containerId": null,
       "autoResize": true
+    },
+    {
+      "id": "caja-langfuse",
+      "type": "rectangle",
+      "x": 1620,
+      "y": 30,
+      "width": 230,
+      "height": 90,
+      "angle": 0,
+      "strokeColor": "#868e96",
+      "backgroundColor": "#e9ecef",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1218823977,
+      "version": 1,
+      "versionNonce": 156186134,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "texto-langfuse",
+          "type": "text"
+        },
+        {
+          "id": "flecha-langfuse",
+          "type": "arrow"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "texto-langfuse",
+      "type": "text",
+      "x": 1628,
+      "y": 55,
+      "width": 214,
+      "height": 40,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 151097683,
+      "version": 1,
+      "versionNonce": 1304762973,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "Langfuse\ntrazas del agente",
+      "originalText": "Langfuse\ntrazas del agente",
+      "fontSize": 16,
+      "fontFamily": 5,
+      "lineHeight": 1.25,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "caja-langfuse",
+      "autoResize": true
+    },
+    {
+      "id": "flecha-langfuse-txt",
+      "type": "text",
+      "x": 1593,
+      "y": 182.5,
+      "width": 91,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#495057",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": null,
+      "seed": 1406751726,
+      "version": 1,
+      "versionNonce": 1850061868,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "OTLP · opt-in",
+      "originalText": "OTLP · opt-in",
+      "fontSize": 14,
+      "fontFamily": 5,
+      "lineHeight": 1.25,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "flecha-langfuse",
+      "autoResize": true
+    },
+    {
+      "id": "flecha-langfuse",
+      "type": "arrow",
+      "x": 1542,
+      "y": 265,
+      "width": 193,
+      "height": 145,
+      "angle": 0,
+      "strokeColor": "#495057",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1866828769,
+      "version": 1,
+      "versionNonce": 460259786,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "flecha-langfuse-txt",
+          "type": "text"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          193,
+          -145
+        ]
+      ],
+      "startBinding": {
+        "elementId": "caja-runtime",
+        "fixedPoint": [
+          0.8,
+          0
+        ],
+        "mode": "orbit"
+      },
+      "endBinding": {
+        "elementId": "caja-langfuse",
+        "fixedPoint": [
+          0.5,
+          1
+        ],
+        "mode": "orbit"
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
     }
   ],
   "appState": {
