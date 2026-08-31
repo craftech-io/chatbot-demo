@@ -75,6 +75,7 @@ export const handler = async () => {
     token,
     espacios,
     sitioUrl: process.env.CONFLUENCE_SITIO_URL ?? "",
+    maxReqPorSegundo: Number(process.env.CONFLUENCE_MAX_RPS) || undefined,
   });
 
   const resultado = await sincronizar(cliente, almacenS3(Resource.Documentos.name), {

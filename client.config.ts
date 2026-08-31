@@ -1,7 +1,6 @@
-// Configuración por cliente: el ÚNICO archivo que se toca al adoptar el
-// template en el repo de un cliente. Todo lo específico de un cliente se
-// declara acá y lo consumen `sst.config.ts` e `infra/sst/*`; no queda ningún
-// valor de cliente suelto en el resto del IaC.
+// Configuración del proyecto: el ÚNICO archivo con valores propios. Los consumen
+// `sst.config.ts` e `infra/sst/*`; no queda ningún valor de configuración suelto
+// en el resto del IaC.
 //
 // A propósito NO depende de los globals de SST (`$app`, `aws`, `awsnative`,
 // `$interpolate`, ...) ni de nada de `infra/`: es dato plano, así lo puede leer
@@ -87,7 +86,7 @@ export interface ConfigCliente {
    * citar la fuente, y ofrecer derivar a una persona cuando la respuesta no
    * está en los documentos.
    *
-   * Es lo primero que se toca al adoptar el template: acá van el nombre de la
+   * Es lo primero que se toca al configurar el proyecto: acá van el nombre de la
    * empresa, el tono, y qué está y qué no está en alcance.
    */
   promptSistema: string;
@@ -188,16 +187,14 @@ export interface ConfigCliente {
     /**
      * Patrones propios de datos personales, además de las entidades que Bedrock
      * ya reconoce (email, teléfono, nombre, dirección, tarjetas, contraseñas).
-     * Acá van los identificadores locales, que dependen del país: CUIT/DNI en
-     * Argentina, RFC/CURP en México, NIF en España.
+     * Acá van los identificadores locales, que dependen del país.
      *
      * `accion`: `ANONYMIZE` deja seguir la conversación con el dato tapado;
      * `BLOCK` corta el turno.
      *
      * Ojo con los patrones amplios: un patrón de 7-8 dígitos sueltos anonimiza
      * números de pedido, importes y códigos de producto, y el agente pierde
-     * justo el dato que necesita para responder. Conviene anclarlos a una
-     * palabra clave o a un prefijo distintivo.
+     * justo el dato que necesita para responder.
      */
     regexPii: { nombre: string; patron: string; descripcion?: string; accion: "ANONYMIZE" | "BLOCK" }[];
   };
@@ -221,6 +218,33 @@ export interface ConfigCliente {
      * corrida se alarga bastante.
      */
     adjuntos: boolean;
+
+    /**
+     * Cuándo corre la ingesta, en formato cron de EventBridge Scheduler
+     * (`cron(minutos horas díaDelMes mes díaDeLaSemana año)`).
+     *
+     * De madrugada: la corrida golpea la API de Confluence y dispara una
+     * re-indexación, y ninguna de las dos cosas conviene en horario de uso.
+     */
+    horario: string;
+
+    /**
+     * Zona horaria del `horario`, en formato IANA. Es la razón de usar
+     * EventBridge Scheduler y no una regla de EventBridge: las reglas corren
+     * siempre en UTC, así que "3 de la mañana" se corre solo dos veces al año.
+     */
+    zonaHoraria: string;
+
+    /**
+     * Tope de pedidos por segundo contra la API de Confluence. El ingestor
+     * espera entre llamadas para no pasarse, y ante un 429 reintenta respetando
+     * el `Retry-After`.
+     *
+     * Ojo con bajarlo mucho: la Lambda corta a los 10 minutos, así que el rate
+     * fija cuántas páginas entran en una corrida. A 5 req/s son ~250 páginas en
+     * menos de un minuto; a 0,1 req/s no llegan ni 60.
+     */
+    maxReqPorSegundo: number;
   };
 
   /** Ajustes de la búsqueda en los documentos (la Knowledge Base, spec §11). */
@@ -312,13 +336,16 @@ export const cliente: ConfigCliente = {
     stageQueAdministraLaBusqueda: "",
   },
   guardrail: {
-    // Vacío en el template: los identificadores locales los declara el cliente.
+    // Vacío: los identificadores locales los declara el cliente.
     regexPii: [],
   },
   confluence: {
     espacios: [],
     sitioUrl: "",
     adjuntos: false,
+    horario: "cron(0 3 * * ? *)",
+    zonaHoraria: "UTC",
+    maxReqPorSegundo: 5,
   },
   documentos: {
     topK: 5,

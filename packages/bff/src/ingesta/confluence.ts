@@ -33,6 +33,11 @@ export type PaginaConfluence = {
   url: string;
 };
 
+export const MAX_REINTENTOS_429 = 3;
+// Techo por si el header viene con un valor absurdo: preferimos fallar la
+// corrida a que la Lambda se quede dormida hasta el timeout.
+export const MAX_ESPERA_MS = 60_000;
+
 export type DepsConfluence = {
   cloudId: string;
   /** Access token de la service account (OAuth client_credentials). */
@@ -42,6 +47,11 @@ export type DepsConfluence = {
   /** URL público del sitio, para armar el link de cada página. */
   sitioUrl: string;
   fetch?: typeof globalThis.fetch;
+  /** Tope de pedidos por segundo contra la API. 0 o ausente ⇒ sin límite. */
+  maxReqPorSegundo?: number;
+  /** Inyectables para testear sin esperas reales. */
+  dormir?: (ms: number) => Promise<void>;
+  ahora?: () => number;
 };
 
 /** El storage format es XHTML con macros; para el RAG solo interesa el texto. */
@@ -74,7 +84,7 @@ export function aTexto(storage: string): string {
   );
 }
 
-/** El sidecar que Bedrock lee junto al documento (ver examples/documentos/). */
+/** El sidecar que Bedrock lee junto al documento (ver documentos/). */
 export function sidecarDe(pagina: {
   titulo: string;
   espacio: string;
@@ -114,9 +124,38 @@ export function crearClienteConfluence(deps: DepsConfluence) {
     accept: "application/json",
   };
 
+  const dormir = deps.dormir ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const ahora = deps.ahora ?? Date.now;
+  const intervaloMs = deps.maxReqPorSegundo ? 1000 / deps.maxReqPorSegundo : 0;
+  // -Infinity y no 0: el primer pedido no tiene de qué espaciarse y no debe
+  // pagar el intervalo. Con un rate bajo esa espera de más es de segundos.
+  let ultimoPedido = Number.NEGATIVE_INFINITY;
+
+  /** Espacia los pedidos para no pasar el tope, y reintenta los 429. */
+  async function pedir(url: string): Promise<Response> {
+    for (let intento = 0; ; intento++) {
+      if (intervaloMs > 0) {
+        const falta = intervaloMs - (ahora() - ultimoPedido);
+        if (falta > 0) await dormir(falta);
+      }
+      ultimoPedido = ahora();
+      const r = await hacerFetch(url, { headers: cabeceras });
+      if (r.status !== 429 || intento >= MAX_REINTENTOS_429) return r;
+      // Confluence dice cuánto esperar; si no lo dice, backoff exponencial.
+      const cabecera = Number(r.headers?.get?.("retry-after"));
+      const espera = Number.isFinite(cabecera) && cabecera > 0
+        ? Math.min(cabecera * 1000, MAX_ESPERA_MS)
+        : Math.min(1000 * 2 ** intento, MAX_ESPERA_MS);
+      console.warn(
+        JSON.stringify({ evento: "confluence_429", intento: intento + 1, esperaMs: espera }),
+      );
+      await dormir(espera);
+    }
+  }
+
   async function traer<T>(ruta: string): Promise<T> {
     const url = ruta.startsWith("http") ? ruta : `${base(deps.cloudId)}${ruta}`;
-    const r = await hacerFetch(url, { headers: cabeceras });
+    const r = await pedir(url);
     if (!r.ok) throw new Error(`Confluence respondió ${r.status} en ${ruta.split("?")[0]}`);
     return (await r.json()) as T;
   }
@@ -209,7 +248,7 @@ export function crearClienteConfluence(deps: DepsConfluence) {
 
   /** Binario del adjunto. Usa el mismo Bearer que el resto de la API. */
   async function descargar(adjunto: AdjuntoConfluence): Promise<Uint8Array> {
-    const r = await hacerFetch(adjunto.descargarDesde, { headers: cabeceras });
+    const r = await pedir(adjunto.descargarDesde);
     if (!r.ok) throw new Error(`Confluence respondió ${r.status} al descargar un adjunto`);
     return new Uint8Array(await r.arrayBuffer());
   }

@@ -27,6 +27,7 @@ export const ingestorConfluence = new sst.aws.Function("IngestorConfluence", {
     CONFLUENCE_ESPACIOS: cliente.confluence.espacios.join(","),
     CONFLUENCE_SITIO_URL: cliente.confluence.sitioUrl,
     CONFLUENCE_ADJUNTOS: cliente.confluence.adjuntos ? "1" : "",
+    CONFLUENCE_MAX_RPS: String(cliente.confluence.maxReqPorSegundo),
   },
   transform: { function: trazasActivas },
   permissions: [
@@ -38,10 +39,51 @@ export const ingestorConfluence = new sst.aws.Function("IngestorConfluence", {
   ],
 });
 
-// Bedrock no sincroniza solo y el corpus del cliente cambia sin avisar. Diario
-// es el punto razonable: más seguido no aporta (la gente no edita la base de
-// conocimiento cada hora) y cada corrida re-indexa lo que cambió.
-export const cronIngesta = new sst.aws.Cron("IngestaConfluence", {
-  schedule: "rate(1 day)",
-  function: ingestorConfluence.arn,
+// Bedrock no sincroniza solo y el corpus del cliente cambia sin avisar.
+//
+// EventBridge Scheduler y no `sst.aws.Cron`: ese componente crea una regla de
+// EventBridge, que corre SIEMPRE en UTC y con `rate(...)` cuenta desde que se
+// creó el recurso — o sea que la ingesta caía a la hora del deploy y se movía
+// sola en cada recreación. El Scheduler acepta zona horaria, reintentos y una
+// cola de descarte.
+const colaFallos = new sst.aws.Queue("IngestaFallida");
+
+const rolScheduler = new aws.iam.Role("IngestaSchedulerRole", {
+  assumeRolePolicy: JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Principal: { Service: "scheduler.amazonaws.com" },
+        Action: "sts:AssumeRole",
+      },
+    ],
+  }),
+});
+
+new aws.iam.RolePolicy("IngestaSchedulerPolicy", {
+  role: rolScheduler.id,
+  policy: $jsonStringify({
+    Version: "2012-10-17",
+    Statement: [
+      { Effect: "Allow", Action: ["lambda:InvokeFunction"], Resource: [ingestorConfluence.arn] },
+      { Effect: "Allow", Action: ["sqs:SendMessage"], Resource: [colaFallos.arn] },
+    ],
+  }),
+});
+
+export const scheduleIngesta = new aws.scheduler.Schedule("IngestaConfluence", {
+  scheduleExpression: cliente.confluence.horario,
+  scheduleExpressionTimezone: cliente.confluence.zonaHoraria,
+  // Sin ventana de flexibilidad: la corrida es de madrugada y no compite con
+  // nada, así que no hay razón para que AWS la mueva.
+  flexibleTimeWindow: { mode: "OFF" },
+  target: {
+    arn: ingestorConfluence.arn,
+    roleArn: rolScheduler.arn,
+    // Un fallo de INVOCACIÓN (throttling, permisos) no se pierde en silencio.
+    // No cubre que la ingesta falle adentro: eso sale por los logs.
+    retryPolicy: { maximumRetryAttempts: 3 },
+    deadLetterConfig: { arn: colaFallos.arn },
+  },
 });

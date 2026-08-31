@@ -1633,7 +1633,7 @@
       "type": "rectangle",
       "x": 390,
       "y": 960,
-      "width": 190,
+      "width": 230,
       "height": 80,
       "angle": 0,
       "strokeColor": "#1971c2",
@@ -1676,7 +1676,7 @@
       "type": "text",
       "x": 398,
       "y": 980,
-      "width": 174,
+      "width": 214,
       "height": 40,
       "angle": 0,
       "strokeColor": "#1e1e1e",
@@ -1700,8 +1700,8 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Ingestor\ncron diario",
-      "originalText": "Ingestor\ncron diario",
+      "text": "Ingestor\nEventBridge Scheduler",
+      "originalText": "Ingestor\nEventBridge Scheduler",
       "fontSize": 16,
       "fontFamily": 5,
       "lineHeight": 1.25,
@@ -1713,7 +1713,7 @@
     {
       "id": "caja-bucket",
       "type": "rectangle",
-      "x": 660,
+      "x": 700,
       "y": 960,
       "width": 190,
       "height": 80,
@@ -1756,7 +1756,7 @@
     {
       "id": "texto-bucket",
       "type": "text",
-      "x": 668,
+      "x": 708,
       "y": 980,
       "width": 174,
       "height": 40,
@@ -1795,7 +1795,7 @@
     {
       "id": "caja-kb",
       "type": "rectangle",
-      "x": 930,
+      "x": 970,
       "y": 960,
       "width": 220,
       "height": 80,
@@ -1838,7 +1838,7 @@
     {
       "id": "texto-kb",
       "type": "text",
-      "x": 938,
+      "x": 978,
       "y": 980,
       "width": 204,
       "height": 40,
@@ -3241,7 +3241,7 @@
     {
       "id": "flecha-020-txt",
       "type": "text",
-      "x": 1037,
+      "x": 1057,
       "y": 915,
       "width": 56,
       "height": 20,
@@ -3280,7 +3280,7 @@
       "type": "arrow",
       "x": 1090,
       "y": 890,
-      "width": 50,
+      "width": 10,
       "height": 70,
       "angle": 0,
       "strokeColor": "#495057",
@@ -3315,7 +3315,7 @@
           0
         ],
         [
-          -50,
+          -10,
           70
         ]
       ],
@@ -3342,7 +3342,7 @@
     {
       "id": "flecha-021-txt",
       "type": "text",
-      "x": 865.5,
+      "x": 905.5,
       "y": 990,
       "width": 49,
       "height": 20,
@@ -3379,7 +3379,7 @@
     {
       "id": "flecha-021",
       "type": "arrow",
-      "x": 850,
+      "x": 890,
       "y": 1000,
       "width": 80,
       "height": 0,
@@ -3645,7 +3645,7 @@
     {
       "id": "flecha-024",
       "type": "arrow",
-      "x": 580,
+      "x": 620,
       "y": 1000,
       "width": 80,
       "height": 0,

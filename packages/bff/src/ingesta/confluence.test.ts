@@ -3,6 +3,8 @@ import {
   adjuntoIngestable,
   aTexto,
   MAX_ADJUNTO_BYTES,
+  MAX_ESPERA_MS,
+  MAX_REINTENTOS_429,
   claveDe,
   crearClienteConfluence,
   sidecarDe,
@@ -268,5 +270,87 @@ describe("adjuntos", () => {
     expect(r).toEqual({ escritas: 1, adjuntos: 0, borradas: 0 });
     expect(error.mock.calls.flat().join(" ")).toContain("adjunto_omitido");
     error.mockRestore();
+  });
+});
+
+describe("rate limit y reintentos", () => {
+  function respuesta(status: number, body: unknown = {}, retryAfter?: number): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: {
+        get: (k: string) =>
+          k.toLowerCase() === "retry-after" && retryAfter ? String(retryAfter) : null,
+      },
+      json: async () => body,
+    } as unknown as Response;
+  }
+
+  it("espacia los pedidos segun maxReqPorSegundo", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(respuesta(200, ESPACIOS))
+      .mockResolvedValueOnce(respuesta(200, { results: [pagina("1", "P", "<p>t</p>")] }));
+    const esperas: number[] = [];
+    let reloj = 0;
+    const cliente = crearClienteConfluence({
+      cloudId: "cid", token: "t", espacios: ["SOP"], sitioUrl: "https://a",
+      fetch: fetch as never,
+      maxReqPorSegundo: 2, // uno cada 500ms
+      dormir: async (ms) => { esperas.push(ms); reloj += ms; },
+      ahora: () => reloj,
+    });
+    for await (const _ of cliente.paginas());
+    // El segundo pedido sale inmediatamente después del primero, así que
+    // tiene que haber esperado el intervalo completo.
+    expect(esperas).toEqual([500]);
+  });
+
+  it("reintenta un 429 respetando Retry-After", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(respuesta(429, {}, 7))
+      .mockResolvedValueOnce(respuesta(200, ESPACIOS))
+      .mockResolvedValueOnce(respuesta(200, { results: [] }));
+    const esperas: number[] = [];
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cliente = crearClienteConfluence({
+      cloudId: "cid", token: "t", espacios: ["SOP"], sitioUrl: "https://a",
+      fetch: fetch as never, dormir: async (ms) => void esperas.push(ms), ahora: () => 0,
+    });
+    for await (const _ of cliente.paginas());
+    expect(esperas).toEqual([7000]);
+    expect(aviso.mock.calls.flat().join(" ")).toContain("confluence_429");
+    aviso.mockRestore();
+  });
+
+  it("sin Retry-After usa backoff exponencial y se rinde tras el tope", async () => {
+    const fetch = vi.fn().mockResolvedValue(respuesta(429, {}));
+    const esperas: number[] = [];
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cliente = crearClienteConfluence({
+      cloudId: "cid", token: "t", espacios: ["SOP"], sitioUrl: "https://a",
+      fetch: fetch as never, dormir: async (ms) => void esperas.push(ms), ahora: () => 0,
+    });
+    await expect(async () => {
+      for await (const _ of cliente.paginas());
+    }).rejects.toThrow("429");
+    expect(esperas).toEqual([1000, 2000, 4000]);
+    expect(fetch).toHaveBeenCalledTimes(MAX_REINTENTOS_429 + 1);
+    vi.restoreAllMocks();
+  });
+
+  it("una espera absurda del servidor se recorta", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(respuesta(429, {}, 99999))
+      .mockResolvedValueOnce(respuesta(200, ESPACIOS))
+      .mockResolvedValueOnce(respuesta(200, { results: [] }));
+    const esperas: number[] = [];
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cliente = crearClienteConfluence({
+      cloudId: "cid", token: "t", espacios: ["SOP"], sitioUrl: "https://a",
+      fetch: fetch as never, dormir: async (ms) => void esperas.push(ms), ahora: () => 0,
+    });
+    for await (const _ of cliente.paginas());
+    expect(esperas).toEqual([MAX_ESPERA_MS]);
+    vi.restoreAllMocks();
   });
 });
