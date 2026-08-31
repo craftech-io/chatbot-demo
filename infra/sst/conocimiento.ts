@@ -25,6 +25,7 @@
 //     servicio (fixed-size), y el día que haga falta tunearlo hay que asumir la
 //     recreación del data source + una reingesta completa.
 import { createHash } from "node:crypto";
+import { cliente } from "../../client.config";
 import { slugKebab } from "./nombres";
 
 // Región del provider activo, sin hardcodes: el deploy la toma de
@@ -36,6 +37,10 @@ const awsRegion = aws.getRegionOutput().region;
 // modelo tienen que coincidir: 1024 es el default de Titan v2.
 const EMBED_MODEL_ARN = $interpolate`arn:aws:bedrock:${awsRegion}::foundation-model/amazon.titan-embed-text-v2:0`;
 const EMBED_DIMS = 1024;
+
+// El reranking lo ejecuta la KB, no quien llama al Retrieve: el permiso va en
+// ESTE rol. Puesto en el rol de la Lambda, cada consulta falla con AccessDenied.
+export const RERANK_MODEL_ARN = $interpolate`arn:aws:bedrock:${awsRegion}::foundation-model/${cliente.documentos.reranking.modelo}`;
 
 // Alfabeto de S3 Vectors (bucket y índice): minúsculas, dígitos y guiones — NO
 // acepta mayúsculas ni `_`, así que el stage se sanea (un stage `PR_12` haría
@@ -139,7 +144,8 @@ const kbRolePolicy = new aws.iam.RolePolicy("KbRolePolicy", {
     vectorBucket.vectorBucketArn,
     vectorIndex.indexArn,
     EMBED_MODEL_ARN,
-  ]).apply(([sourceArn, vbArn, idxArn, embedArn]) =>
+    RERANK_MODEL_ARN,
+  ]).apply(([sourceArn, vbArn, idxArn, embedArn, rerankArn]) =>
     JSON.stringify({
       Version: "2012-10-17",
       Statement: [
@@ -151,6 +157,19 @@ const kbRolePolicy = new aws.iam.RolePolicy("KbRolePolicy", {
           Action: ["bedrock:InvokeModel"],
           Resource: [embedArn],
         },
+        // `bedrock:Rerank` no admite scope por recurso; `InvokeModel` sí, y va
+        // acotado al modelo de reranking.
+        ...(cliente.documentos.reranking.activo
+          ? [
+              { Sid: "Reranking", Effect: "Allow", Action: ["bedrock:Rerank"], Resource: "*" },
+              {
+                Sid: "RerankingModelo",
+                Effect: "Allow",
+                Action: ["bedrock:InvokeModel"],
+                Resource: [rerankArn],
+              },
+            ]
+          : []),
         {
           // Wildcard de ACCIÓN, acotado por RECURSO al vector bucket y al índice
           // propios. Deliberado: los nombres de acción de S3 Vectors no los

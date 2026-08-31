@@ -13,6 +13,12 @@
 // Los dos roles son distintos a propósito: el Runtime no necesita invocar
 // Lambdas y el Gateway no necesita invocar modelos.
 import { cliente } from "../../client.config";
+import { RERANK_MODEL_ARN } from "./conocimiento";
+import {
+  atlassianClientId,
+  atlassianClientSecret,
+  atlassianCloudId,
+} from "./secretos-atlassian";
 import { kb, kbLink } from "./conocimiento";
 import { gateway, gatewayRole, targetApiCliente } from "./gateway";
 import { documentosToolSchema, escalamientoToolSchema } from "./tool-schemas";
@@ -28,6 +34,18 @@ import { permisosTrazas, trazasActivas } from "./observabilidad";
 // escalamiento.ts) en vez de cortar el deploy. Mismo criterio que los secretos
 // del emisor de tokens en ./bff.ts.
 const escalamientoWebhookUrl = new sst.Secret("EscalamientoWebhookUrl", "");
+
+// Adaptador de Jira Service Management. Con los cinco seteados, la tool crea el
+// pedido en el portal; si falta alguno, cae al webhook de arriba. Default "" en
+// todos: el stack despliega sin JSM configurado.
+//
+// Auth por OAuth 2.0 client_credentials con una service account (Atlassian
+// Administration → Directory → Service accounts), no API token: esos vencen cada
+// año. Scope: write:servicedesk-request.
+//
+// El cloudId sale una vez de https://<sitio>.atlassian.net/_edge/tenant_info
+const jsmServiceDeskId = new sst.Secret("JsmServiceDeskId", "");
+const jsmRequestTypeId = new sst.Secret("JsmRequestTypeId", "");
 
 // Cuántos pasajes trae `consultar_documentos`: default por cliente, declarado
 // en client.config.ts.
@@ -61,7 +79,17 @@ export const toolDocumentos = new sst.aws.Function("ToolDocumentos", {
   // `documentos.topK` es un `number` requerido en ConfigCliente: siempre hay
   // valor, así que no hay nada que condicionar (el default del template lo
   // aplica la tool, no la infra).
-  environment: { DOCUMENTOS_TOP_K: String(topKDocumentos) },
+  environment: {
+    DOCUMENTOS_TOP_K: String(topKDocumentos),
+    // Solo con el reranking prendido: sin estas env la tool consulta sin
+    // reordenar, que es lo correcto si el modelo no está habilitado.
+    ...(cliente.documentos.reranking.activo
+      ? {
+          RERANK_MODEL_ARN: RERANK_MODEL_ARN,
+          RERANK_TOP_N: String(cliente.documentos.reranking.topN),
+        }
+      : {}),
+  },
 });
 
 export const toolEscalamiento = new sst.aws.Function("ToolEscalamiento", {
@@ -71,7 +99,14 @@ export const toolEscalamiento = new sst.aws.Function("ToolEscalamiento", {
   // La tool corta el POST al webhook a los 10s por su cuenta; el margen es para
   // el arranque en frío.
   timeout: "20 seconds",
-  link: [escalamientoWebhookUrl],
+  link: [
+    escalamientoWebhookUrl,
+    atlassianClientId,
+    atlassianClientSecret,
+    atlassianCloudId,
+    jsmServiceDeskId,
+    jsmRequestTypeId,
+  ],
   // Tracing activo: los segmentos de esta tool cuelgan del span que el Gateway
   // emite por su target, así que sin esto la traza del turno llega hasta el
   // Gateway y ahí se corta —justo donde se ve si la tool tardó o falló. En sst

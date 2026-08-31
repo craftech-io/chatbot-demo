@@ -49,6 +49,8 @@ export default $config({
     // Va después: consume la knowledge base de arriba y el gateway (ya
     // ejecutado por ./runtime). Node cachea los módulos, no se duplican recursos.
     const { nombreMcpEscalamiento } = await import("./infra/sst/tools");
+    // Ingesta de Confluence por cron: consume la knowledge base de arriba.
+    await import("./infra/sst/ingesta");
     // Observabilidad (spec §17). El módulo ya está cargado —lo importan las
     // Lambdas para prender el tracing, y de ahí sale también el recurso de
     // Transaction Search— pero el DASHBOARD se arma acá, llamando a

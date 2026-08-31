@@ -260,3 +260,138 @@ En orden, porque cada uno depende del anterior:
   Confluence, Drive o SharePoint necesitan un conector aparte.
 - **Canales que no sean web** (WhatsApp, Messenger).
 - **Una app standalone**: hoy el chat se embebe en el sitio del cliente.
+
+---
+
+## Escalamiento a Jira Service Management
+
+La tool `escalar_a_humano` tiene dos adaptadores y elige solo: si los cinco
+secretos de JSM están seteados crea el pedido en el portal de soporte; si falta
+alguno, cae al webhook genérico (`EscalamientoWebhookUrl`).
+
+**Auth por OAuth 2.0 `client_credentials` con una service account**, no API token
+con Basic auth: los API tokens de Atlassian vencen cada año por política y el
+escalamiento se caería sin aviso.
+
+1. En *Atlassian Administration → Directory → Service accounts*, crear la service
+   account y su credencial OAuth 2.0. Anotar el `client_id` y el `client_secret`.
+2. Darle el scope **`write:servicedesk-request`** y acceso al proyecto del service
+   desk.
+3. Sacar el `cloudId` de `https://<sitio>.atlassian.net/_edge/tenant_info`.
+4. Sacar el `serviceDeskId` y el `requestTypeId` del service desk
+   (`GET /rest/servicedeskapi/servicedesk` y
+   `GET /rest/servicedeskapi/servicedesk/{id}/requesttype`).
+5. Setear los cinco secretos y desplegar:
+
+```bash
+npx sst secret set JsmClientId     "<client_id>"     --stage <stage>
+npx sst secret set JsmClientSecret "<client_secret>" --stage <stage>
+npx sst secret set JsmCloudId      "<cloud_id>"      --stage <stage>
+npx sst secret set JsmServiceDeskId "<id>"           --stage <stage>
+npx sst secret set JsmRequestTypeId "<id>"           --stage <stage>
+```
+
+El adaptador manda `summary` y `description`. **Si el tipo de pedido tiene otros
+campos obligatorios, JSM responde 400/422** y la tool le dice al usuario que no
+pudo derivar el caso: los campos requeridos se consultan con
+`GET /rest/servicedeskapi/servicedesk/{sdId}/requesttype/{rtId}/field`.
+
+Con OAuth la API no se llama en el dominio del sitio sino en
+`api.atlassian.com/ex/jira/<cloudId>`. El token dura 60 minutos y el adaptador lo
+cachea entre invocaciones, renovándolo 5 minutos antes de vencer.
+
+---
+
+## Documentos desde Confluence
+
+El corpus se sincroniza con una Lambda propia (`packages/bff/src/ingesta/`) que
+lee la API de Confluence y escribe las páginas en el bucket de la Knowledge Base.
+Un cron la corre **una vez por día** y dispara la re-indexación.
+
+No usamos el conector nativo de Bedrock: está en preview y exige OpenSearch
+Serverless (~US$350/mes contra ~US$0,015 de S3 Vectors). Escribiendo a S3 el
+vector store no cambia.
+
+Es un **refresh completo e idempotente**, no un sync incremental: con cientos de
+páginas cuesta menos que mantener un cursor y no puede desincronizarse. Una
+página borrada en Confluence se borra del bucket — si no, el agente seguiría
+respondiendo con una política derogada.
+
+Usa la misma service account que JSM, con dos scopes más:
+**`read:space:confluence`** y **`read:page:confluence`**.
+
+```bash
+npx sst secret set ConfluenceEspacios  "SOP,RRHH"                    --stage <stage>
+npx sst secret set ConfluenceSitioUrl  "https://<sitio>.atlassian.net" --stage <stage>
+```
+
+`ConfluenceEspacios` es la allowlist, separada por comas. **Vacía ⇒ el ingestor
+no hace nada**, que es el default: nadie ingesta un espacio por accidente.
+
+Para correrla a mano sin esperar el cron, se invoca la Lambda
+`IngestorConfluence` desde la consola con un payload vacío.
+
+Lo que **no** hace todavía: adjuntos (PDF, imágenes) y páginas de más de un
+nivel de macros anidadas, cuyo contenido se descarta junto con la macro. Si el
+corpus de Aersa depende de adjuntos, eso es trabajo aparte.
+
+---
+
+## Datos personales en el guardrail
+
+El guardrail anonimiza email, teléfono, nombre y dirección, y **bloquea**
+tarjetas, CVV y contraseñas. Los identificadores locales (CUIT/DNI, RFC/CURP,
+NIF) se declaran en `guardrail.regexPii` de `client.config.ts`, que viene vacío.
+
+Por qué anonimizar y no bloquear los datos de contacto: la gente da su email o
+su teléfono para que la atiendan, y bloquear el turno dejaría el chat
+inservible. Anonimizado, la conversación sigue y el dato no queda en el
+historial, ni en los logs, ni en las trazas.
+
+Si agregás una regex de documento de identidad, **anclala a una palabra clave**: un
+patrón de 7-8 dígitos sueltos anonimizaría números de pedido, importes y códigos
+de producto, y el agente perdería justo el dato que necesita para responder. La
+de CUIT se apoya en los prefijos (20/23/24/27 personas, 30/33/34 empresas), que
+es lo que la distingue de un número de 11 dígitos cualquiera.
+
+## Reranking de los pasajes
+
+`documentos.reranking` en `client.config.ts`. Viene **apagado**, y prenderlo no
+es solo cambiar el flag:
+
+1. Habilitar el modelo de reranking en Bedrock (`amazon.rerank-v1:0` es de AWS;
+   `cohere.rerank-v3-5:0` es de un tercero y además pide suscripción en
+   Marketplace más los permisos `aws-marketplace:ViewSubscriptions` y
+   `Subscribe`).
+2. Verificar que el modelo exista en la región del deploy: **el reranking no
+   está en todas**.
+
+El permiso `bedrock:Rerank` lo necesita **el rol de servicio de la Knowledge
+Base**, no la Lambda que llama al Retrieve — `infra/sst/conocimiento.ts` ya lo
+agrega cuando el flag está prendido. Puesto en el rol de la Lambda, cada consulta
+falla con AccessDenied.
+
+**Hybrid search no tiene camino hoy**: exige un vector store con campo de texto
+filtrable, o sea OpenSearch Serverless. Con S3 Vectors solo hay búsqueda
+semántica. Si el cliente lo pide, la conversación es sobre los ~US$350/mes de AOSS.
+
+## Adjuntos de Confluence
+
+`confluence.adjuntos: true` en `client.config.ts`. Sube al bucket los adjuntos
+cuyo tipo la Knowledge Base parsea (pdf, doc, docx, txt, md, csv, xls, xlsx,
+html) y que pesen menos de 25 MB — Bedrock corta en 50 y el margen evita que un
+video subido a una página se lleve la corrida.
+
+Un adjunto que falla no aborta la corrida: se loguea `adjunto_omitido` y la
+página queda indexada igual.
+
+**No verificado contra un sitio real**: la documentación de Confluence no dice si
+el `downloadLink` viene absoluto o relativo, así que el código soporta las dos
+formas. Si los adjuntos no aparecen, ese es el primer lugar a mirar.
+
+## Versión del prompt en las trazas
+
+Cada traza lleva `prompt.version`, un hash corto del prompt de sistema. Permite
+comparar dos períodos sabiendo si el prompt cambió en el medio, sin que el texto
+del prompt viaje en la traza. Es lo que el PoC llama prompts versionados, en su
+forma mínima: no hay gestión de versiones ni rollback.

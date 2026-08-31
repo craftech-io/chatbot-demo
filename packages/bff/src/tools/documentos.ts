@@ -64,6 +64,12 @@ export type RespuestaDocumentos = { resultados: ResultadoDocumento[]; nota?: str
 
 type DepsDocumentos = {
   knowledgeBaseId: string;
+  /**
+   * Reranking opcional. Lo ejecuta la KB con su propio rol: si ese rol no tiene
+   * `bedrock:Rerank` + `InvokeModel` sobre el modelo, cada consulta falla con
+   * AccessDenied (ver infra/sst/conocimiento.ts).
+   */
+  reranking?: { modeloArn: string; topN?: number };
   cliente: BedrockAgentRuntimeClient;
   /** Default por cliente (`documentos.topK`). Ausente o absurdo ⇒ TOP_K_DEFAULT. */
   topKDefault?: number;
@@ -137,7 +143,24 @@ export function crearConsultarDocumentos(deps: DepsDocumentos) {
           knowledgeBaseId: deps.knowledgeBaseId,
           retrievalQuery: { text: consulta },
           retrievalConfiguration: {
-            vectorSearchConfiguration: { numberOfResults: topK },
+            vectorSearchConfiguration: {
+              numberOfResults: topK,
+              // En el Retrieve el campo es `numberOfRerankedResults`; el
+              // `numberOfResults` de la API Rerank directa es otro.
+              ...(deps.reranking
+                ? {
+                    rerankingConfiguration: {
+                      type: "BEDROCK_RERANKING_MODEL" as const,
+                      bedrockRerankingConfiguration: {
+                        modelConfiguration: { modelArn: deps.reranking.modeloArn },
+                        ...(deps.reranking.topN
+                          ? { numberOfRerankedResults: deps.reranking.topN }
+                          : {}),
+                      },
+                    },
+                  }
+                : {}),
+            },
           },
         }),
       );
@@ -188,6 +211,16 @@ export const handler = async (event: EntradaDocumentos): Promise<RespuestaDocume
     // La infra la setea desde `documentos.topK` de client.config.ts. Ausente o
     // vacía ⇒ NaN ⇒ el default del template.
     topKDefault: Number(process.env.DOCUMENTOS_TOP_K),
+    // La infra solo setea estas env cuando `documentos.reranking.activo` es
+    // true: ausentes, la consulta va sin reranking.
+    ...(process.env.RERANK_MODEL_ARN
+      ? {
+          reranking: {
+            modeloArn: process.env.RERANK_MODEL_ARN,
+            topN: Number(process.env.RERANK_TOP_N) || undefined,
+          },
+        }
+      : {}),
   });
   return consultar(event ?? {});
 };

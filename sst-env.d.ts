@@ -56,6 +56,26 @@ declare module "sst" {
       "type": "sst.sst.Linkable"
       "version": string
     }
+    "AtlassianClientId": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "AtlassianClientSecret": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "AtlassianCloudId": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "JsmRequestTypeId": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "JsmServiceDeskId": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "KnowledgeBase": {
       "id": string
       "type": "sst.sst.Linkable"

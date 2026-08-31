@@ -12,6 +12,7 @@ import * as dockerbuild from "@pulumi/docker-build";
 import { cliente } from "../../client.config";
 import { slugKebab, slugCamel } from "./nombres";
 import { guardrail } from "./guardrail";
+import { createHash } from "node:crypto";
 import { memoria } from "./memoria";
 import { gateway } from "./gateway";
 import { apiClienteDemoUrl } from "./api-cliente";
@@ -60,6 +61,13 @@ const otlpHeaders = new sst.Secret("ObservabilidadOtlpHeaders", "");
 // compara el host con el del servicio X-Ray), no una flag aparte. Solo HTTP, no
 // gRPC, y exige Transaction Search habilitado en la cuenta (./observabilidad.ts).
 const endpointXray = $interpolate`https://xray.${region}.amazonaws.com/v1/traces`;
+
+// Hash corto y estable del prompt: cambia cuando cambia el prompt y no filtra
+// su contenido.
+const versionDelPrompt = createHash("sha256")
+  .update(cliente.promptSistema)
+  .digest("hex")
+  .slice(0, 12);
 
 // Redacción. El default del template es REDACTADO: los ~14 `OPENINFERENCE_HIDE_*`
 // vienen en `False` de fábrica, o sea que sin estas env la conversación completa
@@ -120,7 +128,10 @@ const envObservabilidad = {
   // índice de Transaction Search es de CUENTA, así que dos stages de la misma
   // cuenta caen en el mismo lugar.
   OTEL_SERVICE_NAME: `${slugKebab}-agente`,
-  OTEL_RESOURCE_ATTRIBUTES: `deployment.environment=${$app.stage}`,
+  // `prompt.version` es un hash corto del prompt de sistema. Sirve para lo que
+  // el PoC llama prompts versionados: comparar dos períodos sabiendo si el
+  // prompt cambió en el medio, sin que el TEXTO del prompt viaje en la traza.
+  OTEL_RESOURCE_ATTRIBUTES: `deployment.environment=${$app.stage},prompt.version=${versionDelPrompt}`,
 
   // Muestreo. Sin collector el default del SDK es `parentbased_always_on`, o sea
   // el 100% de las trazas ("hasta 20x más volumen de ingesta y costo", palabras
@@ -204,7 +215,20 @@ const envObservabilidad = {
           }
           return url;
         }),
-        OTEL_EXPORTER_OTLP_TRACES_HEADERS: otlpHeaders.value,
+        // Un espacio literal hace que el SDK descarte el header ENTERO
+        // ("Header format invalid!") y el exporter salga sin auth: 401 en un log
+        // que nadie mira. El caso típico es `Authorization=Basic <base64>`, que
+        // es como lo documenta Langfuse; va `Basic%20<base64>`.
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS: otlpHeaders.value.apply((h) => {
+          if (h.includes(" ")) {
+            throw new Error(
+              "ObservabilidadOtlpHeaders tiene un espacio literal. El SDK de OTEL exige los valores " +
+                "URL-encodeados y descarta el header si no lo están. Usá %20: " +
+                "Authorization=Basic%20<base64>",
+            );
+          }
+          return h;
+        }),
       }
     : { OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: endpointXray }),
 
@@ -214,7 +238,7 @@ const envObservabilidad = {
 };
 
 // Se exporta para publicar su nombre como output del stack: el CI lo lee de
-// `.sst/outputs.json` en vez de rearmarlo a mano (ver .github/workflows/deploy.yml).
+// `.sst/outputs.json` en vez de rearmarlo a mano (ver bitbucket-pipelines.yml).
 export const repo = new aws.ecr.Repository("CoreRepo", {
   // ECR exige nombres en minúsculas y el autoname de Pulumi parte del nombre
   // lógico (CoreRepo) — lo rechaza. Nombre físico explícito y saneado: el

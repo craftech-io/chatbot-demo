@@ -43,7 +43,9 @@ Al clonar el template en el repo de un cliente, lo único que se edita del IaC e
 | `retencionMemoriaDias` | Días que AgentCore Memory retiene los eventos de la conversación |
 | `promptSistema` | La POLÍTICA del agente (spec §11.2): tono, alcance, cuándo buscar en los documentos y cuándo derivar. Viaja al core como `PROMPT_SISTEMA`. **El default habla de "la empresa" en genérico: es lo primero que se toca** |
 | `observabilidad` | La capa de TRAZAS (spec §17): `muestreo`, si viajan con el contenido de la conversación, y a dónde van (`cloudwatch` u `otlp`). Las métricas del dashboard no dependen de nada de acá |
-| `documentos` | `topK`: cuántos pasajes devuelve cada búsqueda en la Knowledge Base |
+| `documentos` | `topK` de la búsqueda y el `reranking` opcional de los pasajes |
+| `guardrail` | `regexPii`: los identificadores locales de datos personales (CUIT/DNI, RFC/CURP, NIF) |
+| `confluence` | Allowlist de espacios a ingestar, el sitio y si se suben los adjuntos |
 
 `infra/sst/nombres.ts` traduce el `slug` a los alfabetos distintos que exige cada
 servicio (ECR/Guardrail/Gateway: minúsculas con guiones; Runtime y Memory:
@@ -89,6 +91,8 @@ npm run typecheck                 # typecheck de los workspaces de npm
 
 ## Dónde seguir leyendo
 
+- `docs/langfuse.md` — mandar las trazas del agente a Langfuse: los dos
+  secretos, la trampa del header y las dos decisiones previas.
 - `docs/arquitectura.excalidraw` — el diagrama de la arquitectura (un turno de
   punta a punta). Se abre y se edita en [excalidraw.com](https://excalidraw.com)
   o en cualquier instancia de Excalidraw.

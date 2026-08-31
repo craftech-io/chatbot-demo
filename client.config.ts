@@ -183,6 +183,46 @@ export interface ConfigCliente {
     stageQueAdministraLaBusqueda: string;
   };
 
+  /** Guardrail de contenido y datos personales (`infra/sst/guardrail.ts`). */
+  guardrail: {
+    /**
+     * Patrones propios de datos personales, además de las entidades que Bedrock
+     * ya reconoce (email, teléfono, nombre, dirección, tarjetas, contraseñas).
+     * Acá van los identificadores locales, que dependen del país: CUIT/DNI en
+     * Argentina, RFC/CURP en México, NIF en España.
+     *
+     * `accion`: `ANONYMIZE` deja seguir la conversación con el dato tapado;
+     * `BLOCK` corta el turno.
+     *
+     * Ojo con los patrones amplios: un patrón de 7-8 dígitos sueltos anonimiza
+     * números de pedido, importes y códigos de producto, y el agente pierde
+     * justo el dato que necesita para responder. Conviene anclarlos a una
+     * palabra clave o a un prefijo distintivo.
+     */
+    regexPii: { nombre: string; patron: string; descripcion?: string; accion: "ANONYMIZE" | "BLOCK" }[];
+  };
+
+  /**
+   * Ingesta de documentos desde Confluence. Las CREDENCIALES no van acá (son
+   * `sst.Secret`): esto es la configuración de qué se ingesta.
+   */
+  confluence: {
+    /**
+     * Allowlist de espacios por su key (p. ej. `["SOP", "RRHH"]`). Vacía ⇒ el
+     * ingestor no hace nada, que es el default: nadie ingesta un espacio por
+     * accidente.
+     */
+    espacios: string[];
+    /** URL público del sitio, para armar el link de cada página en la metadata. */
+    sitioUrl: string;
+    /**
+     * Si también se ingestan los adjuntos de cada página (PDF, DOCX, planillas).
+     * Suma una llamada por página y descarga binarios: con muchos adjuntos la
+     * corrida se alarga bastante.
+     */
+    adjuntos: boolean;
+  };
+
   /** Ajustes de la búsqueda en los documentos (la Knowledge Base, spec §11). */
   documentos: {
     /**
@@ -196,6 +236,33 @@ export interface ConfigCliente {
      * con un corpus grande y homogéneo conviene subirlo.
      */
     topK: number;
+
+    /**
+     * Reranking de los pasajes recuperados (spec §11). Un modelo de reranking
+     * reordena lo que devolvió la búsqueda vectorial por relevancia real a la
+     * pregunta, y se queda con los mejores `topN`.
+     *
+     * Sirve donde la búsqueda vectorial sola trae ruido: corpus grande, o
+     * documentos que comparten vocabulario y se parecen entre sí. Cuesta una
+     * llamada más a un modelo por consulta.
+     *
+     * `activo: false` por default y NO es una preferencia estética: el modelo de
+     * reranking hay que habilitarlo en Bedrock igual que el de generación, no
+     * está en todas las regiones, y el permiso lo necesita **el rol de servicio
+     * de la Knowledge Base**, no la Lambda que hace el Retrieve. Prenderlo sin
+     * el acceso al modelo hace fallar cada consulta a los documentos.
+     *
+     * `amazon.rerank-v1:0` es de AWS y no pide nada más. `cohere.rerank-v3-5:0`
+     * es de un tercero: además exige suscripción en Marketplace y los permisos
+     * `aws-marketplace:ViewSubscriptions` y `Subscribe`.
+     */
+    reranking: {
+      activo: boolean;
+      /** Id del modelo de reranking, sin el ARN. */
+      modelo: string;
+      /** Cuántos pasajes quedan después de reordenar. Menor o igual a `topK`. */
+      topN: number;
+    };
   };
 }
 
@@ -244,7 +311,22 @@ export const cliente: ConfigCliente = {
     indexadoTrazas: 100,
     stageQueAdministraLaBusqueda: "",
   },
+  guardrail: {
+    // Vacío en el template: los identificadores locales los declara el cliente.
+    regexPii: [],
+  },
+  confluence: {
+    espacios: [],
+    sitioUrl: "",
+    adjuntos: false,
+  },
   documentos: {
     topK: 5,
+    reranking: {
+      // Ver el doc del campo: prenderlo exige habilitar el modelo en Bedrock.
+      activo: false,
+      modelo: "amazon.rerank-v1:0",
+      topN: 3,
+    },
   },
 };

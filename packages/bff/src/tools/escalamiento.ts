@@ -43,6 +43,7 @@
 // recibe el webhook inyectado y solo el `handler` del final lee SST, como borde
 // de infra de ESTA Lambda (ver la excepción sancionada en config/resource.ts).
 import { Resource } from "sst";
+import { configuradoJsm, crearAdaptadorJsm } from "./jsm";
 
 // El turno del agente no puede quedarse colgado esperando al sistema del
 // cliente: 10s y se corta.
@@ -238,7 +239,10 @@ export function crearEscalarAHumano(deps: DepsEscalamiento) {
 
 // ── Borde de infra: de acá para abajo, el pegamento con Lambda y SST ────────
 
-let escalar: ReturnType<typeof crearEscalarAHumano> | undefined;
+let escalar:
+  | ReturnType<typeof crearEscalarAHumano>
+  | ReturnType<typeof crearAdaptadorJsm>
+  | undefined;
 
 // Una sola tool por Lambda: no hay nada que rutear con el nombre que manda el
 // Gateway.
@@ -248,6 +252,17 @@ export const handler = async (
   // El webhook es un `sst.Secret` con default "": un stack sin el secreto
   // seteado despliega igual y la tool avisa que no hay destino (NOTA_SIN_WEBHOOK)
   // en vez de fallar el deploy.
-  escalar ??= crearEscalarAHumano({ webhookUrl: Resource.EscalamientoWebhookUrl.value });
+  if (!escalar) {
+    const jsm = {
+      clientId: Resource.AtlassianClientId.value,
+      clientSecret: Resource.AtlassianClientSecret.value,
+      cloudId: Resource.AtlassianCloudId.value,
+      serviceDeskId: Resource.JsmServiceDeskId.value,
+      requestTypeId: Resource.JsmRequestTypeId.value,
+    };
+    escalar = configuradoJsm(jsm)
+      ? crearAdaptadorJsm(jsm)
+      : crearEscalarAHumano({ webhookUrl: Resource.EscalamientoWebhookUrl.value });
+  }
   return escalar(event ?? {});
 };

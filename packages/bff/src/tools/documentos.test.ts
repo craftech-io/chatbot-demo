@@ -210,3 +210,45 @@ describe("consultar_documentos", () => {
     expect(r).toEqual({ resultados: [], nota: NOTA_SIN_CONSULTA });
   });
 });
+
+describe("reranking", () => {
+  function configDelRetrieve(send: ReturnType<typeof clienteFalso>["send"]) {
+    return send.mock.calls[0]![0].input.retrievalConfiguration?.vectorSearchConfiguration;
+  }
+
+  it("sin reranking configurado el Retrieve no lo manda", async () => {
+    const { cliente, send } = clienteFalso([]);
+    await crearConsultarDocumentos({ knowledgeBaseId: "kb", cliente })({ consulta: "x" });
+    expect(configDelRetrieve(send)?.rerankingConfiguration).toBeUndefined();
+  });
+
+  it("con reranking manda el modelo y el topN reordenado", async () => {
+    const { cliente, send } = clienteFalso([]);
+    await crearConsultarDocumentos({
+      knowledgeBaseId: "kb",
+      cliente,
+      reranking: { modeloArn: "arn:aws:bedrock:us-east-1::foundation-model/amazon.rerank-v1:0", topN: 3 },
+    })({ consulta: "x" });
+    expect(configDelRetrieve(send)?.rerankingConfiguration).toEqual({
+      type: "BEDROCK_RERANKING_MODEL",
+      bedrockRerankingConfiguration: {
+        modelConfiguration: {
+          modelArn: "arn:aws:bedrock:us-east-1::foundation-model/amazon.rerank-v1:0",
+        },
+        numberOfRerankedResults: 3,
+      },
+    });
+  });
+
+  it("sin topN no manda numberOfRerankedResults", async () => {
+    const { cliente, send } = clienteFalso([]);
+    await crearConsultarDocumentos({
+      knowledgeBaseId: "kb",
+      cliente,
+      reranking: { modeloArn: "arn:modelo" },
+    })({ consulta: "x" });
+    expect(
+      configDelRetrieve(send)?.rerankingConfiguration?.bedrockRerankingConfiguration,
+    ).toEqual({ modelConfiguration: { modelArn: "arn:modelo" } });
+  });
+});
