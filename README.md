@@ -94,8 +94,8 @@ npm run typecheck                 # typecheck de los workspaces de npm
 - `docs/langfuse.md` — mandar las trazas del agente a Langfuse: los dos
   secretos, la trampa del header y las dos decisiones previas.
 - `docs/arquitectura.excalidraw` — el diagrama de la arquitectura (un turno de
-  punta a punta). Se abre y se edita en [excalidraw.com](https://excalidraw.com)
-  o en cualquier instancia de Excalidraw.
+  punta a punta). Lo genera `docs/arquitectura.mjs`, que es donde conviene
+  tocarlo para que el diff se lea.
 - `docs/adopcion.md` — el paso a paso para adoptarlo en el repo de un cliente:
   prerequisitos de cuenta, rol de deploy, secretos, ingesta y verificación.
 - `docs/diseno.md` — el diseño completo.
