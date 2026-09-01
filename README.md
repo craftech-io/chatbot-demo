@@ -11,6 +11,48 @@ para las razones de esa decisión y del resto del diseño.
 El template es genérico: lo específico de cada cliente vive en
 `client.config.ts`, en la raíz — ver [Adoptar el template](#adoptar-el-template).
 
+## Levantarlo en local
+
+### Sin AWS (modo mock)
+
+```bash
+npm ci
+npm run dev     # http://localhost:3000
+```
+
+No hace falta cuenta de AWS, credenciales ni deploy. El server responde
+`POST/GET /mensajes` por su cuenta con respuestas escritas a mano
+(`examples/demo-client/mock.mjs`), y la UI muestra chips con las palabras que disparan cada
+escenario —búsqueda en documentos, escalamiento, error— para recorrer el
+comportamiento del bot sin gastar un centavo de Bedrock.
+
+Es el modo para trabajar la UI, el widget y la integración en un sitio. El build
+del widget lo dispara `npm run dev` solo, no hay un paso previo que olvidar.
+
+### Contra un deploy real
+
+El mismo server, apuntado al stack desplegado. Cambia según cómo esté
+configurado el emisor de tokens:
+
+```bash
+# Con HMAC
+API_URL="<Function URL del BFF>" \
+CHAT_HMAC_SECRET="<el mismo secreto del stack>" \
+  npm start -w @craftech-ai-chat/demo-client
+
+# Con Cognito u otro IdP por JWKS
+API_URL="<Function URL del BFF>" \
+COGNITO_CLIENT_ID="<client id del pool>" \
+  npm start -w @craftech-ai-chat/demo-client
+```
+
+**El modo se elige por las variables**, no por un flag: sin `API_URL` es mock;
+con `API_URL` y sin `COGNITO_CLIENT_ID` es HMAC; con `COGNITO_CLIENT_ID` es login
+real. La Function URL sale del output `Chat` del deploy.
+
+El detalle de los tres modos, con el mini-login y cómo integrar el widget en una
+app propia, está en [`examples/demo-client/README.md`](examples/demo-client/README.md).
+
 ## Mapa del monorepo
 
 | Carpeta / archivo | Qué es |
