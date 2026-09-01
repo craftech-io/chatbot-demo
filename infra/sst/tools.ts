@@ -149,11 +149,16 @@ const gatewayRolePolicy = new aws.iam.RolePolicy("GatewayRolePolicy", {
 // El nombre de la tool que ve el modelo lleva el prefijo del target
 // (`documentos___consultar_documentos`): el core lista las tools dinámicamente,
 // así que no rompe nada, pero es el nombre que aparece en los logs.
+// Igual que el del escalamiento: el nombre del target prefija el nombre MCP de
+// la tool, y las políticas del agente (./policy.ts) lo nombran.
+export const nombreTargetDocumentos = "documentos";
+export const nombreMcpDocumentos = $interpolate`${nombreTargetDocumentos}___${documentosToolSchema[0].name}`;
+
 export const targetDocumentos = new awsnative.bedrockagentcore.GatewayTarget(
   "ToolDocumentosTarget",
   {
     gatewayIdentifier: gateway.gatewayIdentifier,
-    name: "documentos",
+    name: nombreTargetDocumentos,
     description: "RAG sobre los documentos del cliente (dato de tenant)",
     targetConfiguration: {
       mcp: {

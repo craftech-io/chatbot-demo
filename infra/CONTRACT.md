@@ -31,6 +31,52 @@ uno a otro es reimplementar esta lista, nada más.
 | Tracing activo en las 5 Lambdas (`Chat`, `Worker`, `ToolDocumentos`, `ToolEscalamiento`, `ApiNegocio`) | une la traza de punta a punta: BFF → cola → worker → Runtime | `tracingConfig.mode: "Active"` sobre la Lambda (`PassThrough` solo propaga la traza del llamador, no genera segmentos propios). Necesita además `xray:PutTraceSegments` + `xray:PutTelemetryRecords` **en el rol de cada Lambda** (ninguna de las dos acciones soporta scope por recurso): el tracing no trae sus permisos puestos, y sin ellos no hay traza ni error que lo delate. Sin esto la traza se corta en cada salto — justo donde vive el debounce |
 | Dashboard de CloudWatch | lo que el cliente mira: derivaciones sobre conversaciones, latencia, errores, tokens e invocaciones por tool | se arma sobre las métricas que el servicio YA emite (namespace **`AWS/Bedrock-AgentCore`**, con guion), sin instrumentar nada. Los tokens salen de `AWS/Bedrock` (`InputTokenCount`/`OutputTokenCount`, dimensión única `ModelId`). Los nombres de recurso salen de los módulos de infra (ARN del Runtime y del Gateway, nombre MCP de la tool de escalamiento), nunca escritos a mano |
 
+## Políticas del agente (AgentCore Policy) — evaluado, NO implementado
+
+AgentCore Policy permite reglas deterministas sobre **qué tools puede llamar el
+agente**, evaluadas por el Gateway. Se evaluó a fondo (2026-09-01) y **se
+retrocedió**: la capacidad funciona, integrarla en este Gateway tiene obstáculos
+sin resolver. Esto es lo aprendido, para no repetirlo.
+
+**Lo que sí funciona.** Es declarable con `@pulumi/aws-native >= 1.77`
+(`PolicyEngine`, `Policy`, y `gateway.policyEngineConfiguration`).
+`StartPolicyGeneration` traduce reglas escritas **en español** a Cedar, validado
+contra el schema real de las tools, y avisa si una regla queda demasiado
+permisiva o demasiado restrictiva. Una política se creó y aplicó bien.
+
+**Los cuatro obstáculos, en orden de importancia:**
+
+1. **Cedar es deny-by-default.** Adjuntar un policy engine en `ENFORCE` con una
+   sola política `permit` **denegó TODAS las demás tools**: el agente respondió
+   "no tengo acceso a una tool de consulta de documentos". Las políticas no son
+   un filtro sobre lo permitido, son la lista COMPLETA de lo permitido — hay que
+   declarar un `permit` por cada tool que debe seguir funcionando, y recién
+   encima las restricciones.
+2. **`Header 'x-amzn-bedrock-agentcore-policy-session-id' is restricted`**: con
+   el engine adjunto, el UPDATE de cualquier GatewayTarget falla. El header lo
+   inyecta el servicio para las políticas temporales y después rechaza que Cloud
+   Control se lo reenvíe. **Sin resolver esto el stack no vuelve a desplegar
+   limpio.** Que el target se actualizara sin problema en cuanto se sacó el
+   engine confirma la causa.
+3. **Permisos del rol del Gateway** — cuatro, ninguno viene puesto:
+   `GetPolicyEngine`, `AuthorizeAction`, `PartiallyAuthorizeActions` sobre el ARN
+   del engine **y** del gateway, más `GetWorkloadAccessToken` sobre el
+   `workload-identity-directory`, que hace falta **solo con políticas
+   temporales**. Trampa: en `LOG_ONLY` la falta de `GetPolicyEngine` falla en
+   SILENCIO y recién aparece al pasar a `ENFORCE`.
+   Van en una RolePolicy propia declarada junto al rol y **antes** del Gateway:
+   el UPDATE que adjunta el engine valida el acceso, así que una policy creada
+   después del Gateway produce un deadlock (el deploy falla sin llegar nunca a
+   otorgar el permiso). Y el `dependsOn` ordena pero no espera la **propagación
+   de IAM**: hizo falta un deploy más.
+4. **El rol que despliega necesita `bedrock-agentcore:InvokeGateway`**: crear o
+   actualizar una política valida su Cedar contra el Gateway. Sin eso la política
+   queda en `CREATE_FAILED` con un error que nombra al Gateway pero se arregla en
+   el rol de deploy. En una cuenta con rol de deploy acotado, esto salta.
+
+Los permisos del punto 3 quedaron en `./gateway.ts` (`GatewayPolicyEngineAccess`):
+no molestan y ahorran el hallazgo la próxima vez.
+
 ## Guardrails: solo de entrada
 
 El guardrail se aplica **solo de ENTRADA**, en el BFF (`bedrock:ApplyGuardrail`),

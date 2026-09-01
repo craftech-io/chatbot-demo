@@ -8,6 +8,7 @@
 // consume el core (se le pasa como GATEWAY_URL en infra/sst/runtime.ts).
 import { apiClienteDemoUrl } from "./api-cliente";
 import { slugKebab } from "./nombres";
+import { cliente } from "../../client.config";
 
 // El nombre físico exige `([0-9a-zA-Z][-]?){1,48}` (alfanumérico con guiones
 // no consecutivos, distinto del alfabeto del Runtime que acepta `_`): se
@@ -36,7 +37,40 @@ export const gatewayRole = new aws.iam.Role("GatewayRole", {
     ],
   }),
 });
-// Sin policy en ESTE archivo: el target de acá abajo es la Function URL pública
+// Permisos para las políticas del agente (./policy.ts). Van ACÁ y no en la
+// policy de ./tools.ts por un deadlock de orden: el UPDATE del Gateway que
+// adjunta el policy engine valida que este rol pueda leerlo, y la policy de
+// tools.ts se crea DESPUÉS del Gateway — el deploy fallaba sin llegar nunca a
+// otorgar el permiso.
+//
+// Las tres primeras acciones las exige el Gateway para evaluar Cedar. En
+// `LOG_ONLY` la falta de `GetPolicyEngine` falla en SILENCIO y solo aparece al
+// pasar a `ENFORCE`. `GetWorkloadAccessToken` es aparte y solo hace falta con
+// políticas TEMPORALES —las dos nuestras—: el Gateway mintea un token para
+// propagar la sesión y sin el permiso la tool call muere en ese paso.
+//
+// Wildcard de recurso: el policy engine y el gateway se nombran mutuamente, así
+// que acotar por ARN cierra un ciclo de dependencias en el IaC.
+export const gatewayPolicyEnginePolicy = new aws.iam.RolePolicy("GatewayPolicyEngineAccess", {
+  role: gatewayRole.name,
+  policy: $jsonStringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Action: [
+          "bedrock-agentcore:GetPolicyEngine",
+          "bedrock-agentcore:AuthorizeAction",
+          "bedrock-agentcore:PartiallyAuthorizeActions",
+          "bedrock-agentcore:GetWorkloadAccessToken",
+        ],
+        Resource: "*",
+      },
+    ],
+  }),
+});
+
+// Sin más policy en ESTE archivo: el target de acá abajo es la Function URL pública
 // de la demo API (auth NONE) y va sin credencial outbound (ver GatewayTarget),
 // así que no hay ninguna API de AWS que autorizar por él. La policy del rol la
 // declara ./tools.ts (`lambda:InvokeFunction` acotado a las dos tool Lambdas):
@@ -111,7 +145,7 @@ export const targetApiCliente = new awsnative.bedrockagentcore.GatewayTarget("Ga
   // El .d.ts lo marca opcional, pero sin él Cloud Control no sabe de qué
   // gateway colgar el target: va siempre.
   gatewayIdentifier: gateway.gatewayIdentifier,
-  name: "api-cliente",
+  name: "api",
   description: "GET /catalogo de la demo API (dato de tenant)",
   targetConfiguration: {
     mcp: { openApiSchema: { inlinePayload: openApiCatalogo } },

@@ -15,6 +15,18 @@ declare module "sst" {
       "type": "sst.aws.Function"
       "url": string
     }
+    "AtlassianClientId": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "AtlassianClientSecret": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "AtlassianCloudId": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
     "Chat": {
       "name": string
       "type": "sst.aws.Function"
@@ -56,17 +68,13 @@ declare module "sst" {
       "type": "sst.sst.Linkable"
       "version": string
     }
-    "AtlassianClientId": {
-      "type": "sst.sst.Secret"
-      "value": string
+    "IngestaFallida": {
+      "type": "sst.aws.Queue"
+      "url": string
     }
-    "AtlassianClientSecret": {
-      "type": "sst.sst.Secret"
-      "value": string
-    }
-    "AtlassianCloudId": {
-      "type": "sst.sst.Secret"
-      "value": string
+    "IngestorConfluence": {
+      "name": string
+      "type": "sst.aws.Function"
     }
     "JsmRequestTypeId": {
       "type": "sst.sst.Secret"
@@ -107,6 +115,14 @@ declare module "sst" {
     "MessagesTableDb": {
       "name": string
       "type": "sst.aws.Dynamo"
+    }
+    "ObservabilidadOtlpEndpoint": {
+      "type": "sst.sst.Secret"
+      "value": string
+    }
+    "ObservabilidadOtlpHeaders": {
+      "type": "sst.sst.Secret"
+      "value": string
     }
     "SessionsTable": {
       "name": string
