@@ -1,9 +1,9 @@
-// Conocimiento (RAG): Bedrock Knowledge Base VECTOR sobre S3 Vectors, con un
-// bucket de S3 como fuente de los documentos del cliente (spec §11).
+// Conocimiento (RAG): Bedrock Knowledge Base GESTIONADA. AWS opera el modelo de
+// embeddings, el reranker y el almacén de vectores; acá solo se declara el
+// bucket con los documentos y el conector que los lee.
 //
-// Mismo diseño que ya corre en producción en otro stack nuestro. Piezas:
+// Recursos:
 //   - sst.aws.Bucket                              : fuente (los documentos)  [nativo SST]
-//   - awsnative.s3vectors.VectorBucket + Index    : el vector store          [Cloud Control]
 //   - aws.iam.Role/RolePolicy                     : rol de ejecución de la KB [classic]
 //   - awsnative.bedrock.KnowledgeBase + DataSource: la KB y su data source   [Cloud Control]
 //
@@ -13,7 +13,7 @@
 //
 // La ingesta NO es automática: subir documentos al bucket no los indexa. Hay que
 // disparar un ingestion job (`aws bedrock-agent start-ingestion-job`) — ver
-// examples/documentos/README.md.
+// documentos/README.md.
 //
 // OJO, propiedades createOnly (Cloud Control las marca así: cambiarlas RECREA el
 // recurso, no lo actualiza):
@@ -33,16 +33,7 @@ import { slugKebab } from "./nombres";
 // `.name` en GetRegionResult está deprecado a favor de `.region` (mismo valor).
 const awsRegion = aws.getRegionOutput().region;
 
-// Titan Text Embeddings v2. La dimensión del índice de S3 Vectors y la del
-// modelo tienen que coincidir: 1024 es el default de Titan v2.
-const EMBED_MODEL_ARN = $interpolate`arn:aws:bedrock:${awsRegion}::foundation-model/amazon.titan-embed-text-v2:0`;
-const EMBED_DIMS = 1024;
 
-// El reranking lo ejecuta la KB, no quien llama al Retrieve: el permiso va en
-// ESTE rol. Puesto en el rol de la Lambda, cada consulta falla con AccessDenied.
-export const RERANK_MODEL_ARN = $interpolate`arn:aws:bedrock:${awsRegion}::foundation-model/${cliente.documentos.reranking.modelo}`;
-
-// Alfabeto de S3 Vectors (bucket y índice): minúsculas, dígitos y guiones — NO
 // acepta mayúsculas ni `_`, así que el stage se sanea (un stage `PR_12` haría
 // fallar el create). El prefijo sale del slug del cliente (infra/sst/nombres.ts).
 const stageSaneado = $app.stage
@@ -50,30 +41,9 @@ const stageSaneado = $app.stage
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-+|-+$/g, "");
 
-// Bucket fuente: acá viven los documentos del cliente. El contenido se sube
-// post-deploy (el template no lleva datos de ningún cliente).
+// Bucket fuente: acá viven los documentos. El contenido se sube post-deploy,
+// desde `documentos/` o desde el ingestor de Confluence.
 export const kbSource = new sst.aws.Bucket("Documentos");
-
-// Vector store: S3 Vectors (bucket + índice).
-const vectorBucket = new awsnative.s3vectors.VectorBucket("VectorBucket", {
-  vectorBucketName: `${slugKebab}-${stageSaneado}-vec`,
-});
-
-const vectorIndex = new awsnative.s3vectors.Index("VectorIndex", {
-  // El recurso tipa `vectorBucketName` como `Output<string | undefined>`
-  // (CloudFormation lo autogenera si no se lo pasás); acá siempre lo pasamos,
-  // así que el `!` es seguro.
-  vectorBucketName: vectorBucket.vectorBucketName.apply((n) => n!),
-  indexName: "documentos",
-  dataType: "float32",
-  dimension: EMBED_DIMS,
-  distanceMetric: "cosine",
-  // Bedrock KB guarda el texto del chunk y su metadata en estas dos claves: si
-  // quedan filtrables se comen el presupuesto de metadata del índice.
-  metadataConfiguration: {
-    nonFilterableMetadataKeys: ["AMAZON_BEDROCK_TEXT", "AMAZON_BEDROCK_METADATA"],
-  },
-});
 
 // El nombre del rol de ejecución de la KB es un REQUISITO DE BEDROCK, no una
 // convención nuestra: `CreateKnowledgeBase` valida que el ARN del rol empiece
@@ -83,11 +53,11 @@ const PREFIJO_ROL_KB = "AmazonBedrockExecutionRoleForKnowledgeBase_";
 
 // Cuenta del presupuesto: IAM limita el nombre de un rol a 64 caracteres y el
 // prefijo obligatorio se come 43, así que quedan 21 para el sufijo. Con el slug
-// del template (`craftech-ai-chat`, 16) y un stage largo (`production`, 10) el
-// nombre completo se pasaría — y el error saldría recién al crear el rol.
+// `aersa-chat` (10) y un stage largo (`production`, 10) entra justo; con un slug
+// más largo el nombre se pasaría, y el error saldría recién al crear el rol.
 //
 // Qué se sacrifica y en qué orden. Lo que distingue dos stacks dentro de una
-// misma cuenta (el template es BYOC, una cuenta por cliente) es el STAGE, y dos
+// misma cuenta (el despliegue es BYOC, una cuenta por cliente) es el STAGE, y dos
 // roles con el mismo nombre son el mismo recurso, así que el stage es lo último
 // que se toca:
 //   1. si `slug-stage` entra, va entero;
@@ -109,7 +79,7 @@ const hashStage = createHash("sha256")
   .digest("hex")
   .slice(0, LARGO_HASH_STAGE);
 
-// Recorta y saca los guiones que queden al final: `craftech--production` IAM lo
+// Recorta y saca los guiones que queden al final: `aersa--production` IAM lo
 // acepta, pero no se lee.
 const recorta = (valor: string, largo: number) =>
   valor.slice(0, Math.max(0, largo)).replace(/-+$/, "");
@@ -139,48 +109,18 @@ const kbRole = new aws.iam.Role("KbRole", {
 
 const kbRolePolicy = new aws.iam.RolePolicy("KbRolePolicy", {
   role: kbRole.id,
-  policy: $resolve([
-    kbSource.arn,
-    vectorBucket.vectorBucketArn,
-    vectorIndex.indexArn,
-    EMBED_MODEL_ARN,
-    RERANK_MODEL_ARN,
-  ]).apply(([sourceArn, vbArn, idxArn, embedArn, rerankArn]) =>
+  policy: kbSource.arn.apply((sourceArn) =>
     JSON.stringify({
       Version: "2012-10-17",
       Statement: [
         {
-          // La KB invoca el modelo de embeddings en cada ingesta y en cada
-          // retrieve. Acotado al ARN del modelo que declara la KB.
-          Sid: "Embeddings",
+          // Con embeddings y reranking GESTIONADOS, AWS elige los modelos y no
+          // publica cuáles: no hay ARN al que acotar el permiso. Es el precio
+          // de que el pipeline sea gestionado.
+          Sid: "ModelosGestionados",
           Effect: "Allow",
-          Action: ["bedrock:InvokeModel"],
-          Resource: [embedArn],
-        },
-        // `bedrock:Rerank` no admite scope por recurso; `InvokeModel` sí, y va
-        // acotado al modelo de reranking.
-        ...(cliente.documentos.reranking.activo
-          ? [
-              { Sid: "Reranking", Effect: "Allow", Action: ["bedrock:Rerank"], Resource: "*" },
-              {
-                Sid: "RerankingModelo",
-                Effect: "Allow",
-                Action: ["bedrock:InvokeModel"],
-                Resource: [rerankArn],
-              },
-            ]
-          : []),
-        {
-          // Wildcard de ACCIÓN, acotado por RECURSO al vector bucket y al índice
-          // propios. Deliberado: los nombres de acción de S3 Vectors no los
-          // valida ningún `.d.ts` (mismo caso que el data plane de Memory, ver
-          // infra/CONTRACT.md) y una acción que falte de la lista explícita sale
-          // como un fallo opaco a mitad de la ingesta, no como error de deploy.
-          // Es la forma que ya corre en producción.
-          Sid: "S3Vectors",
-          Effect: "Allow",
-          Action: ["s3vectors:*"],
-          Resource: [vbArn, idxArn],
+          Action: ["bedrock:InvokeModel", "bedrock:Rerank"],
+          Resource: "*",
         },
         {
           // ListBucket va sobre el bucket; GetObject sobre las claves. Cubre
@@ -206,17 +146,10 @@ export const kb = new awsnative.bedrock.KnowledgeBase("Conocimiento", {
   name: `${slugKebab}-conocimiento-${stageSaneado}`,
   roleArn: kbRole.arn,
   knowledgeBaseConfiguration: {
-    type: "VECTOR",
-    vectorKnowledgeBaseConfiguration: {
-      embeddingModelArn: EMBED_MODEL_ARN,
-    },
-  },
-  storageConfiguration: {
-    type: "S3_VECTORS",
-    s3VectorsConfiguration: {
-      vectorBucketArn: vectorBucket.vectorBucketArn,
-      indexArn: vectorIndex.indexArn,
-    },
+    // Gestionada: AWS elige y opera el modelo de embeddings, el reranker y el
+    // almacén de vectores. No hay `storageConfiguration` que declarar.
+    type: "MANAGED",
+    managedKnowledgeBaseConfiguration: { embeddingModelType: "MANAGED" },
   },
   // `dependsOn` explícito sobre la POLICY (no sobre el rol): `CreateKnowledgeBase`
   // valida en el momento que el rol pueda leer el bucket y escribir en el vector
@@ -228,9 +161,18 @@ export const kbDataSource = new awsnative.bedrock.DataSource("KbDataSource", {
   knowledgeBaseId: kb.knowledgeBaseId,
   name: "documentos",
   dataSourceConfiguration: {
-    type: "S3",
-    s3Configuration: {
-      bucketArn: kbSource.arn,
+    // Una KB gestionada rechaza el data source S3 clásico: usa sus conectores.
+    // `connectorParameters` es un documento libre y su forma NO está en el
+    // schema; esta es la que acepta el servicio (verificada contra la API).
+    type: "MANAGED_KNOWLEDGE_BASE_CONNECTOR",
+    managedKnowledgeBaseConnectorConfiguration: {
+      deletionProtectionConfiguration: { deletionProtectionStatus: "DISABLED" },
+      connectorParameters: $util.all([kbSource.nodes.bucket.bucket, aws.getCallerIdentityOutput().accountId])
+        .apply(([bucketName, cuenta]) => ({
+          type: "S3",
+          version: "1",
+          connectionConfiguration: { bucketName, bucketOwnerAccountId: cuenta },
+        })),
     },
   },
   // RETAIN y no el default (DELETE): al borrar el data source, `DELETE` le pide

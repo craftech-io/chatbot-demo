@@ -2,7 +2,7 @@
 
 export default $config({
   // El nombre de la app y la región salen de client.config.ts (ver ese archivo
-  // para qué se toca al adoptar el template). El import va DINÁMICO y adentro
+  // para qué se toca de cada campo). El import va DINÁMICO y adentro
   // de la función: sst rechaza cualquier import top-level en este archivo
   // ("Your sst.config.ts has top level imports - this is not allowed"), y
   // `app()` acepta devolver una promesa.
@@ -27,7 +27,7 @@ export default $config({
         // `region` como el literal `awsnative.Region`: un string plano no
         // satisface ese tipo y hay que castearlo, sin cambiar el valor.
         "aws-native": {
-          version: "1.68.0",
+          version: "1.77.0",
           region: (process.env.AWS_REGION ?? cliente.region) as awsnative.Region,
         },
       },

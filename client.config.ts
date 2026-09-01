@@ -262,31 +262,15 @@ export interface ConfigCliente {
     topK: number;
 
     /**
-     * Reranking de los pasajes recuperados (spec §11). Un modelo de reranking
-     * reordena lo que devolvió la búsqueda vectorial por relevancia real a la
-     * pregunta, y se queda con los mejores `topN`.
+     * Reranking gestionado de los pasajes recuperados (spec §11). Un reranker
+     * reordena lo que devolvió la búsqueda por relevancia real a la pregunta.
      *
-     * Sirve donde la búsqueda vectorial sola trae ruido: corpus grande, o
-     * documentos que comparten vocabulario y se parecen entre sí. Cuesta una
-     * llamada más a un modelo por consulta.
-     *
-     * `activo: false` por default y NO es una preferencia estética: el modelo de
-     * reranking hay que habilitarlo en Bedrock igual que el de generación, no
-     * está en todas las regiones, y el permiso lo necesita **el rol de servicio
-     * de la Knowledge Base**, no la Lambda que hace el Retrieve. Prenderlo sin
-     * el acceso al modelo hace fallar cada consulta a los documentos.
-     *
-     * `amazon.rerank-v1:0` es de AWS y no pide nada más. `cohere.rerank-v3-5:0`
-     * es de un tercero: además exige suscripción en Marketplace y los permisos
-     * `aws-marketplace:ViewSubscriptions` y `Subscribe`.
+     * En una Knowledge Base gestionada no hay modelo que elegir ni acceso que
+     * habilitar: AWS lo opera. Es `true` por default porque mejora la relevancia
+     * sin costo de configuración; se apaga si se quiere el orden crudo de la
+     * búsqueda o para comparar.
      */
-    reranking: {
-      activo: boolean;
-      /** Id del modelo de reranking, sin el ARN. */
-      modelo: string;
-      /** Cuántos pasajes quedan después de reordenar. Menor o igual a `topK`. */
-      topN: number;
-    };
+    rerankingGestionado: boolean;
   };
 }
 
@@ -349,11 +333,6 @@ export const cliente: ConfigCliente = {
   },
   documentos: {
     topK: 5,
-    reranking: {
-      // Ver el doc del campo: prenderlo exige habilitar el modelo en Bedrock.
-      activo: false,
-      modelo: "amazon.rerank-v1:0",
-      topN: 3,
-    },
+    rerankingGestionado: true,
   },
 };

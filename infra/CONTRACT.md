@@ -21,16 +21,15 @@ uno a otro es reimplementar esta lista, nada más.
 | MensajesCola (SQS FIFO) | serializa el procesamiento de mensajes por conversación; el delay de cola es la ventana de debounce | `MessageGroupId = conversationId`; `delaySeconds` 6 (hardcodeado en la infra, ver las notas del sabor SST abajo); redirige a MensajesDlq tras 3 intentos; `visibilityTimeout` 6 minutos — **invariante: siempre ≥ 2x el `timeout` del worker** (hoy 3 minutos, `infra/sst/worker.ts`), o SQS re-entrega el mensaje mientras el primer invoke sigue corriendo y el segundo `procesarMensaje` concurrente pasa el debounce (nada cambió) → doble invocación al agente, doble respuesta, sin error ni DLQ que lo delate |
 | MensajesDlq (SQS FIFO) | destino de mensajes que MensajesCola no pudo entregar tras 3 intentos | también FIFO — SQS no permite que una cola FIFO redirija a una DLQ estándar (ni al revés) |
 | Lambda del worker (`Worker`) | consume MensajesCola (batch size 1) y corre el turno del agente en background: debounce + agregación de pendientes + invoke a AgentCore Runtime + escritura de la respuesta en MessagesTable (spec §8) | permisos: `bedrock-agentcore:InvokeAgentRuntime` (ARN del Runtime propio + sub-recurso `runtime-endpoint/*`); `sqs:ChangeMessageVisibility`+`sqs:DeleteMessage`+`sqs:GetQueueAttributes`+`sqs:GetQueueUrl`+`sqs:ReceiveMessage` sobre MensajesCola (a mano — `subscribe` por ARN no los auto-otorga, ver las notas del sabor SST abajo); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable heredado de `messagesTableLink` (mismo Linkable que usa el BFF, `include` en `infra/sst/mensajeria.ts`); timeout 3 minutos (el turno puede tardar tanto como el invoke completo al Runtime) |
-| Bucket de documentos (`Documentos`) | fuente de la Knowledge Base: acá viven los documentos del cliente (spec §11) | el template no lleva documentos de ningún cliente; el corpus se sube post-deploy. **La ingesta no es automática**: subir un archivo no lo indexa, hay que disparar un ingestion job (`aws bedrock-agent start-ingestion-job`) — ver `examples/documentos/README.md` |
-| Vector bucket + índice de S3 Vectors | el vector store de la Knowledge Base | índice `documentos`: `float32`, dimensión **1024** (tiene que coincidir con el modelo de embeddings: Titan Text Embeddings v2), métrica `cosine`. `AMAZON_BEDROCK_TEXT` y `AMAZON_BEDROCK_METADATA` van como metadata **no filtrable**: son las dos claves donde Bedrock guarda el texto del chunk y su metadata, y filtrables se comen el presupuesto de metadata del índice |
-| Rol de ejecución de la Knowledge Base | lo asume `bedrock.amazonaws.com` | **el nombre del rol DEBE empezar con `AmazonBedrockExecutionRoleForKnowledgeBase_`** — es un requisito de Bedrock (`CreateKnowledgeBase` valida el ARN y si no responde `ValidationException`), no una convención nuestra. Presupuesto de nombre: IAM tope 64 caracteres menos los 43 del prefijo = **21** para el sufijo, así que primero se recorta el slug y, si el stage solo tampoco entra, se lo recorta con un hash corto del stage completo (nunca truncado a secas: dos stages con el mismo prefijo compartirían el rol). Permisos: `bedrock:InvokeModel` sobre el ARN del modelo de embeddings; `s3vectors:*` acotado por recurso al vector bucket y al índice propios (wildcard de acción a propósito: los nombres de acción de S3 Vectors no los valida ningún `.d.ts` y una que falte sale como fallo opaco a mitad de la ingesta); `s3:ListBucket` sobre el bucket de documentos y `s3:GetObject` sobre sus claves |
-| Knowledge Base de Bedrock | RAG sobre los documentos del cliente (spec §11) | `type: VECTOR` con `vectorKnowledgeBaseConfiguration.embeddingModelArn`; `storageConfiguration.type: S3_VECTORS` apuntando al vector bucket y al índice. **Se crea después de la policy del rol** (`dependsOn`): `CreateKnowledgeBase` valida en el momento que el rol pueda leer el bucket y escribir en el vector store |
+| Bucket de documentos (`Documentos`) | fuente de la Knowledge Base: acá viven los documentos del cliente (spec §11) | el repo no lleva documentos; el corpus se sube post-deploy. **La ingesta no es automática**: subir un archivo no lo indexa, hay que disparar un ingestion job (`aws bedrock-agent start-ingestion-job`) — ver `documentos/README.md` |
+| Rol de ejecución de la Knowledge Base | lo asume `bedrock.amazonaws.com` | **el nombre del rol DEBE empezar con `AmazonBedrockExecutionRoleForKnowledgeBase_`** — es un requisito de Bedrock (`CreateKnowledgeBase` valida el ARN y si no responde `ValidationException`), no una convención nuestra. Presupuesto de nombre: IAM tope 64 caracteres menos los 43 del prefijo = **21** para el sufijo, así que primero se recorta el slug y, si el stage solo tampoco entra, se lo recorta con un hash corto del stage completo (nunca truncado a secas: dos stages con el mismo prefijo compartirían el rol). Permisos: `bedrock:InvokeModel` y `bedrock:Rerank` con `Resource: "*"` (con embeddings y reranking gestionados AWS elige los modelos y no publica cuáles: no hay ARN al que acotar); `s3:ListBucket` sobre el bucket de documentos y `s3:GetObject` sobre sus claves |
+| Knowledge Base de Bedrock | RAG sobre los documentos del cliente (spec §11) | `type: MANAGED` con `managedKnowledgeBaseConfiguration.embeddingModelType: MANAGED`. **Sin `storageConfiguration`**: la KB gestionada no tiene vector store propio. El data source va con `type: MANAGED_KNOWLEDGE_BASE_CONNECTOR` — una KB gestionada RECHAZA el data source S3 clásico. Su `connectorParameters` es un documento libre cuya forma no está en el schema: `{"type":"S3","version":"1","connectionConfiguration":{"bucketName","bucketOwnerAccountId"}}`, verificada contra la API. **Se crea después de la policy del rol** (`dependsOn`) |
 | DataSource de la Knowledge Base | conecta el bucket de documentos a la KB | `type: S3` con `s3Configuration.bucketArn`, y **`dataDeletionPolicy: RETAIN`**: con el default (`DELETE`) el borrado del data source le pide a Bedrock que además borre los vectores indexados, y si esa limpieza falla la KB queda en `DELETE_UNSUCCESSFUL` — stack a medio borrar, sin forma limpia de retomarlo (pasó en una cuenta real) |
 | Secreto del webhook de escalamiento | destino del POST que crea el escalamiento (tool `escalar_a_humano`, spec §11.1) | `sst.Secret` `EscalamientoWebhookUrl`, default `""`: sin setear, la tool responde que no hay destino configurado y NO postea — el deploy no corta. **El URL ES el secreto** (estos webhooks llevan el token en el path o el query), así que la Lambda no lo loguea nunca: de un fallo de red loguea solo `error.name` y `cause.code`, jamás el `message` (undici mete el host ahí) ni el cuerpo de la respuesta, y tampoco lo devuelve (el link del ticket sale solo de un `link` explícito y de otro origen que el webhook). El POST va con **`redirect: "manual"` y cualquier 3xx es fallo**: siguiendo el redirect, fetch convierte el POST en GET y descarta el body, así que el 200 del GET daría un `creado: true` falso |
 | Secretos del destino OTLP de trazas | endpoint y headers del backend externo de trazas cuando `observabilidad.destino` es `"otlp"` (spec §17) | `sst.Secret` `ObservabilidadOtlpEndpoint` y `ObservabilidadOtlpHeaders`, default `""` ambos: con `destino: "cloudwatch"` no se usan y el deploy no corta. **El header LLEVA LA CREDENCIAL** del backend (p. ej. `Authorization=Basic ...`): no se loguea nunca, ni en la infra ni en el core. Ojo con el trade-off: viaja como env del Runtime, así que queda legible con `GetAgentRuntime` para quien tenga ese permiso — si el cliente no lo acepta, el destino es CloudWatch |
 | Lambdas de las tools de tenant (`ToolDocumentos`, `ToolEscalamiento`) | implementan `consultar_documentos` (Retrieve sobre la Knowledge Base) y `escalar_a_humano` (POST al webhook) como targets **Lambda** del Gateway | permisos: `bedrock:Retrieve` acotado al `knowledgeBaseArn` (solo ToolDocumentos); y **el rol del Gateway necesita `lambda:InvokeFunction` sobre las dos** (`infra/sst/tools.ts`) o el `tools/call` muere con AccessDenied dentro del Gateway, sin error de deploy que lo delate. En targets Lambda `credentialProviderType: "GATEWAY_IAM_ROLE"` pelado SÍ es válido (en OpenAPI no). Los targets del mismo gateway se crean EN CADENA (`dependsOn`): dos en paralelo dan `InternalFailure` de Cloud Control |
 | Configuración de Transaction Search de X-Ray | habilita las trazas: sin ella AgentCore no publica sus spans en CloudWatch y el endpoint OTLP de X-Ray los rechaza | `AWS::XRay::TransactionSearchConfig` (`awsnative.xray.TransactionSearchConfig`, único argumento de entrada `indexingPercentage`; `accountId` es output). **Es un recurso de CUENTA, no de stage:** dos stages en la misma cuenta declaran dos recursos que apuntan a la MISMA configuración real. Va con `retainOnDelete: true` — destruir un stack no puede dejar ciego al otro stage, y el recurso no guarda datos, es un flag de cuenta. Al revés: cuando se va el último stack la configuración queda prendida (y sigue costando el indexado); apagarla es un acto deliberado. Si dos stages declaran `indexingPercentage` distinto, gana el último deploy |
-| Tracing activo en las 5 Lambdas (`Chat`, `Worker`, `ToolDocumentos`, `ToolEscalamiento`, `ApiClienteDemo`) | une la traza de punta a punta: BFF → cola → worker → Runtime | `tracingConfig.mode: "Active"` sobre la Lambda (`PassThrough` solo propaga la traza del llamador, no genera segmentos propios). Necesita además `xray:PutTraceSegments` + `xray:PutTelemetryRecords` **en el rol de cada Lambda** (ninguna de las dos acciones soporta scope por recurso): el tracing no trae sus permisos puestos, y sin ellos no hay traza ni error que lo delate. Sin esto la traza se corta en cada salto — justo donde vive el debounce |
+| Tracing activo en las 5 Lambdas (`Chat`, `Worker`, `ToolDocumentos`, `ToolEscalamiento`, `ApiNegocio`) | une la traza de punta a punta: BFF → cola → worker → Runtime | `tracingConfig.mode: "Active"` sobre la Lambda (`PassThrough` solo propaga la traza del llamador, no genera segmentos propios). Necesita además `xray:PutTraceSegments` + `xray:PutTelemetryRecords` **en el rol de cada Lambda** (ninguna de las dos acciones soporta scope por recurso): el tracing no trae sus permisos puestos, y sin ellos no hay traza ni error que lo delate. Sin esto la traza se corta en cada salto — justo donde vive el debounce |
 | Dashboard de CloudWatch | lo que el cliente mira: derivaciones sobre conversaciones, latencia, errores, tokens e invocaciones por tool | se arma sobre las métricas que el servicio YA emite (namespace **`AWS/Bedrock-AgentCore`**, con guion), sin instrumentar nada. Los tokens salen de `AWS/Bedrock` (`InputTokenCount`/`OutputTokenCount`, dimensión única `ModelId`). Los nombres de recurso salen de los módulos de infra (ARN del Runtime y del Gateway, nombre MCP de la tool de escalamiento), nunca escritos a mano |
 
 ## Variables que recibe el core (contenedor)
@@ -73,7 +72,7 @@ ellas el contenedor arranca igual y no exporta nada** — el entrypoint
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `https://xray.<region>.amazonaws.com/v1/traces` con `destino: "cloudwatch"`; el secreto `ObservabilidadOtlpEndpoint` con `destino: "otlp"` | El destino es un adaptador de UNA env: misma clave, otro valor. Con el endpoint de X-Ray el distro elige su exporter SigV4 mirando ESTE valor (compara el host con el del servicio X-Ray), no una flag aparte. **Exige Transaction Search habilitado en la cuenta.** Los endpoints son POR SEÑAL: cambiar el de trazas no mueve las métricas |
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | el secreto `ObservabilidadOtlpHeaders`, solo con `destino: "otlp"` | Lleva la credencial del backend externo. **No se loguea nunca** |
 
-**Redacción — el default del template.** Los ~14 `OPENINFERENCE_HIDE_*` vienen en
+**Redacción — el default del proyecto.** Los ~14 `OPENINFERENCE_HIDE_*` vienen en
 `False` de fábrica: sin estas env **la conversación completa y el prompt de
 sistema viajan en los spans**. Con `observabilidad.contenidoEnTrazas: false` (el
 default) la infra pone en `true` las diez que tapan contenido —
@@ -108,6 +107,14 @@ flags, una decisión de **residencia de datos**.
 
 
 ## Variables que recibe la tool de documentos
+
+**Búsqueda**: una Knowledge Base gestionada exige `managedSearchConfiguration` en
+el `Retrieve` y rechaza `vectorSearchConfiguration` con un `ValidationException`.
+El reranking se pide con `rerankingModelType` (`MANAGED` | `NONE`), no con un ARN
+de modelo: no hay modelo que elegir ni acceso que habilitar. **No existe
+`overrideSearchType`**, así que la estrategia de búsqueda la decide el servicio y
+no se puede pedir híbrida explícitamente.
+
 
 La tool `consultar_documentos` corre en su propia Lambda y hace `Retrieve`
 contra la Knowledge Base.
@@ -238,17 +245,14 @@ silencio.
   build y un typo sale como `AccessDenied` en runtime.
 - La Knowledge Base de Bedrock NO existe en el provider classic: va por
   `awsnative.bedrock.KnowledgeBase` (espeja el tipo CFN
-  `AWS::Bedrock::KnowledgeBase`, el único que soporta `S3VectorsConfiguration`).
+  `AWS::Bedrock::KnowledgeBase`, que es donde vive `ManagedKnowledgeBaseConfiguration`).
   Sus outputs se llaman `knowledgeBaseId` y `knowledgeBaseArn`, no `.id`/`.arn`.
-  El vector store va por `awsnative.s3vectors.VectorBucket` +
-  `awsnative.s3vectors.Index` (`vectorBucketArn`, `indexArn`); ojo con el import
-  del índice, que el paquete lo exporta desde `index_` y lo reexporta como
-  `Index`. `Index.vectorBucketName` está tipado `Output<string | undefined>`
-  (CloudFormation lo autogenera si no se lo pasás), así que hay que resolverlo.
-- Los nombres de acción de S3 Vectors (`s3vectors:*`) tampoco aparecen en los
-  `.d.ts`: el rol de la KB usa el wildcard de acción acotado por recurso al
-  vector bucket y al índice propios, porque una acción que falte de una lista
-  explícita no falla el deploy — sale como un error opaco a mitad de la ingesta.
+- **Requiere `@pulumi/aws-native` >= 1.77**: en 1.68 el tipo existe en el schema
+  de CloudFormation pero el provider todavía no lo expone.
+- `connectorParameters` del data source está tipado `any` (es un documento libre
+  del servicio): el compilador no valida su forma y un campo mal puesto sale como
+  un data source en `FAILED` con el motivo recién en `failureReasons`, no como
+  error de deploy.
 
 ### Propiedades createOnly de la Knowledge Base
 
@@ -265,25 +269,19 @@ deploy si lo leés.
   `infra/sst/conocimiento.ts` NO declara chunking: se toma el default del
   servicio (fixed-size), y tunearlo después implica recrear el data source y
   reingestar todo el corpus.
-- La dimensión del índice de S3 Vectors y la del modelo de embeddings tienen que
-  coincidir (1024 con Titan v2). Cambiar de modelo es cambiar las dos cosas, o
-  sea recrear índice y KB.
 
-### Alfabetos de nombres físicos (S3 Vectors y el rol de la KB)
+### Alfabetos de nombres físicos (el rol de la KB)
 
 Además de los tres alfabetos que ya traduce `infra/sst/nombres.ts`:
 
-- Vector bucket e índice de S3 Vectors: minúsculas, dígitos y guiones, 3–63
-  caracteres. NO aceptan mayúsculas ni `_`, así que el stage se sanea (un stage
-  `PR_12` haría fallar el create).
 - Rol de ejecución de la KB: el prefijo `AmazonBedrockExecutionRoleForKnowledgeBase_`
   que exige Bedrock se come 43 de los 64 caracteres que IAM permite en un nombre
-  de rol. Quedan 21 para el sufijo, y el slug del template ya mide 16: con un
+  de rol. Quedan 21 para el sufijo, y el slug `aersa-chat` mide 10: con un
   stage largo el nombre se pasa. `infra/sst/conocimiento.ts` sacrifica en este
   orden: primero recorta el SLUG y preserva el stage entero; y si el stage solo
   ya no entra en los 21, lo recorta y le cuelga un hash corto del stage completo
   en vez de truncarlo. El stage es lo último que se toca porque dentro de una
-  misma cuenta (el template es BYOC, una cuenta por cliente) es lo que distingue
+  misma cuenta (el despliegue es BYOC, una cuenta por cliente) es lo que distingue
   dos stacks: dos stages truncados al mismo nombre serían el mismo rol, y el
   segundo deploy moriría con `EntityAlreadyExists`.
 

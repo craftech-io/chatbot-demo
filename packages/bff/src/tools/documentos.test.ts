@@ -30,7 +30,7 @@ function clienteFalso(retrievalResults: unknown[]) {
 }
 
 function numberOfResults(send: ReturnType<typeof clienteFalso>["send"]) {
-  return send.mock.calls[0]![0].input.retrievalConfiguration?.vectorSearchConfiguration
+  return send.mock.calls[0]![0].input.retrievalConfiguration?.managedSearchConfiguration
     ?.numberOfResults;
 }
 
@@ -61,7 +61,7 @@ describe("consultar_documentos", () => {
   });
 
   // La metadata del sidecar es la ÚNICA forma de citar por título (spec §11):
-  // sin esto los `.metadata.json` de examples/documentos son inertes y la regla
+  // sin esto los `.metadata.json` de documentos son inertes y la regla
   // "citá con el título" del prompt del sistema no se puede cumplir.
   it("superficializa los atributos del cliente: `title` -> titulo, `url` -> url", async () => {
     const { cliente } = clienteFalso([
@@ -172,7 +172,7 @@ describe("consultar_documentos", () => {
     expect(numberOfResults(send)).toBe(2);
   });
 
-  it("sin topK en el input usa el default del cliente, y sin ese el del template", async () => {
+  it("sin topK en el input usa el default del cliente, y sin ese el del proyecto", async () => {
     const conDefault = clienteFalso([]);
     await crearConsultarDocumentos({
       knowledgeBaseId: KB_ID,
@@ -211,44 +211,31 @@ describe("consultar_documentos", () => {
   });
 });
 
-describe("reranking", () => {
+describe("busqueda gestionada", () => {
   function configDelRetrieve(send: ReturnType<typeof clienteFalso>["send"]) {
-    return send.mock.calls[0]![0].input.retrievalConfiguration?.vectorSearchConfiguration;
+    return send.mock.calls[0]![0].input.retrievalConfiguration;
   }
 
-  it("sin reranking configurado el Retrieve no lo manda", async () => {
+  it("usa managedSearchConfiguration y no vectorSearchConfiguration", async () => {
+    // Una KB gestionada rechaza el segundo con un ValidationException.
     const { cliente, send } = clienteFalso([]);
     await crearConsultarDocumentos({ knowledgeBaseId: "kb", cliente })({ consulta: "x" });
-    expect(configDelRetrieve(send)?.rerankingConfiguration).toBeUndefined();
+    const cfg = configDelRetrieve(send);
+    expect(cfg?.vectorSearchConfiguration).toBeUndefined();
+    expect(cfg?.managedSearchConfiguration?.numberOfResults).toBe(TOP_K_DEFAULT);
   });
 
-  it("con reranking manda el modelo y el topN reordenado", async () => {
+  it("el reranking gestionado viene prendido", async () => {
     const { cliente, send } = clienteFalso([]);
-    await crearConsultarDocumentos({
-      knowledgeBaseId: "kb",
-      cliente,
-      reranking: { modeloArn: "arn:aws:bedrock:us-east-1::foundation-model/amazon.rerank-v1:0", topN: 3 },
-    })({ consulta: "x" });
-    expect(configDelRetrieve(send)?.rerankingConfiguration).toEqual({
-      type: "BEDROCK_RERANKING_MODEL",
-      bedrockRerankingConfiguration: {
-        modelConfiguration: {
-          modelArn: "arn:aws:bedrock:us-east-1::foundation-model/amazon.rerank-v1:0",
-        },
-        numberOfRerankedResults: 3,
-      },
-    });
+    await crearConsultarDocumentos({ knowledgeBaseId: "kb", cliente })({ consulta: "x" });
+    expect(configDelRetrieve(send)?.managedSearchConfiguration?.rerankingModelType).toBe("MANAGED");
   });
 
-  it("sin topN no manda numberOfRerankedResults", async () => {
+  it("se puede apagar", async () => {
     const { cliente, send } = clienteFalso([]);
     await crearConsultarDocumentos({
-      knowledgeBaseId: "kb",
-      cliente,
-      reranking: { modeloArn: "arn:modelo" },
+      knowledgeBaseId: "kb", cliente, rerankingGestionado: false,
     })({ consulta: "x" });
-    expect(
-      configDelRetrieve(send)?.rerankingConfiguration?.bedrockRerankingConfiguration,
-    ).toEqual({ modelConfiguration: { modelArn: "arn:modelo" } });
+    expect(configDelRetrieve(send)?.managedSearchConfiguration?.rerankingModelType).toBe("NONE");
   });
 });

@@ -13,7 +13,6 @@
 // Los dos roles son distintos a propósito: el Runtime no necesita invocar
 // Lambdas y el Gateway no necesita invocar modelos.
 import { cliente } from "../../client.config";
-import { RERANK_MODEL_ARN } from "./conocimiento";
 import {
   atlassianClientId,
   atlassianClientSecret,
@@ -77,18 +76,13 @@ export const toolDocumentos = new sst.aws.Function("ToolDocumentos", {
     },
   ],
   // `documentos.topK` es un `number` requerido en ConfigCliente: siempre hay
-  // valor, así que no hay nada que condicionar (el default del template lo
+  // valor, así que no hay nada que condicionar (el default del proyecto lo
   // aplica la tool, no la infra).
   environment: {
     DOCUMENTOS_TOP_K: String(topKDocumentos),
-    // Solo con el reranking prendido: sin estas env la tool consulta sin
-    // reordenar, que es lo correcto si el modelo no está habilitado.
-    ...(cliente.documentos.reranking.activo
-      ? {
-          RERANK_MODEL_ARN: RERANK_MODEL_ARN,
-          RERANK_TOP_N: String(cliente.documentos.reranking.topN),
-        }
-      : {}),
+    // En una KB gestionada el reranking es un modo, no un modelo que elegir:
+    // AWS opera el reranker.
+    RERANK_MODO: cliente.documentos.rerankingGestionado ? "MANAGED" : "NONE",
   },
 });
 

@@ -354,26 +354,17 @@ de producto, y el agente perdería justo el dato que necesita para responder. La
 de CUIT se apoya en los prefijos (20/23/24/27 personas, 30/33/34 empresas), que
 es lo que la distingue de un número de 11 dígitos cualquiera.
 
-## Reranking de los pasajes
+## Reranking
 
-`documentos.reranking` en `client.config.ts`. Viene **apagado**, y prenderlo no
-es solo cambiar el flag:
+`documentos.rerankingGestionado` en `client.config.ts`, prendido por default. En
+una Knowledge Base gestionada **no hay modelo que elegir ni acceso que
+habilitar**: AWS opera el reranker y se pide con `rerankingModelType: MANAGED`.
 
-1. Habilitar el modelo de reranking en Bedrock (`amazon.rerank-v1:0` es de AWS;
-   `cohere.rerank-v3-5:0` es de un tercero y además pide suscripción en
-   Marketplace más los permisos `aws-marketplace:ViewSubscriptions` y
-   `Subscribe`).
-2. Verificar que el modelo exista en la región del deploy: **el reranking no
-   está en todas**.
-
-El permiso `bedrock:Rerank` lo necesita **el rol de servicio de la Knowledge
-Base**, no la Lambda que llama al Retrieve — `infra/sst/conocimiento.ts` ya lo
-agrega cuando el flag está prendido. Puesto en el rol de la Lambda, cada consulta
-falla con AccessDenied.
-
-**Hybrid search no tiene camino hoy**: exige un vector store con campo de texto
-filtrable, o sea OpenSearch Serverless. Con S3 Vectors solo hay búsqueda
-semántica. Si el cliente lo pide, la conversación es sobre los ~US$350/mes de AOSS.
+**Búsqueda híbrida: no se puede pedir.** `managedSearchConfiguration` no tiene
+`overrideSearchType`, así que la estrategia la decide el servicio. Puede que
+internamente use híbrida —el pipeline es gestionado— pero no es configurable ni
+verificable desde la API. Si el requisito es híbrida *comprobable*, hay que
+volver a un vector store propio sobre OpenSearch.
 
 ## Adjuntos de Confluence
 

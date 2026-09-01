@@ -138,7 +138,7 @@ const toolEsc = caja("tool-esc", { x: 1490, y: 810, w: 210, h: 80, texto: "escal
 // Conocimiento.
 const ingestor = caja("ingestor", { x: 390, y: 960, w: 230, h: 80, texto: "Ingestor\nEventBridge Scheduler", paleta: P.ts });
 const bucket = caja("bucket", { x: 700, y: 960, w: 190, h: 80, texto: "Bucket\nDocumentos", paleta: P.datos });
-const kb = caja("kb", { x: 970, y: 960, w: 220, h: 80, texto: "Knowledge Base\nS3 Vectors", paleta: P.datos });
+const kb = caja("kb", { x: 970, y: 960, w: 220, h: 80, texto: "Knowledge Base\ngestionada", paleta: P.datos });
 
 // Flujo.
 flecha(web, bff, { de: [1, 0.28], a: [0, 0.28], etiqueta: "POST" });

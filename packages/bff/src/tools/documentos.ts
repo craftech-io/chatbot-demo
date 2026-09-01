@@ -10,7 +10,7 @@
 // fuente no sirve. Citable hay dos cosas y son distintas:
 //   - `fuente`: la URI del documento en S3, que existe siempre;
 //   - `titulo`/`url`: los atributos que el CLIENTE declara en el sidecar
-//     `<archivo>.metadata.json` (ver examples/documentos/). Son lo legible, y
+//     `<archivo>.metadata.json` (ver documentos/). Son lo legible, y
 //     por eso se superficializan: sin ellos, "citá con el título" (regla 3 del
 //     `promptSistema`) solo se puede cumplir pegando la URI de un bucket
 //     interno.
@@ -28,7 +28,7 @@ import {
 } from "@aws-sdk/client-bedrock-agent-runtime";
 import { Resource } from "sst";
 
-// Default del template si el cliente no configuró `documentos.topK`. Más
+// Default si no se configuró `documentos.topK`. Más
 // pasajes = más contexto pero también más ruido y más tokens por turno.
 export const TOP_K_DEFAULT = 5;
 
@@ -65,11 +65,10 @@ export type RespuestaDocumentos = { resultados: ResultadoDocumento[]; nota?: str
 type DepsDocumentos = {
   knowledgeBaseId: string;
   /**
-   * Reranking opcional. Lo ejecuta la KB con su propio rol: si ese rol no tiene
-   * `bedrock:Rerank` + `InvokeModel` sobre el modelo, cada consulta falla con
-   * AccessDenied (ver infra/sst/conocimiento.ts).
+   * Reranking gestionado: la KB reordena los pasajes por relevancia con un
+   * reranker que opera AWS. `false` devuelve el orden crudo de la búsqueda.
    */
-  reranking?: { modeloArn: string; topN?: number };
+  rerankingGestionado?: boolean;
   cliente: BedrockAgentRuntimeClient;
   /** Default por cliente (`documentos.topK`). Ausente o absurdo ⇒ TOP_K_DEFAULT. */
   topKDefault?: number;
@@ -143,23 +142,12 @@ export function crearConsultarDocumentos(deps: DepsDocumentos) {
           knowledgeBaseId: deps.knowledgeBaseId,
           retrievalQuery: { text: consulta },
           retrievalConfiguration: {
-            vectorSearchConfiguration: {
+            // Una Knowledge Base GESTIONADA rechaza `vectorSearchConfiguration`
+            // ("not supported for managed knowledge bases"): la búsqueda se
+            // configura acá, y la estrategia la decide el servicio.
+            managedSearchConfiguration: {
               numberOfResults: topK,
-              // En el Retrieve el campo es `numberOfRerankedResults`; el
-              // `numberOfResults` de la API Rerank directa es otro.
-              ...(deps.reranking
-                ? {
-                    rerankingConfiguration: {
-                      type: "BEDROCK_RERANKING_MODEL" as const,
-                      bedrockRerankingConfiguration: {
-                        modelConfiguration: { modelArn: deps.reranking.modeloArn },
-                        ...(deps.reranking.topN
-                          ? { numberOfRerankedResults: deps.reranking.topN }
-                          : {}),
-                      },
-                    },
-                  }
-                : {}),
+              rerankingModelType: deps.rerankingGestionado === false ? "NONE" : "MANAGED",
             },
           },
         }),
@@ -209,18 +197,9 @@ export const handler = async (event: EntradaDocumentos): Promise<RespuestaDocume
     knowledgeBaseId: process.env.KNOWLEDGE_BASE_ID ?? Resource.KnowledgeBase.id,
     cliente: clienteDefault,
     // La infra la setea desde `documentos.topK` de client.config.ts. Ausente o
-    // vacía ⇒ NaN ⇒ el default del template.
+    // vacía ⇒ NaN ⇒ el default del proyecto.
     topKDefault: Number(process.env.DOCUMENTOS_TOP_K),
-    // La infra solo setea estas env cuando `documentos.reranking.activo` es
-    // true: ausentes, la consulta va sin reranking.
-    ...(process.env.RERANK_MODEL_ARN
-      ? {
-          reranking: {
-            modeloArn: process.env.RERANK_MODEL_ARN,
-            topN: Number(process.env.RERANK_TOP_N) || undefined,
-          },
-        }
-      : {}),
+    rerankingGestionado: process.env.RERANK_MODO !== "NONE",
   });
   return consultar(event ?? {});
 };
