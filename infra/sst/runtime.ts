@@ -13,7 +13,6 @@ import { cliente } from "../../client.config";
 import { slugKebab, slugCamel } from "./nombres";
 import { guardrail } from "./guardrail";
 import { createHash } from "node:crypto";
-import { memoria } from "./memoria";
 import { gateway } from "./gateway";
 import { apiClienteDemoUrl } from "./api-cliente";
 
@@ -69,7 +68,7 @@ const versionDelPrompt = createHash("sha256")
   .digest("hex")
   .slice(0, 12);
 
-// Redacción. El default del template es REDACTADO: los ~14 `OPENINFERENCE_HIDE_*`
+// Redacción. El default es REDACTADO: los ~14 `OPENINFERENCE_HIDE_*`
 // vienen en `False` de fábrica, o sea que sin estas env la conversación completa
 // y el prompt de sistema viajan en los spans.
 //
@@ -323,14 +322,6 @@ new aws.iam.RolePolicy("RuntimeRolePolicy", {
         Resource: "*",
       },
       {
-        // Data plane de Memory: el core lista y crea eventos de la conversación.
-        // Estos nombres de acción no aparecen en los `.d.ts` de aws/aws-native:
-        // no hay typecheck que los valide, un typo sale como AccessDenied.
-        Effect: "Allow",
-        Action: ["bedrock-agentcore:CreateEvent", "bedrock-agentcore:ListEvents"],
-        Resource: [$interpolate`${memoria.memoryArn}*`],
-      },
-      {
         // Tarifas para el costo por conversación (`core/src/agent/costo.py`).
         // La Price List API NO soporta scoping por recurso: `"*"` es lo único
         // que existe. Es read-only y devuelve el catálogo PÚBLICO de precios de
@@ -396,14 +387,9 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
   roleArn: role.arn,
   environmentVariables: {
     MODEL_ID: cliente.modelo,
-    // Encienden el guardrail de salida (modo sync) del core.
-    GUARDRAIL_ID: guardrail.guardrailId,
-    GUARDRAIL_VERSION: guardrail.version,
-    // Memoria de conversación gestionada (AgentCore Memory, ver ./memoria.ts).
-    MEMORY_ID: memoria.memoryId,
     // GATEWAY_URL: el endpoint MCP del gateway — el recurso lo expone como
     // atributo `gatewayUrl`. CLIENT_API_URL: base de la API del cliente (acá,
-    // la demo) SIN barra final. Vacías o ausentes ⇒ el core corre sin esas
+    // la app web) SIN barra final. Vacías o ausentes ⇒ el core corre sin esas
     // tools (contrato del core).
     GATEWAY_URL: gateway.gatewayUrl,
     CLIENT_API_URL: apiClienteDemoUrl,

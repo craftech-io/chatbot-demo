@@ -335,7 +335,7 @@
           "type": "text"
         },
         {
-          "id": "flecha-025",
+          "id": "flecha-024",
           "type": "arrow"
         }
       ],
@@ -413,7 +413,7 @@
           "type": "text"
         },
         {
-          "id": "flecha-022",
+          "id": "flecha-021",
           "type": "arrow"
         }
       ],
@@ -491,7 +491,7 @@
           "type": "text"
         },
         {
-          "id": "flecha-023",
+          "id": "flecha-022",
           "type": "arrow"
         }
       ],
@@ -585,7 +585,7 @@
           "type": "arrow"
         },
         {
-          "id": "flecha-012",
+          "id": "flecha-011",
           "type": "arrow"
         },
         {
@@ -757,6 +757,10 @@
           "type": "arrow"
         },
         {
+          "id": "flecha-012",
+          "type": "arrow"
+        },
+        {
           "id": "flecha-013",
           "type": "arrow"
         }
@@ -843,19 +847,11 @@
           "type": "arrow"
         },
         {
-          "id": "flecha-011",
-          "type": "arrow"
-        },
-        {
           "id": "flecha-015",
           "type": "arrow"
         },
         {
-          "id": "flecha-016",
-          "type": "arrow"
-        },
-        {
-          "id": "flecha-025",
+          "id": "flecha-024",
           "type": "arrow"
         }
       ],
@@ -1011,6 +1007,10 @@
           "type": "text"
         },
         {
+          "id": "flecha-011",
+          "type": "arrow"
+        },
+        {
           "id": "flecha-012",
           "type": "arrow"
         },
@@ -1095,10 +1095,6 @@
         {
           "id": "flecha-014",
           "type": "arrow"
-        },
-        {
-          "id": "flecha-015",
-          "type": "arrow"
         }
       ],
       "updated": 1,
@@ -1134,92 +1130,14 @@
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "Guardrails\nPII · contenido",
-      "originalText": "Guardrails\nPII · contenido",
+      "text": "Guardrails\nentrada · PII",
+      "originalText": "Guardrails\nentrada · PII",
       "fontSize": 16,
       "fontFamily": 5,
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "caja-guardrail",
-      "autoResize": true
-    },
-    {
-      "id": "caja-memoria",
-      "type": "rectangle",
-      "x": 1660,
-      "y": 470,
-      "width": 180,
-      "height": 80,
-      "angle": 0,
-      "strokeColor": "#0c8599",
-      "backgroundColor": "#99e9f2",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": null,
-      "roundness": {
-        "type": 3
-      },
-      "seed": 1371962656,
-      "version": 1,
-      "versionNonce": 1550365614,
-      "isDeleted": false,
-      "boundElements": [
-        {
-          "id": "texto-memoria",
-          "type": "text"
-        },
-        {
-          "id": "flecha-011",
-          "type": "arrow"
-        }
-      ],
-      "updated": 1,
-      "link": null,
-      "locked": false
-    },
-    {
-      "id": "texto-memoria",
-      "type": "text",
-      "x": 1668,
-      "y": 490,
-      "width": 164,
-      "height": 40,
-      "angle": 0,
-      "strokeColor": "#1e1e1e",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": null,
-      "roundness": {
-        "type": 3
-      },
-      "seed": 358877907,
-      "version": 1,
-      "versionNonce": 336922459,
-      "isDeleted": false,
-      "boundElements": null,
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "text": "AgentCore\nMemory",
-      "originalText": "AgentCore\nMemory",
-      "fontSize": 16,
-      "fontFamily": 5,
-      "lineHeight": 1.25,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "caja-memoria",
       "autoResize": true
     },
     {
@@ -1243,9 +1161,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1256576657,
+      "seed": 1371962656,
       "version": 1,
-      "versionNonce": 1457486433,
+      "versionNonce": 1550365614,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1278,9 +1196,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 152759313,
+      "seed": 358877907,
       "version": 1,
-      "versionNonce": 2134354073,
+      "versionNonce": 336922459,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1317,14 +1235,18 @@
       "roundness": {
         "type": 3
       },
-      "seed": 549909417,
+      "seed": 1256576657,
       "version": 1,
-      "versionNonce": 25246866,
+      "versionNonce": 1457486433,
       "isDeleted": false,
       "boundElements": [
         {
           "id": "texto-gateway",
           "type": "text"
+        },
+        {
+          "id": "flecha-015",
+          "type": "arrow"
         },
         {
           "id": "flecha-016",
@@ -1336,10 +1258,6 @@
         },
         {
           "id": "flecha-018",
-          "type": "arrow"
-        },
-        {
-          "id": "flecha-019",
           "type": "arrow"
         }
       ],
@@ -1368,9 +1286,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1882024951,
+      "seed": 152759313,
       "version": 1,
-      "versionNonce": 199968210,
+      "versionNonce": 2134354073,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1407,9 +1325,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 452908882,
+      "seed": 549909417,
       "version": 1,
-      "versionNonce": 224925271,
+      "versionNonce": 25246866,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1417,11 +1335,11 @@
           "type": "text"
         },
         {
-          "id": "flecha-017",
+          "id": "flecha-016",
           "type": "arrow"
         },
         {
-          "id": "flecha-020",
+          "id": "flecha-019",
           "type": "arrow"
         }
       ],
@@ -1450,9 +1368,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1364055505,
+      "seed": 1882024951,
       "version": 1,
-      "versionNonce": 1874289867,
+      "versionNonce": 199968210,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1489,9 +1407,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 724969810,
+      "seed": 452908882,
       "version": 1,
-      "versionNonce": 1145517885,
+      "versionNonce": 224925271,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1499,7 +1417,7 @@
           "type": "text"
         },
         {
-          "id": "flecha-018",
+          "id": "flecha-017",
           "type": "arrow"
         }
       ],
@@ -1528,9 +1446,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 510344460,
+      "seed": 1364055505,
       "version": 1,
-      "versionNonce": 1932291013,
+      "versionNonce": 1874289867,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1567,9 +1485,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 760026882,
+      "seed": 724969810,
       "version": 1,
-      "versionNonce": 732490928,
+      "versionNonce": 1145517885,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1577,11 +1495,11 @@
           "type": "text"
         },
         {
-          "id": "flecha-019",
+          "id": "flecha-018",
           "type": "arrow"
         },
         {
-          "id": "flecha-022",
+          "id": "flecha-021",
           "type": "arrow"
         }
       ],
@@ -1610,9 +1528,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1704592191,
+      "seed": 510344460,
       "version": 1,
-      "versionNonce": 1702912547,
+      "versionNonce": 1932291013,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1649,9 +1567,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1405818270,
+      "seed": 760026882,
       "version": 1,
-      "versionNonce": 256998007,
+      "versionNonce": 732490928,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1659,11 +1577,11 @@
           "type": "text"
         },
         {
-          "id": "flecha-023",
+          "id": "flecha-022",
           "type": "arrow"
         },
         {
-          "id": "flecha-024",
+          "id": "flecha-023",
           "type": "arrow"
         }
       ],
@@ -1692,9 +1610,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1340781180,
+      "seed": 1704592191,
       "version": 1,
-      "versionNonce": 977860006,
+      "versionNonce": 1702912547,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1731,9 +1649,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1312863440,
+      "seed": 1405818270,
       "version": 1,
-      "versionNonce": 1505404123,
+      "versionNonce": 256998007,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1741,11 +1659,11 @@
           "type": "text"
         },
         {
-          "id": "flecha-021",
+          "id": "flecha-020",
           "type": "arrow"
         },
         {
-          "id": "flecha-024",
+          "id": "flecha-023",
           "type": "arrow"
         }
       ],
@@ -1774,9 +1692,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1563485800,
+      "seed": 1340781180,
       "version": 1,
-      "versionNonce": 1616457662,
+      "versionNonce": 977860006,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1813,9 +1731,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 251393853,
+      "seed": 1312863440,
       "version": 1,
-      "versionNonce": 1685992893,
+      "versionNonce": 1505404123,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1823,11 +1741,11 @@
           "type": "text"
         },
         {
-          "id": "flecha-020",
+          "id": "flecha-019",
           "type": "arrow"
         },
         {
-          "id": "flecha-021",
+          "id": "flecha-020",
           "type": "arrow"
         }
       ],
@@ -1856,9 +1774,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 2129555223,
+      "seed": 1563485800,
       "version": 1,
-      "versionNonce": 895629571,
+      "versionNonce": 1616457662,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1893,9 +1811,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 519173657,
+      "seed": 251393853,
       "version": 1,
-      "versionNonce": 641623863,
+      "versionNonce": 1685992893,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -1932,9 +1850,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 724948192,
+      "seed": 2129555223,
       "version": 1,
-      "versionNonce": 1748786008,
+      "versionNonce": 895629571,
       "isDeleted": false,
       "boundElements": [
         {
@@ -1994,9 +1912,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 2032666525,
+      "seed": 519173657,
       "version": 1,
-      "versionNonce": 1192053765,
+      "versionNonce": 641623863,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2033,9 +1951,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 53733557,
+      "seed": 724948192,
       "version": 1,
-      "versionNonce": 547667382,
+      "versionNonce": 1748786008,
       "isDeleted": false,
       "boundElements": [
         {
@@ -2095,9 +2013,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 427599276,
+      "seed": 2032666525,
       "version": 1,
-      "versionNonce": 816704271,
+      "versionNonce": 1192053765,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2134,9 +2052,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 1833538488,
+      "seed": 53733557,
       "version": 1,
-      "versionNonce": 600756938,
+      "versionNonce": 547667382,
       "isDeleted": false,
       "boundElements": [
         {
@@ -2196,9 +2114,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 669777129,
+      "seed": 427599276,
       "version": 1,
-      "versionNonce": 1078168815,
+      "versionNonce": 816704271,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2235,9 +2153,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 1116987759,
+      "seed": 1833538488,
       "version": 1,
-      "versionNonce": 347552774,
+      "versionNonce": 600756938,
       "isDeleted": false,
       "boundElements": [
         {
@@ -2299,9 +2217,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 597145437,
+      "seed": 669777129,
       "version": 1,
-      "versionNonce": 1655687195,
+      "versionNonce": 1078168815,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2356,9 +2274,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1718142206,
+      "seed": 1116987759,
       "version": 1,
-      "versionNonce": 364204249,
+      "versionNonce": 347552774,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2395,9 +2313,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 684945300,
+      "seed": 597145437,
       "version": 1,
-      "versionNonce": 1131964605,
+      "versionNonce": 1655687195,
       "isDeleted": false,
       "boundElements": [
         {
@@ -2459,9 +2377,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 201853641,
+      "seed": 1718142206,
       "version": 1,
-      "versionNonce": 2035990313,
+      "versionNonce": 364204249,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2498,66 +2416,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-011",
-      "type": "arrow",
-      "x": 1590,
-      "y": 373,
-      "width": 160,
-      "height": 97,
-      "angle": 0,
-      "strokeColor": "#495057",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": null,
-      "roundness": {
-        "type": 2
-      },
-      "seed": 1391733197,
-      "version": 1,
-      "versionNonce": 1122038718,
-      "isDeleted": false,
-      "boundElements": null,
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          160,
-          97
-        ]
-      ],
-      "startBinding": {
-        "elementId": "caja-runtime",
-        "fixedPoint": [
-          1,
-          0.9
-        ],
-        "mode": "orbit"
-      },
-      "endBinding": {
-        "elementId": "caja-memoria",
-        "fixedPoint": [
-          0.5,
-          0
-        ],
-        "mode": "orbit"
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false
-    },
-    {
-      "id": "flecha-012-txt",
+      "id": "flecha-011-txt",
       "type": "text",
       "x": 465.5,
       "y": 410,
@@ -2575,9 +2434,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1767748793,
+      "seed": 684945300,
       "version": 1,
-      "versionNonce": 1613845576,
+      "versionNonce": 1131964605,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2590,11 +2449,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-012",
+      "containerId": "flecha-011",
       "autoResize": true
     },
     {
-      "id": "flecha-012",
+      "id": "flecha-011",
       "type": "arrow",
       "x": 490,
       "y": 370,
@@ -2614,13 +2473,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 634197771,
+      "seed": 201853641,
       "version": 1,
-      "versionNonce": 1179062172,
+      "versionNonce": 2035990313,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-012-txt",
+          "id": "flecha-011-txt",
           "type": "text"
         }
       ],
@@ -2658,7 +2517,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-013-txt",
+      "id": "flecha-012-txt",
       "type": "text",
       "x": 792.75,
       "y": 420,
@@ -2676,9 +2535,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1707627496,
+      "seed": 1391733197,
       "version": 1,
-      "versionNonce": 1637483738,
+      "versionNonce": 1122038718,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2691,11 +2550,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-013",
+      "containerId": "flecha-012",
       "autoResize": true
     },
     {
-      "id": "flecha-013",
+      "id": "flecha-012",
       "type": "arrow",
       "x": 1058.5,
       "y": 370,
@@ -2715,13 +2574,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 1221728643,
+      "seed": 1767748793,
       "version": 1,
-      "versionNonce": 687372690,
+      "versionNonce": 1613845576,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-013-txt",
+          "id": "flecha-012-txt",
           "type": "text"
         }
       ],
@@ -2759,11 +2618,11 @@
       "elbowed": false
     },
     {
-      "id": "flecha-014-txt",
+      "id": "flecha-013-txt",
       "type": "text",
-      "x": 633.5,
-      "y": 410,
-      "width": 49,
+      "x": 835.5,
+      "y": 446,
+      "width": 63,
       "height": 20,
       "angle": 0,
       "strokeColor": "#495057",
@@ -2777,16 +2636,117 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1422923314,
+      "seed": 634197771,
       "version": 1,
-      "versionNonce": 194899999,
+      "versionNonce": 1179062172,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
       "link": null,
       "locked": false,
-      "text": "entrada",
-      "originalText": "entrada",
+      "text": "historial",
+      "originalText": "historial",
+      "fontSize": 14,
+      "fontFamily": 5,
+      "lineHeight": 1.25,
+      "textAlign": "center",
+      "verticalAlign": "middle",
+      "containerId": "flecha-013",
+      "autoResize": true
+    },
+    {
+      "id": "flecha-013",
+      "type": "arrow",
+      "x": 590,
+      "y": 542,
+      "width": 554,
+      "height": 172,
+      "angle": 0,
+      "strokeColor": "#495057",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": {
+        "type": 2
+      },
+      "seed": 1707627496,
+      "version": 1,
+      "versionNonce": 1637483738,
+      "isDeleted": false,
+      "boundElements": [
+        {
+          "id": "flecha-013-txt",
+          "type": "text"
+        }
+      ],
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          554,
+          -172
+        ]
+      ],
+      "startBinding": {
+        "elementId": "caja-tabla",
+        "fixedPoint": [
+          1,
+          0.9
+        ],
+        "mode": "orbit"
+      },
+      "endBinding": {
+        "elementId": "caja-worker",
+        "fixedPoint": [
+          0.6,
+          1
+        ],
+        "mode": "orbit"
+      },
+      "startArrowhead": null,
+      "endArrowhead": "arrow",
+      "elbowed": false
+    },
+    {
+      "id": "flecha-014-txt",
+      "type": "text",
+      "x": 602,
+      "y": 410,
+      "width": 112,
+      "height": 20,
+      "angle": 0,
+      "strokeColor": "#495057",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": null,
+      "seed": 1221728643,
+      "version": 1,
+      "versionNonce": 687372690,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "text": "antes de invocar",
+      "originalText": "antes de invocar",
       "fontSize": 14,
       "fontFamily": 5,
       "lineHeight": 1.25,
@@ -2816,9 +2776,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 777720541,
+      "seed": 1422923314,
       "version": 1,
-      "versionNonce": 1212587740,
+      "versionNonce": 194899999,
       "isDeleted": false,
       "boundElements": [
         {
@@ -2862,107 +2822,6 @@
     {
       "id": "flecha-015-txt",
       "type": "text",
-      "x": 1116,
-      "y": 431.5,
-      "width": 42,
-      "height": 20,
-      "angle": 0,
-      "strokeColor": "#495057",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": null,
-      "roundness": null,
-      "seed": 700756530,
-      "version": 1,
-      "versionNonce": 1361961944,
-      "isDeleted": false,
-      "boundElements": null,
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "text": "salida",
-      "originalText": "salida",
-      "fontSize": 14,
-      "fontFamily": 5,
-      "lineHeight": 1.25,
-      "textAlign": "center",
-      "verticalAlign": "middle",
-      "containerId": "flecha-015",
-      "autoResize": true
-    },
-    {
-      "id": "flecha-015",
-      "type": "arrow",
-      "x": 1374,
-      "y": 385,
-      "width": 474,
-      "height": 113,
-      "angle": 0,
-      "strokeColor": "#495057",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 1,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": null,
-      "roundness": {
-        "type": 2
-      },
-      "seed": 1186796909,
-      "version": 1,
-      "versionNonce": 514924982,
-      "isDeleted": false,
-      "boundElements": [
-        {
-          "id": "flecha-015-txt",
-          "type": "text"
-        }
-      ],
-      "updated": 1,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          -474,
-          113
-        ]
-      ],
-      "startBinding": {
-        "elementId": "caja-runtime",
-        "fixedPoint": [
-          0.1,
-          1
-        ],
-        "mode": "orbit"
-      },
-      "endBinding": {
-        "elementId": "caja-guardrail",
-        "fixedPoint": [
-          1,
-          0.35
-        ],
-        "mode": "orbit"
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false
-    },
-    {
-      "id": "flecha-016-txt",
-      "type": "text",
       "x": 1431.5,
       "y": 502.5,
       "width": 77,
@@ -2979,9 +2838,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1648000684,
+      "seed": 777720541,
       "version": 1,
-      "versionNonce": 2097310206,
+      "versionNonce": 1212587740,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -2994,11 +2853,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-016",
+      "containerId": "flecha-015",
       "autoResize": true
     },
     {
-      "id": "flecha-016",
+      "id": "flecha-015",
       "type": "arrow",
       "x": 1470,
       "y": 385,
@@ -3018,13 +2877,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 788765735,
+      "seed": 700756530,
       "version": 1,
-      "versionNonce": 1668299311,
+      "versionNonce": 1361961944,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-016-txt",
+          "id": "flecha-015-txt",
           "type": "text"
         }
       ],
@@ -3062,7 +2921,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-017",
+      "id": "flecha-016",
       "type": "arrow",
       "x": 1386,
       "y": 730,
@@ -3082,9 +2941,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 720786451,
+      "seed": 1186796909,
       "version": 1,
-      "versionNonce": 1212509198,
+      "versionNonce": 514924982,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3121,7 +2980,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-018",
+      "id": "flecha-017",
       "type": "arrow",
       "x": 1470,
       "y": 730,
@@ -3141,9 +3000,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 846376586,
+      "seed": 1648000684,
       "version": 1,
-      "versionNonce": 246084081,
+      "versionNonce": 2097310206,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3180,7 +3039,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-019",
+      "id": "flecha-018",
       "type": "arrow",
       "x": 1554,
       "y": 730,
@@ -3200,9 +3059,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 762325543,
+      "seed": 788765735,
       "version": 1,
-      "versionNonce": 505241408,
+      "versionNonce": 1668299311,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3239,7 +3098,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-020-txt",
+      "id": "flecha-019-txt",
       "type": "text",
       "x": 1057,
       "y": 915,
@@ -3257,9 +3116,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1082183873,
+      "seed": 720786451,
       "version": 1,
-      "versionNonce": 1306474698,
+      "versionNonce": 1212509198,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3272,11 +3131,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-020",
+      "containerId": "flecha-019",
       "autoResize": true
     },
     {
-      "id": "flecha-020",
+      "id": "flecha-019",
       "type": "arrow",
       "x": 1090,
       "y": 890,
@@ -3296,13 +3155,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 161016281,
+      "seed": 846376586,
       "version": 1,
-      "versionNonce": 689988811,
+      "versionNonce": 246084081,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-020-txt",
+          "id": "flecha-019-txt",
           "type": "text"
         }
       ],
@@ -3340,7 +3199,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-021-txt",
+      "id": "flecha-020-txt",
       "type": "text",
       "x": 905.5,
       "y": 990,
@@ -3358,9 +3217,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1990532861,
+      "seed": 762325543,
       "version": 1,
-      "versionNonce": 1164255706,
+      "versionNonce": 505241408,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3373,11 +3232,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-021",
+      "containerId": "flecha-020",
       "autoResize": true
     },
     {
-      "id": "flecha-021",
+      "id": "flecha-020",
       "type": "arrow",
       "x": 890,
       "y": 1000,
@@ -3397,13 +3256,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 145024038,
+      "seed": 1082183873,
       "version": 1,
-      "versionNonce": 193857688,
+      "versionNonce": 1306474698,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-021-txt",
+          "id": "flecha-020-txt",
           "type": "text"
         }
       ],
@@ -3441,7 +3300,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-022-txt",
+      "id": "flecha-021-txt",
       "type": "text",
       "x": 1771,
       "y": 819,
@@ -3459,9 +3318,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1972908070,
+      "seed": 161016281,
       "version": 1,
-      "versionNonce": 273267691,
+      "versionNonce": 689988811,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3474,11 +3333,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-022",
+      "containerId": "flecha-021",
       "autoResize": true
     },
     {
-      "id": "flecha-022",
+      "id": "flecha-021",
       "type": "arrow",
       "x": 1700,
       "y": 834,
@@ -3498,13 +3357,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 1908898486,
+      "seed": 1990532861,
       "version": 1,
-      "versionNonce": 311326105,
+      "versionNonce": 1164255706,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-022-txt",
+          "id": "flecha-021-txt",
           "type": "text"
         }
       ],
@@ -3542,7 +3401,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-023-txt",
+      "id": "flecha-022-txt",
       "type": "text",
       "x": 295.5,
       "y": 990,
@@ -3560,9 +3419,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 626784244,
+      "seed": 145024038,
       "version": 1,
-      "versionNonce": 1000321041,
+      "versionNonce": 193857688,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3575,11 +3434,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-023",
+      "containerId": "flecha-022",
       "autoResize": true
     },
     {
-      "id": "flecha-023",
+      "id": "flecha-022",
       "type": "arrow",
       "x": 250,
       "y": 1000,
@@ -3599,13 +3458,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 661441525,
+      "seed": 1972908070,
       "version": 1,
-      "versionNonce": 2016936325,
+      "versionNonce": 273267691,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-023-txt",
+          "id": "flecha-022-txt",
           "type": "text"
         }
       ],
@@ -3643,7 +3502,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-024",
+      "id": "flecha-023",
       "type": "arrow",
       "x": 620,
       "y": 1000,
@@ -3663,9 +3522,9 @@
       "roundness": {
         "type": 2
       },
-      "seed": 1878265104,
+      "seed": 1908898486,
       "version": 1,
-      "versionNonce": 1791754430,
+      "versionNonce": 311326105,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3702,7 +3561,7 @@
       "elbowed": false
     },
     {
-      "id": "flecha-025-txt",
+      "id": "flecha-024-txt",
       "type": "text",
       "x": 1598,
       "y": 182.5,
@@ -3720,9 +3579,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 686518881,
+      "seed": 626784244,
       "version": 1,
-      "versionNonce": 1445357276,
+      "versionNonce": 1000321041,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3735,11 +3594,11 @@
       "lineHeight": 1.25,
       "textAlign": "center",
       "verticalAlign": "middle",
-      "containerId": "flecha-025",
+      "containerId": "flecha-024",
       "autoResize": true
     },
     {
-      "id": "flecha-025",
+      "id": "flecha-024",
       "type": "arrow",
       "x": 1542,
       "y": 265,
@@ -3759,13 +3618,13 @@
       "roundness": {
         "type": 2
       },
-      "seed": 2015231083,
+      "seed": 661441525,
       "version": 1,
-      "versionNonce": 1797821993,
+      "versionNonce": 2016936325,
       "isDeleted": false,
       "boundElements": [
         {
-          "id": "flecha-025-txt",
+          "id": "flecha-024-txt",
           "type": "text"
         }
       ],
@@ -3803,7 +3662,7 @@
       "elbowed": false
     },
     {
-      "id": "rectangle-026",
+      "id": "rectangle-025",
       "type": "rectangle",
       "x": 60,
       "y": 1150,
@@ -3823,9 +3682,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1104100785,
+      "seed": 1878265104,
       "version": 1,
-      "versionNonce": 1942000697,
+      "versionNonce": 1791754430,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3833,7 +3692,7 @@
       "locked": false
     },
     {
-      "id": "text-027",
+      "id": "text-026",
       "type": "text",
       "x": 94,
       "y": 1153,
@@ -3851,9 +3710,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1320798742,
+      "seed": 686518881,
       "version": 1,
-      "versionNonce": 740704064,
+      "versionNonce": 1445357276,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3870,7 +3729,7 @@
       "autoResize": true
     },
     {
-      "id": "rectangle-028",
+      "id": "rectangle-027",
       "type": "rectangle",
       "x": 330,
       "y": 1150,
@@ -3890,9 +3749,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 901673045,
+      "seed": 2015231083,
       "version": 1,
-      "versionNonce": 2058085006,
+      "versionNonce": 1797821993,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3900,7 +3759,7 @@
       "locked": false
     },
     {
-      "id": "text-029",
+      "id": "text-028",
       "type": "text",
       "x": 364,
       "y": 1153,
@@ -3918,9 +3777,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 554975256,
+      "seed": 1104100785,
       "version": 1,
-      "versionNonce": 2092323363,
+      "versionNonce": 1942000697,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3937,7 +3796,7 @@
       "autoResize": true
     },
     {
-      "id": "rectangle-030",
+      "id": "rectangle-029",
       "type": "rectangle",
       "x": 540,
       "y": 1150,
@@ -3957,9 +3816,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1355783718,
+      "seed": 1320798742,
       "version": 1,
-      "versionNonce": 1266727675,
+      "versionNonce": 740704064,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -3967,7 +3826,7 @@
       "locked": false
     },
     {
-      "id": "text-031",
+      "id": "text-030",
       "type": "text",
       "x": 574,
       "y": 1153,
@@ -3985,9 +3844,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1589026647,
+      "seed": 901673045,
       "version": 1,
-      "versionNonce": 2101609328,
+      "versionNonce": 2058085006,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4004,7 +3863,7 @@
       "autoResize": true
     },
     {
-      "id": "rectangle-032",
+      "id": "rectangle-031",
       "type": "rectangle",
       "x": 770,
       "y": 1150,
@@ -4024,9 +3883,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1744855476,
+      "seed": 554975256,
       "version": 1,
-      "versionNonce": 1620571117,
+      "versionNonce": 2092323363,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4034,7 +3893,7 @@
       "locked": false
     },
     {
-      "id": "text-033",
+      "id": "text-032",
       "type": "text",
       "x": 804,
       "y": 1153,
@@ -4052,9 +3911,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1962283546,
+      "seed": 1355783718,
       "version": 1,
-      "versionNonce": 478149247,
+      "versionNonce": 1266727675,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4071,7 +3930,7 @@
       "autoResize": true
     },
     {
-      "id": "rectangle-034",
+      "id": "rectangle-033",
       "type": "rectangle",
       "x": 940,
       "y": 1150,
@@ -4091,9 +3950,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 749711074,
+      "seed": 1589026647,
       "version": 1,
-      "versionNonce": 1238954994,
+      "versionNonce": 2101609328,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4101,7 +3960,7 @@
       "locked": false
     },
     {
-      "id": "text-035",
+      "id": "text-034",
       "type": "text",
       "x": 974,
       "y": 1153,
@@ -4119,9 +3978,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1355964089,
+      "seed": 1744855476,
       "version": 1,
-      "versionNonce": 1745677833,
+      "versionNonce": 1620571117,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4138,7 +3997,7 @@
       "autoResize": true
     },
     {
-      "id": "rectangle-036",
+      "id": "rectangle-035",
       "type": "rectangle",
       "x": 1180,
       "y": 1150,
@@ -4158,9 +4017,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 1467354273,
+      "seed": 1962283546,
       "version": 1,
-      "versionNonce": 127144348,
+      "versionNonce": 478149247,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4168,7 +4027,7 @@
       "locked": false
     },
     {
-      "id": "text-037",
+      "id": "text-036",
       "type": "text",
       "x": 1214,
       "y": 1153,
@@ -4186,9 +4045,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 368453201,
+      "seed": 749711074,
       "version": 1,
-      "versionNonce": 409613421,
+      "versionNonce": 1238954994,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4205,7 +4064,7 @@
       "autoResize": true
     },
     {
-      "id": "rectangle-038",
+      "id": "rectangle-037",
       "type": "rectangle",
       "x": 1360,
       "y": 1150,
@@ -4225,9 +4084,9 @@
       "roundness": {
         "type": 3
       },
-      "seed": 118192798,
+      "seed": 1355964089,
       "version": 1,
-      "versionNonce": 1997686742,
+      "versionNonce": 1745677833,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,
@@ -4235,7 +4094,7 @@
       "locked": false
     },
     {
-      "id": "text-039",
+      "id": "text-038",
       "type": "text",
       "x": 1394,
       "y": 1153,
@@ -4253,9 +4112,9 @@
       "frameId": null,
       "index": null,
       "roundness": null,
-      "seed": 1734327222,
+      "seed": 1467354273,
       "version": 1,
-      "versionNonce": 1222071487,
+      "versionNonce": 127144348,
       "isDeleted": false,
       "boundElements": null,
       "updated": 1,

@@ -40,7 +40,32 @@ export type EventoTurno = { conversationId: string; msgId: string; userId: strin
 export type StoreDeps = {
   ultimoMsgIdUsuario(conversationId: string): Promise<string | null>;
   pendientesDesdeUltimaRespuesta(conversationId: string): Promise<Mensaje[]>;
+  /** La conversación completa, cronológica. De acá sale el historial del turno. */
+  listar(conversationId: string): Promise<Mensaje[]>;
 };
+
+// Cuántos mensajes previos viajan al modelo. Es un tope de COSTO además de de
+// contexto: el historial es la mayor parte de los tokens de entrada de un turno.
+// 20 son ~10 intercambios, que alcanzan para que el agente no pierda el hilo.
+export const MAX_MENSAJES_HISTORIAL = 20;
+
+/**
+ * Historial para el payload del invoke: la conversación hasta antes de los
+ * mensajes que este turno va a responder, en el formato que espera el core.
+ *
+ * Antes lo resolvía AgentCore Memory. Ahora sale de MessagesTable, que ya era
+ * la fuente de verdad de la transcripción: el store es uno solo.
+ */
+export function historialParaElTurno(
+  conversacion: Mensaje[],
+  pendientes: Mensaje[],
+): { role: "user" | "assistant"; content: string }[] {
+  const aResponder = new Set(pendientes.map((m) => m.msgId));
+  return conversacion
+    .filter((m) => !aResponder.has(m.msgId))
+    .slice(-MAX_MENSAJES_HISTORIAL)
+    .map((m) => ({ role: m.rol, content: m.texto }));
+}
 
 export type Deps = {
   store: StoreDeps;
@@ -50,6 +75,7 @@ export type Deps = {
     message: string;
     userId: string;
     sessionId: string;
+    history: { role: "user" | "assistant"; content: string }[];
     actToken?: string;
   }): Promise<AsyncIterable<Uint8Array>>;
   // Misma forma que StoreDeps.escribir en packages/bff/src/mensajes/api.ts:
@@ -99,7 +125,7 @@ export async function procesarMensaje(evento: EventoTurno, deps: Deps): Promise<
   const pendientes = await deps.store.pendientesDesdeUltimaRespuesta(evento.conversationId);
   // Sin pendientes no hay nada que responder (redelivery post-crash, o
   // fail-open del store): el assistant ya está escrito o lo traerá otro job.
-  // El mock local (examples/demo-client/server.mjs) tiene la misma guarda.
+  // El mock local (apps/web/server.mjs) tiene la misma guarda.
   if (pendientes.length === 0) return "descartado";
   const message = pendientes.map((m) => m.texto).join("\n");
 
@@ -112,6 +138,10 @@ export async function procesarMensaje(evento: EventoTurno, deps: Deps): Promise<
       message,
       userId: evento.userId,
       sessionId: evento.conversationId,
+      history: historialParaElTurno(
+        await deps.store.listar(evento.conversationId),
+        pendientes,
+      ),
       ...(evento.actToken !== undefined ? { actToken: evento.actToken } : {}),
     });
 

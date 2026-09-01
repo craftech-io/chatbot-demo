@@ -40,7 +40,7 @@ Al clonar el template en el repo de un cliente, lo único que se edita del IaC e
 | `region` | La región del deploy (`AWS_REGION` del entorno la pisa) |
 | `topes` | `LIMITE_DIARIO` y `LIMITE_POR_SESION` del BFF |
 | `origenesCors` | Los orígenes permitidos en la Function URL del BFF |
-| `retencionMemoriaDias` | Días que AgentCore Memory retiene los eventos de la conversación |
+| `retencionHistorialDias` | Días que se conserva la transcripción (TTL de DynamoDB). Es también cuánto "recuerda" el chat |
 | `promptSistema` | La POLÍTICA del agente (spec §11.2): tono, alcance, cuándo buscar en los documentos y cuándo derivar. Viaja al core como `PROMPT_SISTEMA`. **El default habla de "la empresa" en genérico: es lo primero que se toca** |
 | `observabilidad` | La capa de TRAZAS (spec §17): `muestreo`, si viajan con el contenido de la conversación, y a dónde van (`cloudwatch` u `otlp`). Las métricas del dashboard no dependen de nada de acá |
 | `documentos` | `topK` de la búsqueda y el `reranking` opcional de los pasajes |

@@ -18,10 +18,7 @@ class ConfigError(RuntimeError):
 @dataclass(frozen=True)
 class Config:
     model_id: str
-    guardrail_id: str | None
-    guardrail_version: str | None
     region: str
-    memory_id: str | None
     # Tools, ambas opcionales: sin GATEWAY_URL no hay tools de tenant; sin
     # CLIENT_API_URL no hay tools de usuario. El chat sigue igual.
     gateway_url: str | None
@@ -82,10 +79,7 @@ def load_config(env: Mapping[str, str]) -> Config:
         )
     return Config(
         model_id=model_id,
-        guardrail_id=guardrail_id,
-        guardrail_version=guardrail_version,
         region=env.get("AWS_REGION", "us-east-1"),
-        memory_id=env.get("MEMORY_ID") or None,
         gateway_url=env.get("GATEWAY_URL") or None,
         client_api_url=env.get("CLIENT_API_URL") or None,
         prompt_sistema=_prompt_sistema(env),

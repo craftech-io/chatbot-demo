@@ -20,7 +20,6 @@ from agent.config import load_config
 from agent.costo import UsoTokens, costo_estimado
 from agent.events import TextDelta
 from agent.llm import BedrockAdapter
-from agent.memoria import Memoria
 from agent.tools import NOMBRE_TOOL_ESCALAMIENTO, crear_tools_usuario, tools_de_gateway
 from agent.workflow import ChatWorkflow, LlamadaTool, RespuestaLLM
 
@@ -139,7 +138,6 @@ def _loguear_cierre(sesion: str, cfg, adaptador, escalado: bool, estimador_de_co
 def build_app(
     llm_factory=None,
     env=None,
-    memoria_factory=None,
     tools_usuario_factory=None,
     tools_gateway_factory=None,
     estimador_de_costo=None,
@@ -161,11 +159,6 @@ def build_app(
     if llm_factory is None and env.get("FAKE_LLM"):
         llm_factory = lambda cfg: _EchoLLM()  # noqa: E731
     llm_factory = llm_factory or BedrockAdapter
-    # Sin MEMORY_ID no hay memoria persistente: el historial llega en el payload
-    # (`history`) y el turno no se guarda en ningún lado.
-    if memoria_factory is None and cfg.memory_id:
-        memoria_factory = lambda cfg: Memoria(cfg.memory_id)  # noqa: E731
-    memoria = memoria_factory(cfg) if memoria_factory else None
     tools_usuario_factory = tools_usuario_factory or crear_tools_usuario
     tools_gateway_factory = tools_gateway_factory or tools_de_gateway
     # Se inyecta en los tests para no pegarle a la Pricing API. El default es
@@ -209,7 +202,9 @@ def build_app(
 
         actor = payload.get("userId") or "anonimo"
         sesion = payload.get("sessionId") or "default"
-        history = memoria.historial(actor, sesion) if memoria else (payload.get("history") or [])
+        # El historial lo arma el worker desde MessagesTable y viaja en el
+        # payload: el core no habla con ningún store.
+        history = payload.get("history") or []
         # El actToken viene en el payload del InvokeAgentRuntime y muere acá:
         # entra a la tool de usuario como Bearer y a ningún otro lado. Nunca se
         # loguea ni se persiste.
@@ -241,11 +236,6 @@ def build_app(
                 escalado = any(
                     nombre.endswith(NOMBRE_TOOL_ESCALAMIENTO) for nombre in done.tools_usadas
                 )
-                # Se persiste ANTES de emitir el `done`: el turno queda guardado aunque
-                # el cliente corte al recibirlo. El costo es la latencia de una llamada
-                # a Memory (fail-open: si falla, no impide emitir el evento final).
-                if memoria:
-                    memoria.registrar_turno(actor, sesion, message, texto)
                 yield f"data: {json.dumps({'type': 'done', 'text': texto})}\n\n"
             except Exception as exc:
                 logger.error("Fallo el workflow del agente a mitad del stream: %s", exc)

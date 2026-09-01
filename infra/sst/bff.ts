@@ -60,6 +60,7 @@ export const chat = new sst.aws.Function("Chat", {
     },
   ],
   environment: {
+    RETENCION_HISTORIAL_DIAS: String(cliente.retencionHistorialDias),
     // Topes de uso: se ajustan en client.config.ts.
     LIMITE_DIARIO: String(cliente.topes.diario),
     LIMITE_POR_SESION: String(cliente.topes.porSesion),

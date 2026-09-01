@@ -1,6 +1,6 @@
-// Guardrail de contenido del template. Se aplica DOS veces: entrada en el BFF
+// Guardrail de contenido. Se aplica DOS veces: entrada en el BFF
 // (ApplyGuardrail, barato, corta antes de pagar Runtime) y salida en el core
-// (guardrail_stream_processing_mode="sync").
+// entrada, en el BFF (ApplyGuardrail): corta antes de invocar el Runtime.
 import { cliente } from "../../client.config";
 import { MENSAJES_GUARDRAIL } from "../../packages/shared/src/mensajes";
 import { slugKebab } from "./nombres";

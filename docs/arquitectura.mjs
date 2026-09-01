@@ -123,8 +123,7 @@ const runtime = caja("runtime", { x: 1350, y: 265, w: 240, h: 120, texto: "Agent
 const bedrock = caja("bedrock", { x: 1660, y: 280, w: 180, h: 90, texto: "Bedrock\nel modelo", paleta: P.modelo });
 
 const tabla = caja("tabla", { x: 390, y: 470, w: 200, h: 80, texto: "MessagesTable\nDynamoDB", paleta: P.datos });
-const guardrail = caja("guardrail", { x: 720, y: 470, w: 180, h: 80, texto: "Guardrails\nPII · contenido", paleta: P.control });
-const memoria = caja("memoria", { x: 1660, y: 470, w: 180, h: 80, texto: "AgentCore\nMemory", paleta: P.datos });
+const guardrail = caja("guardrail", { x: 720, y: 470, w: 180, h: 80, texto: "Guardrails\nentrada · PII", paleta: P.control });
 
 caja("obs", { x: 390, y: 640, w: 280, h: 110, paleta: P.zona, estilo: "dashed",
   texto: "Observabilidad\nCloudWatch · X-Ray\nmétricas, trazas, costo" });
@@ -148,11 +147,10 @@ flecha(bff, cola, { etiqueta: "encola", asinc: true });
 flecha(cola, worker, { asinc: true });
 flecha(worker, runtime, { etiqueta: "Invoke" });
 flecha(runtime, bedrock, {});
-flecha(runtime, memoria, { de: [1, 0.9], a: "arriba" });
 flecha(bff, tabla, { de: "abajo", a: "arriba", etiqueta: "escribe" });
 flecha(worker, tabla, { de: [0.15, 1], a: [1, 0.25], etiqueta: "respuesta" });
-flecha(bff, guardrail, { de: [0.85, 1], a: [0.2, 0], etiqueta: "entrada" });
-flecha(runtime, guardrail, { de: [0.1, 1], a: [1, 0.35], etiqueta: "salida" });
+flecha(tabla, worker, { de: [1, 0.9], a: [0.6, 1], etiqueta: "historial" });
+flecha(bff, guardrail, { de: [0.85, 1], a: [0.2, 0], etiqueta: "antes de invocar" });
 flecha(runtime, gateway, { de: "abajo", a: "arriba", etiqueta: "MCP · SigV4" });
 flecha(gateway, toolDocs, { de: [0.15, 1], a: "arriba" });
 flecha(gateway, apiNegocio, { de: [0.5, 1], a: "arriba" });

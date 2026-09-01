@@ -8,6 +8,12 @@
 export const messagesTable = new sst.aws.Dynamo("MessagesTableDb", {
   fields: { conversationId: "string", orden: "string" },
   primaryIndex: { hashKey: "conversationId", rangeKey: "orden" },
+  // La transcripción es también el historial que ve el modelo, así que su
+  // retención es una decisión de política de datos: la fija
+  // `retencionHistorialDias` en client.config.ts y la aplica DynamoDB borrando
+  // los ítems vencidos. Antes esto lo hacía el `eventExpiryDuration` de
+  // AgentCore Memory, que se sacó del stack.
+  ttl: "expiraEn",
 });
 
 // DLQ propia y también FIFO: SQS no permite que una cola FIFO redirija a una

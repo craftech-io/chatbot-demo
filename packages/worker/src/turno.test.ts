@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MENSAJES_WORKER } from "@craftech-ai-chat/shared/mensajes";
-import { procesarMensaje, type Deps } from "./turno";
+import { historialParaElTurno, MAX_MENSAJES_HISTORIAL, procesarMensaje, type Deps } from "./turno";
 import type { Mensaje } from "../../bff/src/mensajes/store";
 
 const enc = new TextEncoder();
@@ -20,6 +20,7 @@ function depsBase(overrides: Partial<Deps> = {}): Deps {
     store: {
       ultimoMsgIdUsuario: vi.fn(async () => "m1"),
       pendientesDesdeUltimaRespuesta: vi.fn(async () => [mensaje("m1", "hola")]),
+      listar: vi.fn(async () => []),
     },
     invocar: vi.fn(async () => streamDe({ type: "done", text: "listo" })),
     escribir: vi.fn(async (m) => ({ ...m, orden: `${m.ts}#${m.msgId}` }) as Mensaje),
@@ -35,6 +36,7 @@ describe("procesarMensaje", () => {
       store: {
         ultimoMsgIdUsuario: vi.fn(async () => "m2-mas-nuevo"),
         pendientesDesdeUltimaRespuesta: vi.fn(),
+        listar: vi.fn(async () => []),
       },
     });
 
@@ -51,12 +53,18 @@ describe("procesarMensaje", () => {
       store: {
         ultimoMsgIdUsuario: vi.fn(async () => "m2"),
         pendientesDesdeUltimaRespuesta: vi.fn(async () => [mensaje("m1", "hola"), mensaje("m2", "que tal")]),
+        listar: vi.fn(async () => []),
       },
     });
 
     await procesarMensaje({ ...evento, msgId: "m2" }, deps);
 
-    expect(deps.invocar).toHaveBeenCalledWith({ message: "hola\nque tal", userId: "u1", sessionId: "c1" });
+    expect(deps.invocar).toHaveBeenCalledWith({
+      message: "hola\nque tal",
+      userId: "u1",
+      sessionId: "c1",
+      history: [],
+    });
   });
 
   it("escribe el texto del frame done como mensaje del assistant y devuelve procesado", async () => {
@@ -136,12 +144,13 @@ describe("procesarMensaje", () => {
 
   // Sin pendientes no hay nada que responder (redelivery post-crash, o
   // fail-open del store): el assistant ya está escrito o lo trae otro job. El
-  // mock local (examples/demo-client/server.mjs) tiene la misma guarda.
+  // mock local (apps/web/server.mjs) tiene la misma guarda.
   it("si no hay pendientes, descarta el turno sin invocar ni escribir", async () => {
     const deps = depsBase({
       store: {
         ultimoMsgIdUsuario: vi.fn(async () => "m1"),
         pendientesDesdeUltimaRespuesta: vi.fn(async () => []),
+        listar: vi.fn(async () => []),
       },
     });
 
@@ -162,6 +171,7 @@ describe("procesarMensaje", () => {
       message: "hola",
       userId: "u1",
       sessionId: "c1",
+      history: [],
       actToken: "token-de-la-api-del-cliente",
     });
   });
@@ -200,12 +210,51 @@ describe("procesarMensaje", () => {
       store: {
         ultimoMsgIdUsuario: vi.fn(async () => null),
         pendientesDesdeUltimaRespuesta: vi.fn(async () => [mensaje("m1", "hola")]),
+        listar: vi.fn(async () => []),
       },
     });
 
     const resultado = await procesarMensaje(evento, deps);
 
     expect(resultado).toBe("procesado");
-    expect(deps.invocar).toHaveBeenCalledWith({ message: "hola", userId: "u1", sessionId: "c1" });
+    expect(deps.invocar).toHaveBeenCalledWith({
+      message: "hola",
+      userId: "u1",
+      sessionId: "c1",
+      history: [],
+    });
+  });
+});
+
+describe("historialParaElTurno", () => {
+  function msg(msgId: string, rol: "user" | "assistant", texto: string): Mensaje {
+    return { conversationId: "c1", orden: `t#${msgId}`, msgId, rol, texto, ts: "t" };
+  }
+
+  it("excluye los mensajes que este turno va a responder", () => {
+    // Los pendientes viajan como `message`; repetirlos en el historial le
+    // mostraría al modelo la misma pregunta dos veces.
+    const conversacion = [
+      msg("m1", "user", "hola"),
+      msg("m2", "assistant", "buenas"),
+      msg("m3", "user", "y el envío?"),
+    ];
+    const h = historialParaElTurno(conversacion, [msg("m3", "user", "y el envío?")]);
+    expect(h).toEqual([
+      { role: "user", content: "hola" },
+      { role: "assistant", content: "buenas" },
+    ]);
+  });
+
+  it("corta en los ultimos MAX_MENSAJES_HISTORIAL", () => {
+    const largo = Array.from({ length: 40 }, (_, i) => msg(`m${i}`, i % 2 ? "assistant" : "user", `t${i}`));
+    const h = historialParaElTurno(largo, []);
+    expect(h).toHaveLength(MAX_MENSAJES_HISTORIAL);
+    // Se queda con los MÁS RECIENTES, no con los primeros.
+    expect(h[h.length - 1]!.content).toBe("t39");
+  });
+
+  it("una conversacion nueva no manda historial", () => {
+    expect(historialParaElTurno([], [])).toEqual([]);
   });
 });

@@ -70,11 +70,14 @@ export interface ConfigCliente {
   origenesCors: string[];
 
   /**
-   * Días que AgentCore Memory retiene los eventos de la conversación
-   * (short-term). 30 alinea con la retención típica de un chat; subirlo o
-   * bajarlo es una decisión de política de datos del cliente.
+   * Días que se conserva la transcripción en MessagesTable, vía TTL de DynamoDB.
+   *
+   * No es solo housekeeping: esa tabla es también el historial que ve el modelo,
+   * así que este número decide cuánto tiempo el chat "recuerda" y cuánto tiempo
+   * quedan guardadas las conversaciones de los usuarios finales. Es una decisión
+   * de política de datos del cliente.
    */
-  retencionMemoriaDias: number;
+  retencionHistorialDias: number;
 
   /**
    * Prompt del sistema del agente: la POLÍTICA de comportamiento (spec §11.2).
@@ -283,7 +286,7 @@ export const cliente: ConfigCliente = {
     porSesion: 40,
   },
   origenesCors: ["*"],
-  retencionMemoriaDias: 30,
+  retencionHistorialDias: 30,
   // Se arma con `join("\n")` y no con un template literal multilínea para que la
   // indentación del archivo no se cuele en el prompt (el modelo la lee como
   // parte del texto). Sigue siendo dato plano: sin globals de SST, sin imports.

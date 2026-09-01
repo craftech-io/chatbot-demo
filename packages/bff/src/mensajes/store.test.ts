@@ -40,6 +40,7 @@ describe("escribirMensaje", () => {
     const cmd = send.mock.calls[0]![0].input;
     expect(cmd.TableName).toBe("Messages");
     expect(cmd.Item).toEqual({
+      expiraEn: { N: expect.any(String) },
       conversationId: { S: "c1" },
       orden: { S: "2026-08-25T10:00:00.000Z#m1" },
       msgId: { S: "m1" },
@@ -184,5 +185,46 @@ describe("ultimoMsgIdUsuario", () => {
     expect(msgId).toBeNull();
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+describe("retencion (TTL)", () => {
+  const base = {
+    conversationId: "c1", msgId: "m1", rol: "user" as const,
+    texto: "hola", ts: "2026-08-25T10:00:00.000Z",
+  };
+
+  async function expiraEnDe(dias?: string) {
+    const previo = process.env.RETENCION_HISTORIAL_DIAS;
+    if (dias === undefined) delete process.env.RETENCION_HISTORIAL_DIAS;
+    else process.env.RETENCION_HISTORIAL_DIAS = dias;
+    const send = vi.fn(async (_c: PutItemCommand) => ({}));
+    await escribirMensaje({ ddb: { send } as never, tabla: "Messages" }, base);
+    if (previo === undefined) delete process.env.RETENCION_HISTORIAL_DIAS;
+    else process.env.RETENCION_HISTORIAL_DIAS = previo;
+    return Number(send.mock.calls[0]![0].input.Item!.expiraEn!.N);
+  }
+
+  it("el TTL va en SEGUNDOS, no en milisegundos", async () => {
+    // Con milisegundos el vencimiento cae en el año 57000 y DynamoDB no borra
+    // nunca: el chequeo es que el orden de magnitud sea de segundos.
+    const ahora = Math.floor(Date.now() / 1000);
+    const t = await expiraEnDe("30");
+    expect(t).toBeGreaterThan(ahora);
+    expect(t).toBeLessThan(ahora + 31 * 24 * 60 * 60);
+  });
+
+  it("respeta los dias configurados", async () => {
+    const corto = await expiraEnDe("1");
+    const largo = await expiraEnDe("90");
+    expect(largo - corto).toBeCloseTo(89 * 24 * 60 * 60, -1);
+  });
+
+  it("sin la env cae al default en vez de escribir NaN", async () => {
+    // Un NaN en el TTL hace que DynamoDB rechace el PutItem y se pierda el
+    // mensaje: el default es una red, no la política.
+    const t = await expiraEnDe(undefined);
+    expect(Number.isFinite(t)).toBe(true);
+    expect(t).toBeGreaterThan(Math.floor(Date.now() / 1000));
   });
 });

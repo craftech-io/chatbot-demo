@@ -11,6 +11,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { Resource } from "sst";
 import {
   escribirMensaje,
+  listarMensajes,
   pendientesDesdeUltimaRespuesta,
   ultimoMsgIdUsuario,
 } from "../../bff/src/mensajes/store";
@@ -52,6 +53,7 @@ const deps: Deps = {
     ultimoMsgIdUsuario: (conversationId) => ultimoMsgIdUsuario({ ddb, tabla }, conversationId),
     pendientesDesdeUltimaRespuesta: (conversationId) =>
       pendientesDesdeUltimaRespuesta({ ddb, tabla }, conversationId),
+    listar: (conversationId) => listarMensajes({ ddb, tabla }, conversationId),
   },
   invocar,
   escribir: (m) => escribirMensaje({ ddb, tabla }, m),

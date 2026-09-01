@@ -1,5 +1,5 @@
 // SessionsTable: índice de hilos por usuario — SOLO metadata (título, timestamps,
-// contador de turnos). La transcripción vive en AgentCore Memory, nunca acá.
+// contador de turnos). La transcripción vive en MessagesTable, nunca acá.
 // Sufijo Db en el nombre del componente: los nombres de componentes SST son
 // únicos en toda la app y el Linkable de abajo ya usa "SessionsTable" (la clave
 // de Resource).

@@ -80,32 +80,29 @@ def test_invocations_corta_con_evento_de_error_si_el_workflow_falla_a_mitad_del_
     ]
 
 
-def test_con_memoria_el_historial_sale_de_memory_y_el_turno_se_persiste():
-    class MemoriaFalsa:
-        def __init__(self):
-            self.turnos = []
-
-        def historial(self, actor_id, session_id):
-            self.reclamado = (actor_id, session_id)
-            return [{"role": "user", "content": "previo"}]
-
-        def registrar_turno(self, actor_id, session_id, pregunta, respuesta):
-            self.turnos.append((actor_id, session_id, pregunta, respuesta))
-
+def test_el_historial_llega_en_el_payload():
+    # El core no habla con ningún store: el historial lo arma el worker desde
+    # MessagesTable y viaja en el payload del invoke.
     llm = FakeLLM()
-    mem = MemoriaFalsa()
-    c = TestClient(
-        build_app(
-            llm_factory=lambda cfg: llm,
-            env={"MODEL_ID": "fake", "MEMORY_ID": "mem-1"},
-            memoria_factory=lambda cfg: mem,
-        )
+    c = TestClient(build_app(llm_factory=lambda cfg: llm, env={"MODEL_ID": "fake"}))
+    historial = [
+        {"role": "user", "content": "previo"},
+        {"role": "assistant", "content": "respondido"},
+    ]
+    r = c.post(
+        "/invocations",
+        json={"message": "hola", "sessionId": "s1", "userId": "u1", "history": historial},
     )
+    assert r.status_code == 200
+    assert llm.visto["history"] == historial
+
+
+def test_sin_historial_en_el_payload_el_turno_arranca_limpio():
+    llm = FakeLLM()
+    c = TestClient(build_app(llm_factory=lambda cfg: llm, env={"MODEL_ID": "fake"}))
     r = c.post("/invocations", json={"message": "hola", "sessionId": "s1", "userId": "u1"})
     assert r.status_code == 200
-    assert mem.reclamado == ("u1", "s1")
-    assert mem.turnos == [("u1", "s1", "hola", "Hola mundo")]
-    assert llm.visto["history"] == [{"role": "user", "content": "previo"}]
+    assert llm.visto["history"] == []
 
 
 # --- tools por request ---

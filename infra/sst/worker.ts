@@ -3,6 +3,7 @@
 // MessagesTableDb/MensajesColaQueue porque ningún Linkable usa la clave
 // "Worker": el nombre de componente está libre.
 import { messagesTableLink, mensajesCola } from "./mensajeria";
+import { cliente } from "../../client.config";
 import { runtime, runtimeLink } from "./runtime";
 import { permisosTrazas, trazasActivas } from "./observabilidad";
 
@@ -16,6 +17,7 @@ export const worker = new sst.aws.Function("Worker", {
   // en infra/sst/mensajeria.ts) — suficiente, no hace falta repetir el
   // permiso acá. runtimeLink solo expone el ARN como property (no auto-grant,
   // ver el permiso de InvokeAgentRuntime abajo).
+  environment: { RETENCION_HISTORIAL_DIAS: String(cliente.retencionHistorialDias) },
   link: [messagesTableLink, runtimeLink],
   // Tracing activo: sin esto la traza se corta en cada salto y el camino
   // BFF → cola → worker → Runtime queda como cuatro trazas sueltas. En sst no

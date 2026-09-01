@@ -8,30 +8,10 @@ def test_falla_con_mensaje_claro_si_falta_el_modelo():
         load_config({})
 
 
-def test_lee_el_modelo_y_el_guardrail():
-    cfg = load_config(
-        {
-            "MODEL_ID": "us.anthropic.claude-sonnet-4-6",
-            "GUARDRAIL_ID": "gr-123",
-            "GUARDRAIL_VERSION": "3",
-            "AWS_REGION": "us-east-1",
-        }
-    )
+def test_lee_el_modelo_y_la_region():
+    cfg = load_config({"MODEL_ID": "us.anthropic.claude-sonnet-4-6", "AWS_REGION": "us-east-1"})
     assert cfg.model_id == "us.anthropic.claude-sonnet-4-6"
-    assert cfg.guardrail_id == "gr-123"
-    assert cfg.guardrail_version == "3"
     assert cfg.region == "us-east-1"
-
-
-def test_el_guardrail_es_opcional():
-    cfg = load_config({"MODEL_ID": "m", "AWS_REGION": "us-east-1"})
-    assert cfg.guardrail_id is None
-    assert cfg.guardrail_version is None
-
-
-def test_falla_si_hay_guardrail_id_sin_version():
-    with pytest.raises(ConfigError, match="GUARDRAIL_VERSION"):
-        load_config({"MODEL_ID": "m", "GUARDRAIL_ID": "gr-123"})
 
 
 def test_falla_con_model_id_vacio():
@@ -39,16 +19,11 @@ def test_falla_con_model_id_vacio():
         load_config({"MODEL_ID": ""})
 
 
-def test_memory_id_es_opcional():
-    assert load_config({"MODEL_ID": "m"}).memory_id is None
-    assert load_config({"MODEL_ID": "m", "MEMORY_ID": "mem-1"}).memory_id == "mem-1"
-
-
 def test_las_urls_de_tools_son_opcionales():
     cfg = load_config({"MODEL_ID": "m"})
     assert cfg.gateway_url is None
     assert cfg.client_api_url is None
-    # Vacía cuenta como ausente (mismo criterio que el guardrail y la memoria).
+    # Vacía cuenta como ausente.
     cfg = load_config({"MODEL_ID": "m", "GATEWAY_URL": "", "CLIENT_API_URL": ""})
     assert cfg.gateway_url is None
     assert cfg.client_api_url is None

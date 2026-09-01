@@ -1,5 +1,5 @@
 // Índice de hilos por usuario — SOLO metadata: título, timestamps y contador de
-// turnos. La transcripción vive en AgentCore Memory. Este índice es lo que una
+// turnos. La transcripción vive en MessagesTable. Este índice es lo que una
 // UI usa para listar conversaciones.
 import { GetItemCommand, UpdateItemCommand, type DynamoDBClient } from "@aws-sdk/client-dynamodb";
 

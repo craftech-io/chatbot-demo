@@ -1,8 +1,6 @@
 """Adaptador de modelo. Es la frontera que permite cambiar de proveedor sin tocar
 el workflow: este archivo es el único que sabe que abajo hay Bedrock.
 
-El guardrail de SALIDA se aplica acá, delegado a Bedrock con
-`guardrail_stream_processing_mode="sync"`: Bedrock evalúa cada chunk ANTES de emitirlo.
 Filtrar a mano texto ya streameado llegaría tarde.
 """
 
@@ -62,12 +60,6 @@ def _uso_de(respuesta) -> UsoTokens | None:
 class BedrockAdapter:
     def __init__(self, cfg: Config, client_factory=BedrockConverse):
         kwargs = {"model": cfg.model_id, "region_name": cfg.region}
-        if cfg.guardrail_id:
-            kwargs |= {
-                "guardrail_identifier": cfg.guardrail_id,
-                "guardrail_version": cfg.guardrail_version,
-                "guardrail_stream_processing_mode": "sync",
-            }
         self.client = client_factory(**kwargs)
         self.prompt_sistema = cfg.prompt_sistema
         # Uso de tokens del TURNO: el adaptador se construye uno por request

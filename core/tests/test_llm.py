@@ -71,14 +71,6 @@ class FakeConverse:
         return gen()
 
 
-def test_construye_el_cliente_con_el_guardrail_en_modo_sync():
-    BedrockAdapter(load_config(ENV), client_factory=FakeConverse)
-    assert FakeConverse.kwargs["model"] == "us.anthropic.claude-sonnet-4-6"
-    assert FakeConverse.kwargs["guardrail_identifier"] == "gr-123"
-    assert FakeConverse.kwargs["guardrail_version"] == "3"
-    assert FakeConverse.kwargs["guardrail_stream_processing_mode"] == "sync"
-
-
 async def test_emite_deltas_y_el_generador_termina():
     adapter = BedrockAdapter(load_config(ENV), client_factory=FakeConverse)
 

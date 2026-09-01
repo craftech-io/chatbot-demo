@@ -138,7 +138,7 @@ export async function postMensaje(
         // mensaje del usuario, ese mensaje BLOQUEADO queda pendiente y el job del
         // próximo turno lo agrega SIN re-evaluar el guardrail. Es una fuga
         // estrecha (exige una falla de Dynamo entre dos escrituras consecutivas)
-        // y coherente con la postura fail-open: el guardrail de SALIDA del core
+        // y coherente con la postura fail-open: el filtro del core
         // sigue siendo la segunda red.
         console.error("escritura del mensaje bloqueado falló", e);
         return { status: 500, body: { error: { code: "error_interno" } } };

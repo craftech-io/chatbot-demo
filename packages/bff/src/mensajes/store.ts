@@ -1,6 +1,6 @@
 // Store de MessagesTable: fuente de verdad de la transcripción
 // para las UIs y los canales (WhatsApp, Facebook, widget) — independiente de
-// AgentCore Memory, que es la memoria DEL AGENTE. pk `conversationId`, sk
+// el historial que ve el modelo (lo arma el worker desde acá). pk `conversationId`, sk
 // `orden` (`${ts}#${msgId}`): el orden lexicográfico ES el cronológico, porque
 // `ts` es ISO-8601 (orden de string == orden de fecha) y `msgId` desempata
 // mensajes con el mismo `ts`.
@@ -33,8 +33,16 @@ function fromItem(item: Record<string, AttributeValue>): Mensaje {
   };
 }
 
+// Días que vive un mensaje. Lo inyecta el caller desde client.config.ts; el
+// default es una red por si la env no llegó, no la política.
+export const RETENCION_DIAS_DEFAULT = 30;
+
 export async function escribirMensaje(deps: Deps, m: Omit<Mensaje, "orden">): Promise<Mensaje> {
   const mensaje: Mensaje = { ...m, orden: `${m.ts}#${m.msgId}` };
+  // DynamoDB borra el ítem cuando el TTL pasa: epoch en SEGUNDOS, no en ms
+  // (con ms el vencimiento cae en el año 57000 y el ítem no se borra nunca).
+  const dias = Number(process.env.RETENCION_HISTORIAL_DIAS) || RETENCION_DIAS_DEFAULT;
+  const expiraEn = Math.floor(Date.now() / 1000) + dias * 24 * 60 * 60;
   try {
     await deps.ddb.send(
       new PutItemCommand({
@@ -46,6 +54,7 @@ export async function escribirMensaje(deps: Deps, m: Omit<Mensaje, "orden">): Pr
           rol: { S: mensaje.rol },
           texto: { S: mensaje.texto },
           ts: { S: mensaje.ts },
+          expiraEn: { N: String(expiraEn) },
         },
       }),
     );

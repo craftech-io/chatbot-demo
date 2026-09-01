@@ -14,7 +14,6 @@ uno a otro es reimplementar esta lista, nada más.
 | Lambda del BFF + Function URL | encolá los mensajes en MessagesTable y MensajesCola (spec §8, async) | permisos: `bedrock:ApplyGuardrail` (scoped al `guardrailArn`); `dynamodb:GetItem`+`dynamodb:UpdateItem` sobre SessionsTable y sobre LimitsTable (vía `include` en los `sst.Linkable` de `infra/sst/tablas.ts` — un Linkable pelado NO hereda el auto-grant de `sst.aws.Dynamo`); `dynamodb:Query`+`dynamodb:PutItem` sobre MessagesTable y `sqs:SendMessage` sobre MensajesCola (vía `include` en `infra/sst/mensajeria.ts`, mismo patrón) |
 | Secreto del emisor de tokens | verificar el token del cliente | JWKS URL o secreto HMAC |
 | Guardrail de Bedrock | filtro de contenido entrada+salida | mensajes desde packages/shared |
-| AgentCore Memory | historial de conversación | (actorId, sessionId) |
 | SessionsTable (DynamoDB) | índice de hilos por usuario | pk: userId, sk: sessionId |
 | LimitsTable (DynamoDB) | contadores de tope por usuario y período | pk: userId, sk: periodo |
 | MessagesTable (DynamoDB) | fuente de verdad de la transcripción (spec §8) | pk: conversationId, sk: orden (`${ts ISO}#${msgId}` — el orden lexicográfico ES el cronológico) |
@@ -32,15 +31,39 @@ uno a otro es reimplementar esta lista, nada más.
 | Tracing activo en las 5 Lambdas (`Chat`, `Worker`, `ToolDocumentos`, `ToolEscalamiento`, `ApiNegocio`) | une la traza de punta a punta: BFF → cola → worker → Runtime | `tracingConfig.mode: "Active"` sobre la Lambda (`PassThrough` solo propaga la traza del llamador, no genera segmentos propios). Necesita además `xray:PutTraceSegments` + `xray:PutTelemetryRecords` **en el rol de cada Lambda** (ninguna de las dos acciones soporta scope por recurso): el tracing no trae sus permisos puestos, y sin ellos no hay traza ni error que lo delate. Sin esto la traza se corta en cada salto — justo donde vive el debounce |
 | Dashboard de CloudWatch | lo que el cliente mira: derivaciones sobre conversaciones, latencia, errores, tokens e invocaciones por tool | se arma sobre las métricas que el servicio YA emite (namespace **`AWS/Bedrock-AgentCore`**, con guion), sin instrumentar nada. Los tokens salen de `AWS/Bedrock` (`InputTokenCount`/`OutputTokenCount`, dimensión única `ModelId`). Los nombres de recurso salen de los módulos de infra (ARN del Runtime y del Gateway, nombre MCP de la tool de escalamiento), nunca escritos a mano |
 
+## Guardrails: solo de entrada
+
+El guardrail se aplica **solo de ENTRADA**, en el BFF (`bedrock:ApplyGuardrail`),
+donde corta antes de invocar el Runtime: un mensaje bloqueado no paga microVM ni
+modelo.
+
+**No hay guardrail de salida.** Fue una decisión de producto (equipo, 2026-08-31):
+se sacó el filtrado de la respuesta del modelo, que corría en el core con
+`guardrail_stream_processing_mode: "sync"`. La consecuencia a tener presente es
+que lo que el modelo dice no pasa por ningún filtro: ni contenido ni PII. Lo que
+sí sigue filtrado es lo que el usuario manda.
+
+## El historial de la conversación
+
+Lo arma **el worker** desde MessagesTable y viaja en el `history` del payload de
+`/invocations`. El core no habla con ningún store.
+
+Antes esto lo resolvía AgentCore Memory, que se sacó del stack: no usábamos
+ninguna de sus estrategias (solo `list_events`/`create_event` con expiración),
+así que era un servicio gestionado para guardar una lista de mensajes que
+DynamoDB ya guardaba — con la transcripción duplicada en dos fuentes de verdad.
+
+La ventana la fija `MAX_MENSAJES_HISTORIAL` en el worker: es un tope de COSTO
+además de de contexto, porque el historial es la mayor parte de los tokens de
+entrada de un turno. La retención la fija `retencionHistorialDias` vía TTL de
+DynamoDB (epoch en **segundos**).
+
 ## Variables que recibe el core (contenedor)
 
 | Variable | Obligatoria | Descripción |
 |---|---|---|
 | `MODEL_ID` | sí | id del modelo o inference profile de Bedrock |
 | `AWS_REGION` | no (default `us-east-1`) | región de Bedrock |
-| `GUARDRAIL_ID` | no | si falta, el core corre sin guardrail — la inyecta la infra |
-| `GUARDRAIL_VERSION` | no | requerida si hay `GUARDRAIL_ID` — la inyecta la infra |
-| `MEMORY_ID` | no | sin ella, el core usa el history del payload (modo local/tests) |
 | `GATEWAY_URL` | no | endpoint MCP del AgentCore Gateway (`gatewayUrl` del recurso). Vacía o ausente ⇒ el agente corre sin tools de tenant. El core firma cada request con SigV4 (rol del Runtime), así que el rol necesita `bedrock-agentcore:InvokeGateway` |
 | `CLIENT_API_URL` | no | base URL de la API del cliente para las tools de usuario (sin barra final). Vacía o ausente ⇒ el agente corre sin tools de usuario. **Es una frontera de confianza:** a esta URL se le manda el `actToken` del usuario final como `Authorization: Bearer` en cada llamada de tool, así que solo puede apuntar a la API del cliente — una URL mal apuntada exfiltra credenciales de usuarios |
 | `PROMPT_SISTEMA_B64` | no | la política de comportamiento del agente (spec §11.2) **en base64**: no inventar, citar la fuente, ofrecer derivar cuando la respuesta no está en los documentos. Sale de `promptSistema` en `client.config.ts`, y el core la manda como mensaje `system` al principio de cada turno. **Va codificada porque AgentCore Runtime rechaza caracteres de control en los valores de env** (`Environment variable value contains invalid control characters`) y el prompt es multilínea. Vacía o ausente ⇒ el core corre sin mensaje de sistema |
@@ -136,8 +159,6 @@ Permisos que necesita esa Lambda: `bedrock:Retrieve` acotado al
 | `CLIENT_HMAC_SECRET` | una de las dos | secreto compartido, si el cliente no tiene OIDC. **Precedencia: si ambas están seteadas gana HMAC** (deliberado: es el modo del primer arranque). Migrar a OIDC exige vaciar esta (`sst secret set ClientHmacSecret ""`) — si queda seteada, el secreto compartido sigue emitiendo identidades válidas |
 | `CLIENT_TOKEN_ISSUER` | no | `iss` exigido al token en modo JWKS (OIDC estricto, p. ej. Cognito). `""` ⇒ no se exige el claim. En SST: secret `ClientTokenIssuer`, vía linkable (`Resource.ClientAuth.issuer`) |
 | `CLIENT_TOKEN_AUDIENCE` | no | `aud` exigido al token en modo JWKS (el client_id de la app). `""` ⇒ no se exige el claim. En SST: secret `ClientTokenAudience`, vía linkable (`Resource.ClientAuth.audience`) |
-| `GUARDRAIL_ID` | no | id del Guardrail, vía linkable en SST (`Resource.Guardrail.id`) |
-| `GUARDRAIL_VERSION` | no | versión del Guardrail, vía linkable en SST (`Resource.Guardrail.version`) |
 | `SESSIONS_TABLE` | sí | nombre de la tabla de sesiones, vía linkable en SST (`Resource.SessionsTable.name`) |
 | `LIMITS_TABLE` | sí | nombre de la tabla de límites, vía linkable en SST (`Resource.LimitsTable.name`) |
 | `LIMITE_DIARIO` | sí | número máximo de llamadas por usuario por día (default: 50) |
