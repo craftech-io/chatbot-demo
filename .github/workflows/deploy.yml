@@ -41,7 +41,12 @@ jobs:
       # resuelve sus globals (`aws`, `awsnative`, `$interpolate`, ...) y el
       # typecheck de infra de abajo falla por scaffolding faltante, no por un
       # error real.
-      - run: npx sst install --print-logs
+      #
+      # El `--stage` es obligatorio acá: `.sst/stage` también es gitignoreado, y
+      # sin stage `sst install` corta al terminar de bajar pulumi y bun.
+      - run: npx sst install --stage staging --print-logs
+        env:
+          SST_STAGE: staging
       - run: npm run typecheck && npm test
       # Typecheck de sst.config.ts + infra/ (el de workspaces no los cubre).
       # Filtra el único error preexistente de .sst/platform (vendored, gitignoreado).
