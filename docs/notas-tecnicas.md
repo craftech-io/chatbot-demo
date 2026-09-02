@@ -99,10 +99,13 @@ multi-arquitectura dice que hacen falta runners self-hosted — eso describe el
 runtime clásico, no v3. Runtime v3 tampoco monta el Docker CLI, así que hay que
 instalarlo en el step junto con buildx y `binfmt --install arm64`.
 
-**`sst install` necesita `--stage`.** `.sst/stage` es gitignoreado, así que el
-runner no lo tiene y el comando corta con `No stage specified` al terminar de
-bajar pulumi y bun — antes de llegar al typecheck. Vale para cualquier CI en
-runner limpio, GitHub incluido.
+**`sst install` necesita `--stage`.** En el runner de Bitbucket el comando corta
+con `No stage specified` al terminar de bajar pulumi y bun, antes de llegar al
+typecheck — `.sst/stage` es gitignoreado y ahí no existe. En GitHub Actions **no**
+pasa: el mismo comando sin `--stage` corre bien (verificado en corridas reales de
+este repo), y no pudimos reproducir el fallo en local ni borrando `.sst/` ni sin
+`USER`. Qué diferencia hay entre los dos runners quedó sin determinar, así que el
+`--stage` explícito va en los dos: es una línea y saca la inferencia del medio.
 
 **La trust policy del rol solo puede condicionar por `aud` y `sub`.** Bitbucket
 emite claims propios (`branchName`, `repositoryUuid`, `commitSha`) y se ven en el
