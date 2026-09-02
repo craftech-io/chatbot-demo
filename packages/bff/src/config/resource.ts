@@ -19,6 +19,8 @@
 import { Resource } from "sst";
 import type { BffConfig } from "./index";
 
+const MIN_BYTES_HMAC = 32;
+
 export function fromResource(): BffConfig {
   // JWKS es el preferido para clientes con OIDC (sin secreto compartido). Si
   // el cliente no tiene OIDC, usa HMAC. Si ambos están configurados gana HMAC
@@ -27,6 +29,15 @@ export function fromResource(): BffConfig {
   if (!jwksUrl && !hmacSecret) {
     throw new Error(
       "Falta configurar el emisor de tokens: seteá ClientJwksUrl o ClientHmacSecret.",
+    );
+  }
+
+  // HS256 firma con el secreto crudo: uno más corto que su hash se rompe
+  // offline con el token en mano, y nada más en el sistema lo avisaría.
+  if (hmacSecret && hmacSecret.length < MIN_BYTES_HMAC) {
+    throw new Error(
+      `ClientHmacSecret tiene ${hmacSecret.length} caracteres y el mínimo es ${MIN_BYTES_HMAC}. ` +
+        "Generá uno con: openssl rand -base64 48",
     );
   }
 

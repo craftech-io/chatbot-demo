@@ -26,6 +26,16 @@ describe("verifyUserToken", () => {
     expect(p.actToken).toBe("tok-api-cliente");
   });
 
+  it("rechaza un token SIN exp: sin vencimiento serviría para siempre", async () => {
+    const sinExp = await new SignJWT({ sub: "4821" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .sign(SECRET);
+    await expect(verifyUserToken(sinExp, verifier)).rejects.toMatchObject({
+      code: "invalid_token",
+    });
+  });
+
   it("rechaza un token expirado con code expired_token", async () => {
     const token = await firmar({ sub: "4821" }, "-1m");
     await expect(verifyUserToken(token, verifier)).rejects.toMatchObject({

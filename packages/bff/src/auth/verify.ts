@@ -47,6 +47,10 @@ function jwks(url: string) {
 
 // Algoritmos permitidos por tipo de emisor. Allowlist explícita: en una frontera
 // de confianza no se deja que el token elija el algoritmo.
+// `exp` es OBLIGATORIO: jose valida el vencimiento solo si el claim viene, así
+// que un token sin `exp` sirve para siempre. Vale para los dos modos.
+const CLAIMS_OBLIGATORIOS = ["exp"];
+
 const HMAC_ALGS = ["HS256"];
 const JWKS_ALGS = ["RS256", "ES256", "PS256", "EdDSA"];
 
@@ -61,9 +65,11 @@ export async function verifyUserToken(
       v.kind === "hmac"
         ? await jwtVerify(token, new TextEncoder().encode(v.secret), {
             algorithms: HMAC_ALGS,
+            requiredClaims: CLAIMS_OBLIGATORIOS,
           })
         : await jwtVerify(token, jwks(v.url), {
             algorithms: JWKS_ALGS,
+            requiredClaims: CLAIMS_OBLIGATORIOS,
             // Con emisor OIDC real (Cognito) se pinean emisor y audiencia: la
             // firma sola no alcanza si el mismo emisor firma para varias apps.
             ...(v.issuer ? { issuer: v.issuer } : {}),

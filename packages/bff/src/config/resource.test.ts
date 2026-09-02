@@ -25,6 +25,8 @@ function configurarClientAuth(valores: Partial<(typeof Resource)["ClientAuth"]>)
   Object.assign(Resource.ClientAuth, { jwksUrl: "", hmacSecret: "", issuer: "", audience: "" }, valores);
 }
 
+const HMAC_VALIDO = "un-secreto-de-al-menos-32-bytes!!";
+
 describe("fromResource: aviso de pineo JWKS incompleto (half-pin)", () => {
   let warn: ReturnType<typeof vi.spyOn>;
 
@@ -69,9 +71,16 @@ describe("fromResource: aviso de pineo JWKS incompleto (half-pin)", () => {
   });
 
   it("con hmac activo no hay warn aunque falte un claim (el pineo no aplica)", () => {
-    configurarClientAuth({ jwksUrl: "https://emisor/jwks.json", hmacSecret: "s", issuer: "https://emisor" });
+    configurarClientAuth({ jwksUrl: "https://emisor/jwks.json", hmacSecret: HMAC_VALIDO, issuer: "https://emisor" });
     const cfg = fromResource();
     expect(warn).not.toHaveBeenCalled();
     expect(cfg.verifier).toMatchObject({ kind: "hmac" });
+  });
+});
+
+describe("fromResource: largo del secreto HMAC", () => {
+  it("corta si el secreto es más corto que el hash de HS256", () => {
+    configurarClientAuth({ hmacSecret: "corto" });
+    expect(() => fromResource()).toThrow(/mínimo es 32/);
   });
 });
