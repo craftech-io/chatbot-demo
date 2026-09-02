@@ -86,6 +86,37 @@ público. Es la diferencia entre "según s3://<bucket-de-documentos>/politica.md
 cientos con OpenSearch Serverless. Es la razón por la que el conector nativo de
 Confluence (que exige OpenSearch) queda fuera del núcleo.
 
+## Portar el CI a Bitbucket Pipelines
+
+El CI del template es GitHub Actions. Portarlo a Bitbucket tiene tres puntos duros
+que no se deducen de la documentación y que cuestan una corrida cada uno:
+
+**`options.runtime.cloud.version: 3` es obligatorio.** La imagen del core es
+`linux/arm64` porque lo exige AgentCore Runtime, y en el runtime clásico de
+Pipelines `buildx`, `--platform` y `--privileged` están deshabilitados en los
+runners cloud: la imagen no se puede construir. La KB de Atlassian sobre builds
+multi-arquitectura dice que hacen falta runners self-hosted — eso describe el
+runtime clásico, no v3. Runtime v3 tampoco monta el Docker CLI, así que hay que
+instalarlo en el step junto con buildx y `binfmt --install arm64`.
+
+**`sst install` necesita `--stage`.** `.sst/stage` es gitignoreado, así que el
+runner no lo tiene y el comando corta con `No stage specified` al terminar de
+bajar pulumi y bun — antes de llegar al typecheck. Vale para cualquier CI en
+runner limpio, GitHub incluido.
+
+**La trust policy del rol solo puede condicionar por `aud` y `sub`.** Bitbucket
+emite claims propios (`branchName`, `repositoryUuid`, `commitSha`) y se ven en el
+payload del token, pero IAM no los resuelve como claves de condición: la condición
+evalúa a falso y devuelve `AccessDenied: Not authorized to perform
+sts:AssumeRoleWithWebIdentity`, indistinguible de una policy mal escrita. El `sub`
+es `{repositoryUuid}:{stepUuid}`, así que se acota el repo con `StringLike` y
+`{<uuid>}:*` (las llaves son parte del valor).
+
+Para diagnosticar un `AccessDenied` de OIDC, el dato que discrimina está en
+CloudTrail: si el evento trae `userIdentity.type: WebIdentityUser` con el
+principal completo, STS validó la firma del token y el problema es de
+autorización — eso descarta de una el thumbprint, el audience y el provider.
+
 ## Observabilidad: qué se ve y qué se prende
 
 ### Prerequisito de cuenta: búsqueda de transacciones
