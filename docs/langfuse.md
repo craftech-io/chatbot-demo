@@ -107,7 +107,7 @@ python3 scripts/receptor-otlp.py /tmp/recibido.json &
 
 AUTH=$(printf 'pk-lf-demo:sk-lf-demo' | base64 -w0)
 env MODEL_ID=fake FAKE_LLM=1 PYTHONPATH="$PWD/core/src" TRAZAS_OPENINFERENCE=1 \
-    OTEL_SERVICE_NAME=aersa-chat-agente OTEL_TRACES_EXPORTER=otlp \
+    OTEL_SERVICE_NAME=<slug>-agente OTEL_TRACES_EXPORTER=otlp \
     OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces \

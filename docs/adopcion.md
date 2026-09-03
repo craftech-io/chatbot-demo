@@ -18,18 +18,38 @@ Ninguno de estos lo hace el stack. Los tres primeros son bloqueantes.
 
 ### 0.1 Habilitar el modelo en Bedrock
 
-El modelo de `client.config.ts` tiene que estar habilitado en **la cuenta y la
-región del deploy**. Se hace desde la consola de Bedrock, en *Model access*.
+La página *Model access* de la consola **se retiró**: los modelos serverless se
+habilitan solos en la primera invocación. Pero los de **Anthropic** exigen antes
+un formulario de caso de uso, una vez por cuenta —o una vez en la cuenta de
+management, si la cuenta pertenece a una organización—.
+
+El formulario ya no vive en una página de configuración: aparece al abrir el
+modelo desde *Model catalog* en el Playground. Pide razón social, sitio web,
+industria, si los usuarios son internos o externos, y una descripción del uso
+de hasta 500 caracteres, que **se comparte con Anthropic**. Lo completa el CLIENTE:
+son declaraciones sobre su empresa, no sobre la nuestra.
+
+Verificación:
 
 ```bash
-aws bedrock list-foundation-models --query 'modelSummaries[?contains(modelId, `claude`)].modelId'
+aws bedrock get-use-case-for-model-access   # sin el formulario: ResourceNotFoundException
+aws bedrock-runtime converse --model-id <el de client.config.ts> \
+  --messages '[{"role":"user","content":[{"text":"ok"}]}]'
 ```
 
-Con un inference profile (los `us.`), el modelo tiene que estar habilitado en
-las regiones hermanas del profile, no solo en la del deploy.
+**`list-foundation-models` no sirve como chequeo**: lista el catálogo, no el
+acceso, así que da verde igual. Con inference profiles (los `us.`) tampoco
+aparece el id que se invoca — está en `list-inference-profiles`. La única
+verificación que vale es un `converse` real.
 
-Modo de falla: el deploy sale verde y el primer mensaje devuelve `AccessDenied`
-de Bedrock desde adentro del contenedor.
+Modo de falla: el deploy sale verde, el agente contesta "Tuve un problema para
+responderte" y el worker loguea `agent_error` sin más detalle. El motivo real
+—`Model use case details have not been submitted`— aparece únicamente en el log
+group del Runtime (`/aws/bedrock-agentcore/runtimes/<id>-DEFAULT`).
+
+Ojo con la primera invocación: puede pasar antes de que se exija el formulario,
+y las siguientes fallar. Un `converse` que funcionó una vez no prueba que la
+cuenta esté habilitada.
 
 ### 0.2 Búsqueda de transacciones de X-Ray
 
@@ -140,11 +160,19 @@ completo sin depender de su app.
 Push a `main` dispara `deploy.yml`. **El primer deploy tarda** (~20-30 min): el
 build de la imagen ARM64 corre bajo QEMU en un runner x86.
 
-Dos fallas conocidas del primer deploy en una cuenta nueva:
+Tres fallas conocidas del primer deploy en una cuenta nueva:
 
-- **Propagación de IAM al crear la Knowledge Base.** Bedrock valida el rol de
-  ejecución antes de que IAM lo haya propagado y el create falla. **Reintentar
-  el workflow lo resuelve**; no es un bug del template.
+- **Propagación de IAM.** El servicio valida el rol antes de que IAM lo haya
+  propagado y el create falla. Lo sufren la Knowledge Base y el GatewayTarget de
+  `documentos` (que necesita `lambda:InvokeFunction`, y falla con un
+  `InternalFailure` genérico; el target de la API, que no necesita credencial, se
+  crea igual). **Reintentar el workflow lo resuelve**; no es un bug del template.
+- **El typecheck del CI falla con ~20 errores `TS2339`** sobre propiedades de
+  `Resource`. Es `sst-env.d.ts` de la raíz, que está trackeado y declara los
+  linkables: **solo `sst deploy` y `sst dev` lo generan** —ni `sst install` ni
+  `sst diff`—, así que en una cuenta sin desplegar queda con `Resource {}` vacío
+  y el CI no compila. Se resuelve con el primer deploy desde local y commiteando
+  el archivo resultante.
 - **`AlreadyExists` en TransactionSearch**, si se saltó el paso 0.2 y algún
   stage quedó con `stageQueAdministraLaBusqueda` seteado.
 
@@ -284,9 +312,9 @@ escalamiento se caería sin aviso.
 5. Setear los cinco secretos y desplegar:
 
 ```bash
-npx sst secret set JsmClientId     "<client_id>"     --stage <stage>
-npx sst secret set JsmClientSecret "<client_secret>" --stage <stage>
-npx sst secret set JsmCloudId      "<cloud_id>"      --stage <stage>
+npx sst secret set AtlassianClientId     "<client_id>"     --stage <stage>
+npx sst secret set AtlassianClientSecret "<client_secret>" --stage <stage>
+npx sst secret set AtlassianCloudId      "<cloud_id>"      --stage <stage>
 npx sst secret set JsmServiceDeskId "<id>"           --stage <stage>
 npx sst secret set JsmRequestTypeId "<id>"           --stage <stage>
 ```
@@ -320,20 +348,31 @@ respondiendo con una política derogada.
 Usa la misma service account que JSM, con dos scopes más:
 **`read:space:confluence`** y **`read:page:confluence`**.
 
-```bash
-npx sst secret set ConfluenceEspacios  "SOP,RRHH"                    --stage <stage>
-npx sst secret set ConfluenceSitioUrl  "https://<sitio>.atlassian.net" --stage <stage>
+Los espacios y la URL del sitio **no son secretos**: van en
+`client.config.ts`, que se commitea.
+
+```ts
+confluence: {
+  espacios: ["SOP", "RRHH"],
+  sitioUrl: "https://<sitio>.atlassian.net",
+  ...
+}
 ```
 
-`ConfluenceEspacios` es la allowlist, separada por comas. **Vacía ⇒ el ingestor
-no hace nada**, que es el default: nadie ingesta un espacio por accidente.
+`espacios` es la allowlist. **Vacía ⇒ el ingestor no hace nada**, que es el
+default: nadie ingesta un espacio por accidente. Las credenciales sí son
+secretos, y son las mismas tres `Atlassian*` de JSM.
 
 Para correrla a mano sin esperar el cron, se invoca la Lambda
 `IngestorConfluence` desde la consola con un payload vacío.
 
-Lo que **no** hace todavía: adjuntos (PDF, imágenes) y páginas de más de un
-nivel de macros anidadas, cuyo contenido se descarta junto con la macro. Si el
-corpus de Aersa depende de adjuntos, eso es trabajo aparte.
+Los **adjuntos** se ingestan si `confluence.adjuntos` está en `true` (ver
+"Adjuntos de Confluence" más abajo); viene en `false` por default. Está
+implementado y cubierto por tests, pero **nunca se probó contra un sitio real**:
+la primera corrida con adjuntos prendidos hay que mirarla.
+
+Lo que **no** hace: páginas con más de un nivel de macros anidadas, cuyo
+contenido se descarta junto con la macro.
 
 ---
 
