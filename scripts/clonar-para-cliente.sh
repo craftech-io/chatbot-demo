@@ -50,13 +50,16 @@ echo
 # `git mv` si estamos en un repo, `mv` si no (p. ej. después de un rm -rf .git).
 mover() { if git rev-parse --git-dir >/dev/null 2>&1; then git mv "$1" "$2"; else mv "$1" "$2"; fi; }
 # Reemplazo sobre archivos TRACKEADOS de texto, sin tocar node_modules ni el lock.
+# Los valores van por ENTORNO, no interpolados en el código de perl: el patrón
+# lleva `/` y el reemplazo lleva `@`, que romperían el s/// y se leerían como un
+# array de perl.
 reemplazar() {
-  local de="$1" a="$2"
-  git grep -lF --untracked -- "$de" \
+  export REEMP_DE="$1" REEMP_A="$2"
+  git grep -lF --untracked -- "$REEMP_DE" \
     | grep -vE '^(package-lock\.json|node_modules/)' \
     | while read -r f; do
         [ -f "$f" ] || continue
-        perl -pi -e "s/\Q$de\E/$a/g" "$f"
+        perl -pi -e 's/\Q$ENV{REEMP_DE}\E/$ENV{REEMP_A}/g' "$f"
       done
 }
 
