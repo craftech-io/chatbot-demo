@@ -11,6 +11,26 @@ tiempo al menos una vez. Está escrito a partir del primer clon real (2026-09).
 
 ---
 
+## La parte mecánica la hace un script
+
+```bash
+bash scripts/clonar-para-cliente.sh <slug-del-cliente>
+```
+
+Sobre el clon, **no sobre este repo** (tiene una guarda que lo verifica por el
+remoto). Hace los pasos 1 a 4 de acá abajo —estructura, slug, scope, workspaces,
+`.gitignore`, corpus de ejemplo, diagrama—, corre el grep de control y al final
+**imprime lo que queda para una persona**.
+
+Como último paso **se borra a sí mismo y borra este CLAUDE.md**: ninguno de los dos
+va al repo del cliente. Los dos son documentación interna de Craftech y hablan del
+proceso, no del producto.
+
+Lo que sigue es el detalle: lo que el script hace (para poder revisarlo) y lo que
+no puede hacer.
+
+---
+
 ## 0. Decisiones antes de tocar nada
 
 **El slug es irreversible.** Queda incrustado en el nombre físico de cada recurso
