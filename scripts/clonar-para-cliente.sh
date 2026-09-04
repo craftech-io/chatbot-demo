@@ -73,10 +73,15 @@ rmdir examples 2>/dev/null || true
 # El .gitignore apunta a examples/: si no se cambia, se commitean los tipos
 # generados de las apps.
 perl -pi -e 's{^examples/\*/sst-env\.d\.ts$}{apps/*/sst-env.d.ts}' .gitignore
+# Los workspaces de npm: sin esto apps/web y apps/api dejan de ser workspaces y
+# sus tests no corren.
+perl -pi -e 's{"examples/\*"}{"apps/*"}' package.json
+python3 -c "import json,sys; ws=json.load(open('package.json'))['workspaces']; sys.exit(0 if 'apps/*' in ws else 1)" \
+  || { echo "  ✕ no se pudo actualizar workspaces en package.json" >&2; exit 1; }
 echo "  examples/demo-client → apps/web"
 echo "  examples/api-cliente → apps/api"
 echo "  examples/documentos  → documentos/"
-echo "  .gitignore: examples/*/sst-env.d.ts → apps/*/sst-env.d.ts"
+echo "  .gitignore y workspaces de package.json: examples/* → apps/*"
 
 # ── 2. Slug y scope npm ────────────────────────────────────────────────────
 echo "→ slug y scope"
