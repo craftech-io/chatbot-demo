@@ -170,7 +170,17 @@ cat <<'PENDIENTE'
 Los detalles de 2 a 9 estaban en el CLAUDE.md que este script acaba de borrar:
 está en el template, en la raíz.
 
-Después de esto: npm install && npm run typecheck && npm test
+Para verificar que el clon quedó sano, en este orden:
+
+     npm install
+     npx sst install --stage production   # sin esto typecheck:infra falla por
+     npm run typecheck                    #   `Cannot find namespace 'awsnative'`
+     npm run typecheck:infra
+     npm test
+
+   Y confirmá que `sst-env.d.ts` (raíz) tenga contenido: declara el tipo
+   `Resource` y si queda con `Resource {}` vacío el typecheck del CI falla con
+   ~20 errores TS2339. Se llena con `sst deploy`, no con `sst install`.
 PENDIENTE
 echo
 echo "✓ listo."
