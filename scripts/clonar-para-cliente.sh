@@ -86,8 +86,16 @@ reemplazar "@craftech-ai-chat/" "@$SLUG/"
 perl -pi -e "s/\"name\": \"craftech-ai-chat\"/\"name\": \"$SLUG\"/" package.json
 # El paquete de la app web se llamaba demo-client.
 perl -pi -e "s/\"\@$SLUG\/demo-client\"/\"\@$SLUG\/web\"/" apps/web/package.json 2>/dev/null || true
+# El nombre pelado (sin @scope) aparece en tres lugares mecánicos. La prosa de
+# README y docs/ NO se toca acá: necesita reescritura, no renombrado.
+for f in pyproject.toml core/smoke.sh apps/web/public/index.html; do
+  [ -f "$f" ] || continue
+  REEMP_DE="craftech-ai-chat" REEMP_A="$SLUG" \
+    perl -pi -e 's/\Q$ENV{REEMP_DE}\E/$ENV{REEMP_A}/g' "$f"
+done
 echo "  client.config.ts → $SLUG"
 echo "  scope npm → @$SLUG/*"
+echo "  pyproject.toml, core/smoke.sh y el título de apps/web → $SLUG"
 
 # ── 3. El corpus de ejemplo ────────────────────────────────────────────────
 # Son documentos de una empresa inventada. Si alguien corre una ingesta, el
@@ -111,6 +119,9 @@ echo "  docs/arquitectura.excalidraw regenerado para $SLUG"
 echo "→ piezas internas"
 rm -f CLAUDE.md
 echo "  CLAUDE.md borrado (playbook interno de Craftech)"
+# Antes del grep de control, para no listarse a sí mismo.
+rm -f "$YO"
+echo "  scripts/clonar-para-cliente.sh borrado (este script)"
 
 # ── Control ────────────────────────────────────────────────────────────────
 echo
@@ -138,21 +149,23 @@ cat <<'PENDIENTE'
 4. docs/diseno.md: sacar las secciones internas (plan de fases de entrega y
    riesgos comerciales del producto). Son planificación de Craftech.
 
-5. client.config.ts: repasar TODOS los campos, no solo el slug — prompt del
+5. apps/web/public/index.html: el <title> y el <h1> quedaron con el slug.
+   Poné el nombre real del cliente — es texto visible.
+
+6. client.config.ts: repasar TODOS los campos, no solo el slug — prompt del
    sistema, topes de uso, origenesCors (viene en ["*"]), retención, regex de PII.
 
-6. El stage tiene que llamarse `production` o se pierden `retain` y `protect`
+7. El stage tiene que llamarse `production` o se pierden `retain` y `protect`
    (sst.config.ts compara el string exacto).
 
-7. CI: el template usa GitHub Actions. Si el cliente usa otro remoto, portarlo.
+8. CI: el template usa GitHub Actions. Si el cliente usa otro remoto, portarlo.
 
-8. Prerequisitos de la cuenta del cliente y primer deploy DESDE LOCAL.
+9. Prerequisitos de la cuenta del cliente y primer deploy DESDE LOCAL.
 
-Los detalles de 2 a 8 estaban en el CLAUDE.md que este script acaba de borrar:
+Los detalles de 2 a 9 estaban en el CLAUDE.md que este script acaba de borrar:
 está en el template, en la raíz.
 
 Después de esto: npm install && npm run typecheck && npm test
 PENDIENTE
-rm -f "$YO"
 echo
-echo "✓ listo. Este script se borró a sí mismo."
+echo "✓ listo."
