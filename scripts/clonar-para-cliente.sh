@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Prepara un clon de este template para un cliente. Hace SOLO la parte mecánica
+# y verificable; al final imprime lo que queda para una persona.
+#
+# ESTE SCRIPT NO DEBE LLEGAR AL REPO DEL CLIENTE. Se borra a sí mismo y borra el
+# CLAUDE.md (el playbook de clonado, que es interno) como último paso.
+#
+#   bash scripts/clonar-para-cliente.sh <slug-del-cliente>
+#
+# El slug es IRREVERSIBLE: queda en el nombre físico de cada recurso. Ver CLAUDE.md §0.
+set -euo pipefail
+
+SLUG="${1:-}"
+RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+YO="$RAIZ/scripts/clonar-para-cliente.sh"
+
+# ── Guardas ────────────────────────────────────────────────────────────────
+if [ -z "$SLUG" ]; then
+  echo "uso: bash scripts/clonar-para-cliente.sh <slug-del-cliente>" >&2
+  exit 1
+fi
+# Mismo criterio que infra/sst/nombres.ts, que lo valida en el synth.
+if ! printf '%s' "$SLUG" | grep -qE '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'; then
+  echo "✕ el slug tiene que ser kebab-case: minúsculas, dígitos y guiones ('$SLUG' no lo es)" >&2
+  exit 1
+fi
+cd "$RAIZ"
+
+# La guarda que más importa: no correrlo sobre el template mismo.
+REMOTO="$(git remote get-url origin 2>/dev/null || echo "")"
+case "$REMOTO" in
+  *craftech-io/chatbot-demo*|*craftech-io%2Fchatbot-demo*)
+    echo "✕ el remoto es el del TEMPLATE ($REMOTO)." >&2
+    echo "  Este script se corre sobre el clon del cliente, no acá." >&2
+    exit 1
+    ;;
+esac
+if [ ! -f CLAUDE.md ]; then
+  echo "✕ no está CLAUDE.md: o ya se corrió este script, o no es un clon del template." >&2
+  exit 1
+fi
+if [ -d apps ]; then
+  echo "✕ ya existe apps/: parece que el renombrado ya se hizo." >&2
+  exit 1
+fi
+
+echo "Preparando el clon para '$SLUG'"
+echo
+
+# `git mv` si estamos en un repo, `mv` si no (p. ej. después de un rm -rf .git).
+mover() { if git rev-parse --git-dir >/dev/null 2>&1; then git mv "$1" "$2"; else mv "$1" "$2"; fi; }
+# Reemplazo sobre archivos TRACKEADOS de texto, sin tocar node_modules ni el lock.
+reemplazar() {
+  local de="$1" a="$2"
+  git grep -lF --untracked -- "$de" \
+    | grep -vE '^(package-lock\.json|node_modules/)' \
+    | while read -r f; do
+        [ -f "$f" ] || continue
+        perl -pi -e "s/\Q$de\E/$a/g" "$f"
+      done
+}
+
+# ── 1. Estructura: examples/ son las apps reales del cliente ───────────────
+echo "→ estructura"
+mkdir -p apps
+mover examples/demo-client apps/web
+mover examples/api-cliente apps/api
+mover examples/documentos documentos
+rmdir examples 2>/dev/null || true
+# El .gitignore apunta a examples/: si no se cambia, se commitean los tipos
+# generados de las apps.
+perl -pi -e 's{^examples/\*/sst-env\.d\.ts$}{apps/*/sst-env.d.ts}' .gitignore
+echo "  examples/demo-client → apps/web"
+echo "  examples/api-cliente → apps/api"
+echo "  examples/documentos  → documentos/"
+echo "  .gitignore: examples/*/sst-env.d.ts → apps/*/sst-env.d.ts"
+
+# ── 2. Slug y scope npm ────────────────────────────────────────────────────
+echo "→ slug y scope"
+perl -pi -e "s/slug: \"craftech-ai-chat\"/slug: \"$SLUG\"/" client.config.ts
+grep -q "slug: \"$SLUG\"" client.config.ts || { echo "  ✕ no se pudo setear el slug" >&2; exit 1; }
+reemplazar "@craftech-ai-chat/" "@$SLUG/"
+perl -pi -e "s/\"name\": \"craftech-ai-chat\"/\"name\": \"$SLUG\"/" package.json
+# El paquete de la app web se llamaba demo-client.
+perl -pi -e "s/\"\@$SLUG\/demo-client\"/\"\@$SLUG\/web\"/" apps/web/package.json 2>/dev/null || true
+echo "  client.config.ts → $SLUG"
+echo "  scope npm → @$SLUG/*"
+
+# ── 3. El corpus de ejemplo ────────────────────────────────────────────────
+# Son documentos de una empresa inventada. Si alguien corre una ingesta, el
+# chatbot del cliente contesta sobre una tienda que no existe. El README se
+# queda: documenta el formato de los sidecars.
+echo "→ corpus de ejemplo"
+BORRADOS=0
+for f in documentos/*.md documentos/*.metadata.json; do
+  [ -f "$f" ] || continue
+  case "$f" in */README.md) continue ;; esac
+  rm -- "$f"; BORRADOS=$((BORRADOS + 1))
+done
+echo "  $BORRADOS archivos borrados (README.md conservado)"
+
+# ── 4. El diagrama, con el slug y las rutas reales ─────────────────────────
+echo "→ diagrama"
+node docs/arquitectura.mjs docs/arquitectura.excalidraw "$SLUG" cliente >/dev/null
+echo "  docs/arquitectura.excalidraw regenerado para $SLUG"
+
+# ── 5. Este script y el playbook NO van al repo del cliente ────────────────
+echo "→ piezas internas"
+rm -f CLAUDE.md
+echo "  CLAUDE.md borrado (playbook interno de Craftech)"
+
+# ── Control ────────────────────────────────────────────────────────────────
+echo
+echo "── lo que queda, para revisar a mano ─────────────────────────────────"
+echo
+PENDIENTES="$(git grep -lI "craftech-ai-chat\|craftech-io\|chatbot-demo" -- . 2>/dev/null \
+  | grep -vE '^(package-lock\.json)$' || true)"
+if [ -n "$PENDIENTES" ]; then
+  echo "1. Menciones al template en prosa (el renombrado mecánico no las toca):"
+  printf '     %s\n' $PENDIENTES
+else
+  echo "1. Sin menciones al template. ✓"
+fi
+cat <<'PENDIENTE'
+
+2. Historia de git: el clon arranca con un commit inicial limpio.
+     rm -rf .git && git init && git branch -M main
+     git config user.email "<el del remoto del cliente>"   # LOCAL, no global
+   Verificá `git log --format=%ae -1` ANTES del primer push.
+
+3. apps/web/mock.mjs: tiene textos VISIBLES AL USUARIO que citan el corpus de
+   ejemplo que se acaba de borrar. Si quedan, el modo local le habla al cliente
+   de otra empresa. Hay tests que pinean esos textos.
+
+4. docs/diseno.md: sacar las secciones internas (plan de fases de entrega y
+   riesgos comerciales del producto). Son planificación de Craftech.
+
+5. client.config.ts: repasar TODOS los campos, no solo el slug — prompt del
+   sistema, topes de uso, origenesCors (viene en ["*"]), retención, regex de PII.
+
+6. El stage tiene que llamarse `production` o se pierden `retain` y `protect`
+   (sst.config.ts compara el string exacto).
+
+7. CI: el template usa GitHub Actions. Si el cliente usa otro remoto, portarlo.
+
+8. Prerequisitos de la cuenta del cliente y primer deploy DESDE LOCAL.
+
+Los detalles de 2 a 8 estaban en el CLAUDE.md que este script acaba de borrar:
+está en el template, en la raíz.
+
+Después de esto: npm install && npm run typecheck && npm test
+PENDIENTE
+rm -f "$YO"
+echo
+echo "✓ listo. Este script se borró a sí mismo."
