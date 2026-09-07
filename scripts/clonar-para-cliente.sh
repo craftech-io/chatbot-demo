@@ -39,6 +39,10 @@ if [ ! -f CLAUDE.md ]; then
   echo "✕ no está CLAUDE.md: o ya se corrió este script, o no es un clon del template." >&2
   exit 1
 fi
+# Aviso, no corte: se puede clonar sin el skill, pero conviene saberlo.
+if [ ! -d .claude/skills/clonar-para-cliente ]; then
+  echo "  (nota: no está el skill clonar-para-cliente; el clonado sigue igual)" >&2
+fi
 if [ -d apps ]; then
   echo "✕ ya existe apps/: parece que el renombrado ya se hizo." >&2
   exit 1
@@ -124,6 +128,11 @@ echo "  docs/arquitectura.excalidraw regenerado para $SLUG"
 echo "→ piezas internas"
 rm -f CLAUDE.md
 echo "  CLAUDE.md borrado (playbook interno de Craftech)"
+# El skill que conduce este clonado también es interno.
+if [ -d .claude ]; then
+  rm -rf .claude
+  echo "  .claude/ borrado (skills internos de Craftech)"
+fi
 # Antes del grep de control, para no listarse a sí mismo.
 rm -f "$YO"
 echo "  scripts/clonar-para-cliente.sh borrado (este script)"

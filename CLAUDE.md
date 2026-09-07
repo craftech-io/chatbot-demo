@@ -22,9 +22,15 @@ remoto). Hace los pasos 1 a 4 de acá abajo —estructura, slug, scope, workspac
 `.gitignore`, corpus de ejemplo, diagrama—, corre el grep de control y al final
 **imprime lo que queda para una persona**.
 
-Como último paso **se borra a sí mismo y borra este CLAUDE.md**: ninguno de los dos
-va al repo del cliente. Los dos son documentación interna de Craftech y hablan del
-proceso, no del producto.
+Como último paso **se borra a sí mismo, borra este CLAUDE.md y borra `.claude/`**:
+nada de eso va al repo del cliente. Son documentación y herramientas internas de
+Craftech, y hablan del proceso, no del producto.
+
+En `.claude/skills/clonar-para-cliente/` hay un skill que **conduce** el clonado:
+hace la entrevista de las decisiones que ramifican (slug, remoto, IdP, de dónde
+salen los documentos, escalamiento, observabilidad), corre el script y cierra con
+los mensajes para pedirle al cliente lo que falte. Es el punto de entrada
+recomendado; este documento es su material de referencia.
 
 Lo que sigue es el detalle: lo que el script hace (para poder revisarlo) y lo que
 no puede hacer.
