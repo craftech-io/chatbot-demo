@@ -236,6 +236,25 @@ const envObservabilidad = {
   ...(observabilidad.contenidoEnTrazas ? {} : envRedaccion),
 };
 
+// Cloud Control topea CADA variable de entorno del Runtime en 2048 caracteres, y
+// el base64 infla un 33%: el techo real del prompt es ~1530 caracteres de texto.
+// Sin esta guarda el límite aparece recién en el UpdateResource, como un
+// ValidationException que no nombra `promptSistema` — y con el deploy a mitad.
+const MAX_ENV_AGENTCORE = 2048;
+
+function promptEnBase64(prompt: string): string {
+  const b64 = Buffer.from(prompt, "utf8").toString("base64");
+  if (b64.length > MAX_ENV_AGENTCORE) {
+    const sobra = Math.ceil((b64.length - MAX_ENV_AGENTCORE) * 0.75);
+    throw new Error(
+      `promptSistema mide ${prompt.length} caracteres y no entra en una variable de ` +
+        `entorno de AgentCore (${b64.length} en base64, el límite es ${MAX_ENV_AGENTCORE}). ` +
+        `Recortá unos ${sobra} caracteres.`,
+    );
+  }
+  return b64;
+}
+
 // Se exporta para publicar su nombre como output del stack: el CI lo lee de
 // `.sst/outputs.json` en vez de rearmarlo a mano (ver bitbucket-pipelines.yml).
 export const repo = new aws.ecr.Repository("CoreRepo", {
@@ -407,7 +426,7 @@ export const runtime = new awsnative.bedrockagentcore.Runtime("AgentRuntime", {
     // SOPORTADO (lo documentan client.config.ts e infra/CONTRACT.md), y ausente
     // es exactamente lo que el core espera para ese modo.
     ...(cliente.promptSistema
-      ? { PROMPT_SISTEMA_B64: Buffer.from(cliente.promptSistema, "utf8").toString("base64") }
+      ? { PROMPT_SISTEMA_B64: promptEnBase64(cliente.promptSistema) }
       : {}),
     // Observabilidad del contenedor: todas las env están armadas y comentadas
     // arriba, derivadas de `cliente.observabilidad`.
