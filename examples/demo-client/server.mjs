@@ -95,7 +95,9 @@ const MOCK_HINT_HTML =
 // efectivamente se habla.
 function headerDeMarca(m = marca) {
   const logo = m.logo
-    ? `<img src="${m.logo}" alt="${m.nombre}" style="height:${m.logoAlto};width:auto" />`
+    // alt vacío: el <h1> de al lado ya dice el nombre, así que el logo es
+    // decorativo y repetirlo se lo hace leer dos veces a un lector de pantalla.
+    ? `<img src="${m.logo}" alt="" style="height:${m.logoAlto};width:auto" />`
     : "";
   return `${logo}<h1>${m.nombre}</h1>`;
 }

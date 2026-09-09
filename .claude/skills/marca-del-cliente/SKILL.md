@@ -96,10 +96,26 @@ Si aparece una sola, las burbujas del chat no siguen a la marca en el otro modo 
 el marco de la página cambia de color y el chat se queda con el default de
 fábrica.
 
-## 6. El logo
+## 6. El logo: casi nunca sirve el que te dan
+
+Los clientes mandan el **lockup horizontal** — la marca completa con el nombre y
+una o dos líneas de bajada. A los 28px de alto del encabezado esa bajada queda
+ilegible y el logo se lee como una mancha.
+
+Casi siempre hay una **marca compacta** adentro: el escudo, el isotipo, el
+símbolo. Separala del wordmark buscando el hueco de tinta más ancho entre
+bloques de columnas, recortala con un poco de padding y usá esa. Guardá el
+lockup completo también, por si hace falta en otro lugar.
+
+Un beneficio extra: el isotipo suele tener los colores de marca más saturados y
+en su forma exacta, así que **sacale la paleta de ahí** en vez de del lockup, que
+mezcla el gris del wordmark.
 
 Va en el `public/` de la app web y se referencia desde `marca.mjs`. SVG escala
 solo; un PNG conviene a 2x.
+
+Y poné `alt=""`: el `<h1>` de al lado ya dice el nombre, así que el logo es
+decorativo y repetirlo se lo hace leer dos veces a un lector de pantalla.
 
 Si el cliente no tiene logo del producto —pasa cuando el chat brandea un producto
 y solo existe el logo corporativo— dejá `logo: ""`. El encabezado muestra solo el
