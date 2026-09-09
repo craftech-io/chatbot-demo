@@ -99,7 +99,10 @@ function headerDeMarca(m = marca) {
     // decorativo y repetirlo se lo hace leer dos veces a un lector de pantalla.
     ? `<img src="${m.logo}" alt="" style="height:${m.logoAlto};width:auto" />`
     : "";
-  return `${logo}<h1>${m.nombre}</h1>`;
+  // Un solo hijo del flex: `.fila-titulo` usa space-between, y con el logo y el
+  // h1 sueltos quedaban tres hijos — el logo se iba al borde izquierdo y el
+  // título al centro, separados.
+  return `<span class="marca">${logo}<h1>${m.nombre}</h1></span>`;
 }
 
 // El nombre del ambiente sale de STAGE, no hardcodeado: un badge que dice
