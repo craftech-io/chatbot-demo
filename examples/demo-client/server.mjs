@@ -9,12 +9,25 @@
 // cola SQS FIFO real.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { basename, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { signChatToken } from "./sign.mjs";
 import { planificarRespuesta } from "./mock.mjs";
 import { marca, cssDeMarca, revisarContraste } from "../../marca.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
+
+// Assets de public/ (el logo de la marca). Sin esto un .png cae en el catch-all
+// que sirve index.html y el browser recibe HTML con content-type text/html: la
+// imagen se ve ROTA aunque el request devuelva 200.
+const TIPOS_ESTATICOS = {
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+};
 
 // Modos del server:
 // - COGNITO_CLIENT_ID seteado (+ API_URL) → "cognito": login real contra el
@@ -483,6 +496,21 @@ export function crearServer(entorno = process.env) {
       );
       res.writeHead(200, { "content-type": "text/javascript" });
       res.end(js);
+      return;
+    }
+
+    const tipo = TIPOS_ESTATICOS[extname(url.pathname).toLowerCase()];
+    if (req.method === "GET" && tipo) {
+      // basename() y no la ruta cruda: descarta barras y ".." de una, así no
+      // hay forma de salir de public/.
+      try {
+        const bytes = await readFile(new URL(`./public/${basename(url.pathname)}`, import.meta.url));
+        res.writeHead(200, { "content-type": tipo, "cache-control": "no-cache" });
+        res.end(bytes);
+      } catch {
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end("no existe");
+      }
       return;
     }
 
