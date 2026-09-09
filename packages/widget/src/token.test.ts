@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TokenSource } from "./token";
+import { SesionVencida, TokenSource } from "./token";
 
 describe("TokenSource", () => {
   beforeEach(() => vi.restoreAllMocks());
@@ -27,5 +27,17 @@ describe("TokenSource", () => {
   it("si el backend del cliente no da token, falla con un mensaje claro", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 403 })));
     await expect(new TokenSource("/chat-token").get()).rejects.toThrow(/chat-token/);
+  });
+
+  // El 401 tiene su propio tipo: el host lo distingue de una caída de red para
+  // mandar a la persona al login en vez de mostrar "hubo un problema".
+  it("un 401 falla con SesionVencida, no con un Error genérico", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 401 })));
+    await expect(new TokenSource("/chat-token").get()).rejects.toBeInstanceOf(SesionVencida);
+  });
+
+  it("un 403 NO es SesionVencida: no manda al login por un permiso", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 403 })));
+    await expect(new TokenSource("/chat-token").get()).rejects.not.toBeInstanceOf(SesionVencida);
   });
 });

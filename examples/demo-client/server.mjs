@@ -209,6 +209,33 @@ function cookieSesion(nombre, valor) {
   return `${nombre}=${encodeURIComponent(valor)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=3300`;
 }
 
+/**
+ * Quién está logueado según las cookies, o `undefined`.
+ *
+ * En cognito decodifica el ID token y CHEQUEA `exp`: la cookie tiene Max-Age
+ * propio, pero si el reloj del browser va atrasado o la cookie sobrevive por
+ * cualquier motivo, arrancar el chat con un token ya muerto le da al usuario un
+ * error en el primer mensaje en vez de un login.
+ */
+function usuarioDeLaSesion(req, config) {
+  const cookies = cookiesDe(req);
+  if (config.modo !== "cognito") return cookies.cc_user || undefined;
+  const token = cookies.cc_id;
+  if (!token) return undefined;
+  try {
+    const p = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    if (typeof p.exp === "number" && p.exp * 1000 <= Date.now()) return undefined;
+    return p.email || p["cognito:username"] || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// La cookie vencida: mismo nombre y path, Max-Age 0.
+function cookieBorrada(nombre) {
+  return `${nombre}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
 // POST /login. En mock es simulado: cualquier usuario/contraseña no vacíos
 // entran y la cookie cc_user pasa a ser la identidad del /chat-token. En
 // cognito es real: InitiateAuth USER_PASSWORD_AUTH por HTTP plano (sin SDK,
@@ -463,6 +490,25 @@ export function crearServer(entorno = process.env) {
     // hay login: la ruta ni se registra y el HTML tampoco muestra el form.
     if (config.modo !== "hmac" && req.method === "POST" && url.pathname === "/login") {
       await manejarLogin(req, res, config);
+      return;
+    }
+
+    // GET /sesion: lo llama la página al cargar. Sin esto el reload muestra el
+    // login aunque la cookie siga viva — el JS no puede leerla porque es
+    // HttpOnly, así que tiene que preguntar.
+    if (req.method === "GET" && url.pathname === "/sesion") {
+      const usuario = usuarioDeLaSesion(req, config);
+      if (!usuario) {
+        responderJson(res, 401, { error: { code: "login_requerido" } });
+        return;
+      }
+      responderJson(res, 200, { usuario });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/logout") {
+      res.writeHead(204, { "set-cookie": [cookieBorrada("cc_id"), cookieBorrada("cc_user")] });
+      res.end();
       return;
     }
 

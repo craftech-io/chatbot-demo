@@ -57,6 +57,19 @@ __MARCA_CSS__
     gap: .75rem;
   }
 
+  #logout {
+    margin-left: .5rem;
+    padding: .1rem .5rem;
+    font: inherit;
+    font-size: .85em;
+    color: var(--texto);
+    background: none;
+    border: 1px solid var(--linea);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #logout:hover { border-color: var(--acento); color: var(--acento); }
+
   .marca {
     display: flex;
     align-items: center;
@@ -219,6 +232,7 @@ __MARCA_CSS__
       <p class="quien" id="linea-quien" hidden>
         Conversando como <b id="quien"></b><span id="atajos-usuario"> ·
         <a href="?user=Ana">Ana</a> · <a href="?user=Bruno">Bruno</a></span>
+        <button type="button" id="logout" hidden>Salir</button>
       </p>
       __MOCK_HINT__
     </header>
@@ -263,6 +277,23 @@ __MARCA_CSS__
     // el query), en mock/cognito después del 200 de /login.
     let chat = null;
 
+    // Vuelve al login. `motivo` se muestra donde el error del login, para que
+    // una sesión vencida se distinga de un intento fallido.
+    function mostrarLogin(motivo) {
+      // El widget no tiene unmount: si no se limpia el contenedor, un segundo
+      // login monta un .cc-hilo arriba del anterior y el chat sale duplicado.
+      chat = null;
+      contenedorChat.innerHTML = "";
+      contenedorChat.hidden = true;
+      form.hidden = true;
+      lineaQuien.hidden = true;
+      document.getElementById("logout").hidden = true;
+      const err = document.getElementById("login-error");
+      err.textContent = motivo ?? "";
+      err.hidden = !motivo;
+      seccionLogin.hidden = false;
+    }
+
     function iniciarChat(usuario) {
       document.getElementById("quien").textContent = usuario;
       lineaQuien.hidden = false;
@@ -270,7 +301,13 @@ __MARCA_CSS__
       contenedorChat.hidden = false;
       form.hidden = false;
 
+      document.getElementById("logout").hidden = AUTH_MODO === "hmac";
+
       chat = CraftechChat.mount(contenedorChat, {
+        // La sesión venció: al login, con el motivo. Sin esto el widget solo
+        // puede mostrar su error genérico y el usuario no sabe que tiene que
+        // volver a entrar.
+        onSesionVencida: () => mostrarLogin("Tu sesión venció. Ingresá de nuevo para seguir."),
         // En cognito el token sale de la cookie HttpOnly y el query se
         // ignora; en mock manda la cookie del login y ?user= queda de
         // fallback; en hmac es la identidad, como siempre.
@@ -284,15 +321,32 @@ __MARCA_CSS__
       iniciarChat(userQuery || "demo");
     } else {
       // Chat oculto hasta el login (simulado en mock, real en cognito).
-      contenedorChat.hidden = true;
-      form.hidden = true;
-      seccionLogin.hidden = false;
+      mostrarLogin();
+
+      // Sesión viva de una carga anterior. La cookie es HttpOnly, así que el JS
+      // no puede leerla: hay que preguntarle al server. Sin esto, recargar la
+      // página pide login de nuevo aunque la sesión siga válida.
+      fetch("/sesion", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d?.usuario) iniciarChat(d.usuario); })
+        .catch(() => {});
+
 
       const formLogin = document.getElementById("login");
       const inputUsuario = document.getElementById("login-usuario");
       const inputContrasena = document.getElementById("login-contrasena");
       const botonLogin = document.getElementById("login-boton");
       const errorLogin = document.getElementById("login-error");
+
+      document.getElementById("logout").addEventListener("click", async () => {
+        // Se limpia la sesión igual si el POST falla: dejar el chat andando
+        // después de que la persona pidió salir es peor que un logout local.
+        try {
+          await fetch("/logout", { method: "POST", credentials: "include" });
+        } catch {}
+        mostrarLogin();
+        inputUsuario.focus();
+      });
 
       if (AUTH_MODO === "mock") document.getElementById("login-hint").hidden = false;
       // Con Cognito los atajos ?user=Ana/Bruno solo prefillean usuarios que no

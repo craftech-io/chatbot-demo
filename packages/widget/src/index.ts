@@ -1,6 +1,6 @@
 // El widget: lo que el cliente pega en su app. Sin framework, para no chocar con
 // su stack. Toda la UI es DOM plano; los textos visibles viven en MENSAJES.
-import { TokenSource } from "./token";
+import { SesionVencida, TokenSource } from "./token";
 import { renderMarkdown } from "./markdown";
 import { MENSAJES_LIMITE } from "@craftech-ai-chat/shared/mensajes";
 
@@ -152,7 +152,18 @@ const POLL_TIMEOUT_MS_DEFECTO = 90_000;
 
 export function mount(
   el: HTMLElement,
-  opts: { tokenUrl: string; apiUrl: string; _pollMs?: number; _pollTimeoutMs?: number },
+  opts: {
+    tokenUrl: string;
+    apiUrl: string;
+    /**
+     * La sesión venció o no hay: el host manda a la persona al login. Sin
+     * esto el widget solo puede mostrar su error genérico, y el usuario no se
+     * entera de que tiene que volver a entrar.
+     */
+    onSesionVencida?: () => void;
+    _pollMs?: number;
+    _pollTimeoutMs?: number;
+  },
 ): { send: (texto: string) => Promise<void> } {
   inyectarEstilos();
   const tokens = new TokenSource(opts.tokenUrl);
@@ -287,6 +298,10 @@ export function mount(
       const respuesta = mensajes.find((m) => m?.rol === "assistant");
       return respuesta ? { tipo: "respuesta", texto: String(respuesta.texto ?? "") } : { tipo: "todavia_no" };
     } catch (e) {
+      // La sesión vencida SÍ propaga: si se tragara acá, el poll seguiría
+      // reintentando con un token muerto hasta el timeout de 90s y el usuario
+      // vería "no respondió" en vez de que lo manden al login.
+      if (e instanceof SesionVencida) throw e;
       console.error("fallo un poll de mensajes del chat", e);
       return { tipo: "todavia_no" };
     }
@@ -420,6 +435,16 @@ export function mount(
       cursorInicial = orden;
       await preguntarHastaRespuesta(burbuja!, idHilo, cursorInicial);
     } catch (e) {
+      // Sesión vencida: no es un error a mostrar, es un cambio de estado. El
+      // host decide qué hacer (mandar al login) y la burbuja se va, para no
+      // dejar un mensaje "fallido" que en realidad nunca se intentó.
+      if (e instanceof SesionVencida) {
+        pollerActivo = false;
+        cursorInicial = null;
+        if (esDueño && burbuja!.isConnected) burbuja!.remove();
+        opts.onSesionVencida?.();
+        return;
+      }
       // La red cayó, el fetch rechazó, o algo de lo anterior tiró: sin este
       // catch, la promesa de enviar() rechaza sin manejar y el usuario se
       // queda mirando una burbuja vacía para siempre.
