@@ -26,7 +26,13 @@ Como último paso **se borra a sí mismo, borra este CLAUDE.md y borra `.claude/
 nada de eso va al repo del cliente. Son documentación y herramientas internas de
 Craftech, y hablan del proceso, no del producto.
 
-En `.claude/skills/clonar-para-cliente/` hay un skill que **conduce** el clonado:
+En `.claude/skills/` hay dos skills. **`marca-del-cliente`** arma la identidad
+visual: saca la paleta del logo del cliente, verifica contraste WCAG y llena
+`marca.mjs`. Vale leerlo aunque no lo invoques — el color de marca de un cliente
+muchas veces NO se puede usar tal cual porque no llega al mínimo de contraste con
+el texto que va encima, y eso no se ve hasta que alguien no puede leer el chat.
+
+Y **`clonar-para-cliente`**, que **conduce** el clonado:
 hace la entrevista de las decisiones que ramifican (slug, remoto, IdP, de dónde
 salen los documentos, escalamiento, observabilidad), corre el script y cierra con
 los mensajes para pedirle al cliente lo que falte. Es el punto de entrada

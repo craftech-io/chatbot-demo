@@ -163,8 +163,10 @@ cat <<'PENDIENTE'
 4. docs/diseno.md: sacar las secciones internas (plan de fases de entrega y
    riesgos comerciales del producto). Son planificación de Craftech.
 
-5. apps/web/public/index.html: el <title> y el <h1> quedaron con el slug.
-   Poné el nombre real del cliente — es texto visible.
+5. marca.mjs: la identidad visual quedó con los valores de fábrica (nombre
+   "Asistente", acento teal). El nombre visible, el logo y la paleta del cliente
+   van ahí — el skill `marca-del-cliente` conduce ese trabajo: saca los colores
+   del logo, verifica contraste y avisa si el color de marca no se puede usar.
 
 6. client.config.ts: repasar TODOS los campos, no solo el slug — prompt del
    sistema, topes de uso, origenesCors (viene en ["*"]), retención, regex de PII.

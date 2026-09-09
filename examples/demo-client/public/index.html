@@ -3,45 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>craftech-ai-chat — demo</title>
+<title>__MARCA_NOMBRE__</title>
 <style>
   /* Tokens de la página de demo (tema claro por defecto, oscuro por
      prefers-color-scheme). Estos son del MARCO (header, tarjeta, input); las
      burbujas del chat las pinta el propio widget con sus --cc-*, que acá
      redefinimos en dark para que combinen con el resto de la página. */
-  :root {
-    --bg: #F7F8F6;
-    --tarjeta: #ffffff;
-    --texto: #1C2422;
-    --linea: #DBE1DD;
-    --acento: #0E7568;
-    --acento-texto: #ffffff;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #131917;
-      --tarjeta: #1A211E;
-      --texto: #E7ECE9;
-      --linea: #2B342F;
-      --acento: #3CB8A6;
-      --acento-texto: #0E1512;
-    }
-
-    /* El widget no trae modo oscuro propio (lo decide el host): acá es donde
-       la demo pisa las --cc-* para que las burbujas de respuesta combinen.
-       Este <style> NO tiene @layer (adrede): el CSS del widget vive en
-       @layer cc-widget, así que estas reglas sin capa le ganan siempre, sin
-       importar el orden en que mount() haya inyectado su <style>. */
-    .cc-hilo {
-      --cc-fondo-resp: #232B27;
-      --cc-texto-resp: #E7ECE9;
-      --cc-acento: #3CB8A6;
-      --cc-acento-texto: #0E1512;
-    }
-
-    .badge.live { background: #16302B; }
-  }
+  /* Tokens de la página, generados desde marca.mjs (ver cssDeMarca).
+     Incluye las --cc-* del widget en los dos modos: en claro el widget usa
+     sus defaults, así que sin pisarlas las burbujas no siguen a la marca. */
+__MARCA_CSS__
 
   * { box-sizing: border-box; }
 
@@ -235,7 +206,7 @@
   <main class="tarjeta">
     <header>
       <div class="fila-titulo">
-        <h1>craftech-ai-chat</h1>
+        __MARCA_HEADER__
         __MODO__
       </div>
       <p class="quien" id="linea-quien" hidden>

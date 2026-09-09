@@ -12,6 +12,7 @@ import { readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { signChatToken } from "./sign.mjs";
 import { planificarRespuesta } from "./mock.mjs";
+import { marca, cssDeMarca, revisarContraste } from "../../marca.mjs";
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -42,7 +43,7 @@ function configDe(entorno) {
     secretoGenerado = true;
   }
 
-  return { modo, apiUrl, cognitoClientId, cognitoRegion, secreto, secretoGenerado };
+  return { modo, apiUrl, cognitoClientId, cognitoRegion, secreto, secretoGenerado, stage: entorno.STAGE || "" };
 }
 
 // El worker fake espera esto antes de "procesar" los mensajes pendientes de
@@ -92,10 +93,19 @@ const MOCK_HINT_HTML =
 // __MODO__ en el HTML: el badge del header. En mock, aclara que no hay AWS
 // detrás; en real (hmac o cognito), indica el ambiente contra el que
 // efectivamente se habla.
-function badgeDe(modo) {
-  return modo === "mock"
-    ? '<span class="badge mock">modo local</span>'
-    : '<span class="badge live">● staging</span>';
+function headerDeMarca(m = marca) {
+  const logo = m.logo
+    ? `<img src="${m.logo}" alt="${m.nombre}" style="height:${m.logoAlto};width:auto" />`
+    : "";
+  return `${logo}<h1>${m.nombre}</h1>`;
+}
+
+// El nombre del ambiente sale de STAGE, no hardcodeado: un badge que dice
+// "staging" mientras se habla con production hace creer que las conversaciones
+// son de prueba cuando se están guardando de verdad.
+function badgeDe(modo, stage) {
+  if (modo === "mock") return '<span class="badge mock">modo local</span>';
+  return `<span class="badge live">● ${stage || "en vivo"}</span>`;
 }
 
 // Estado mínimo del escenario "vencido": la PRIMERA vez que una (conversación,
@@ -480,8 +490,11 @@ export function crearServer(entorno = process.env) {
       html
         .replaceAll("__API_URL__", esMock ? "" : config.apiUrl)
         .replaceAll("__MOCK_HINT__", esMock ? MOCK_HINT_HTML : "")
-        .replaceAll("__MODO__", badgeDe(config.modo))
-        .replaceAll("__AUTH_MODO__", config.modo),
+        .replaceAll("__MODO__", badgeDe(config.modo, config.stage))
+        .replaceAll("__AUTH_MODO__", config.modo)
+        .replaceAll("__MARCA_CSS__", cssDeMarca())
+        .replaceAll("__MARCA_HEADER__", headerDeMarca())
+        .replaceAll("__MARCA_NOMBRE__", marca.nombre),
     );
   });
 }
@@ -511,6 +524,7 @@ if (esEjecutadoDirectamente) {
     );
   }
 
+  for (const aviso of revisarContraste()) console.warn("marca:", aviso);
   crearServer(process.env).listen(PORT, () =>
     console.log(
       `demo-client en http://localhost:${PORT}` +
