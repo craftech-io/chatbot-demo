@@ -115,6 +115,9 @@ const CSS_WIDGET = `
     padding-left: 1.35em;
   }
   .cc-respuesta li { margin: .15em 0; }
+  /* Una sublista respira menos que una lista de primer nivel. */
+  .cc-respuesta li > ul,
+  .cc-respuesta li > ol { margin: .2em 0; }
 
   .cc-respuesta code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -130,6 +133,74 @@ const CSS_WIDGET = `
     color: inherit;
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+
+  .cc-respuesta h3,
+  .cc-respuesta h4,
+  .cc-respuesta h5,
+  .cc-respuesta h6 {
+    margin: .9em 0 .35em;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+  .cc-respuesta h3 { font-size: 1.25em; }
+  .cc-respuesta h4 { font-size: 1.15em; }
+  .cc-respuesta h5 { font-size: 1.03em; }
+  .cc-respuesta h6 { font-size: .92em; opacity: .85; }
+
+  .cc-respuesta hr {
+    margin: .8em 0;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--cc-texto-resp) 18%, transparent);
+  }
+
+  .cc-respuesta blockquote {
+    margin: .5em 0;
+    padding-left: .7em;
+    border-left: 3px solid color-mix(in srgb, var(--cc-texto-resp) 25%, transparent);
+    opacity: .9;
+  }
+  .cc-respuesta blockquote > :first-child { margin-top: 0; }
+  .cc-respuesta blockquote > :last-child { margin-bottom: 0; }
+
+  .cc-respuesta pre {
+    margin: .5em 0;
+    padding: .55em .7em;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--cc-texto-resp) 8%, transparent);
+    /* La burbuja es pre-wrap; acá se quiere lo contrario: el código no se
+       corta a mitad de línea, scrollea. */
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .cc-respuesta pre code {
+    background: none;
+    padding: 0;
+    font-size: .88em;
+  }
+
+  /* La burbuja es angosta: una tabla ancha scrollea sola en vez de estirarla. */
+  .cc-tabla {
+    margin: .5em 0;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .cc-respuesta table {
+    border-collapse: collapse;
+    font-size: .94em;
+    /* Sin esto pre-wrap parte las celdas en una columna de letras. */
+    white-space: normal;
+  }
+  .cc-respuesta th,
+  .cc-respuesta td {
+    border: 1px solid color-mix(in srgb, var(--cc-texto-resp) 20%, transparent);
+    padding: .3em .6em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .cc-respuesta th {
+    font-weight: 600;
+    background: color-mix(in srgb, var(--cc-texto-resp) 7%, transparent);
   }
 }
 `;

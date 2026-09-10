@@ -369,3 +369,41 @@ Nunca se estima con un precio inventado.
 Sobre la métrica de derivación: en una ventana sin derivaciones el widget se ve
 vacío, igual que si estuviera roto. Para distinguirlos, mirá el widget de
 invocaciones del Gateway: si ahí llegan métricas, el tablero está sano.
+
+## El markdown que el agente emite de verdad
+
+El widget renderiza un subconjunto de markdown, y el subconjunto **no se elige
+leyendo la especificación: se mide**. Las respuestas del agente están guardadas
+en `MessagesTable`; un scan de esa tabla y un puñado de expresiones regulares
+dicen qué construcciones usa de verdad este agente, con este prompt, sobre este
+corpus.
+
+En el primer despliegue real esa medición dio un orden poco intuitivo: sobre 35
+respuestas, tablas y reglas horizontales aparecían más seguido (5 respuestas
+cada una) que los encabezados (3), aunque lo que un usuario nota primero sea el
+`#` a la vista. Bloques de código: cero. Conviene repetir la medición por
+cliente antes de tocar el parser — el prompt y el dominio cambian lo que el
+modelo escribe.
+
+**Los encabezados se desplazan dos niveles** (`#` → `<h3>`, y se aplastan en
+`<h6>`). El widget se monta dentro de la página del cliente, que ya tiene su
+`<h1>`: un "## Compras" que el modelo escribe en una burbuja de chat es
+contenido subordinado, no una sección del documento anfitrión. El tamaño visual
+lo decide el CSS y es independiente del nivel semántico.
+
+**Los colores de los bloques salen de `color-mix()` sobre `--cc-texto-resp`**,
+nunca de un literal. Así una tabla o una cita siguen la marca del host sin que
+haya que declarar una custom property por elemento. Hay un test que falla si
+aparece un color fijo en una regla concreta.
+
+**El criterio para agregar una construcción es que no se pierda información.**
+Lo que no se soporta se ve como texto: molesto, pero completo. El caso que hubo
+que arreglar era el contrario — un ítem de lista indentado no matcheaba el
+patrón de ítem y el renderizador lo descartaba con un `continue`, así que el
+sub-ítem **desaparecía** de la respuesta. Por eso la verificación no es solo
+"¿se ve bien?" sino un diff de palabras entre el markdown crudo y el DOM
+renderizado, sobre las respuestas reales; lo único que puede faltar es el
+marcador numérico de un `<ol>`, que lo genera el navegador.
+
+En modo local, el mensaje "formato" dispara un escenario del mock que usa todos
+los bloques a la vez: sirve para mirar el render sin desplegar.

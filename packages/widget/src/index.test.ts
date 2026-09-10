@@ -318,4 +318,18 @@ describe("mount", () => {
       true,
     );
   });
+
+  it("los colores salen de las --cc-*, no de literales: si no, la marca del host no llega", () => {
+    const el = document.createElement("div");
+    document.body.append(el);
+    mount(el, { tokenUrl: "/chat-token", apiUrl: "/api" });
+
+    const css = document.getElementById("cc-estilos")?.textContent ?? "";
+    const conColor = css.split("\n").filter((l) => /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i.test(l));
+
+    // Un color literal solo puede estar donde se declara el DEFAULT de una
+    // custom property. En una regla concreta (una tabla, una cita) dejaría de
+    // seguir al host.
+    expect(conColor.filter((l) => !l.trim().startsWith("--cc-"))).toEqual([]);
+  });
 });

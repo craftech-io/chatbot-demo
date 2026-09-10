@@ -179,3 +179,170 @@ describe("renderMarkdown: la respuesta real que motivó esto", () => {
     );
   });
 });
+
+// Lo que el agente emitía y la burbuja mostraba crudo. Las proporciones son de
+// las 35 respuestas guardadas en producción: tablas 5, reglas 5, encabezados 3,
+// citas 2.
+describe("renderMarkdown: los bloques que el agente emite", () => {
+  it("los encabezados dejan de verse como almohadillas", () => {
+    expect(texto("## Cambios y devoluciones\n\nTenés 30 días corridos.")).not.toContain("#");
+  });
+
+  it("un encabezado se desplaza dos niveles: el h1 es de la página del cliente", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "# Uno\n\n## Dos\n\n### Tres\n\n#### Cuatro\n\n##### Cinco\n\n###### Seis");
+
+    expect([...destino.children].map((h) => h.tagName)).toEqual([
+      "H3",
+      "H4",
+      "H5",
+      "H6",
+      // Más allá de h6 no hay etiqueta: se aplastan ahí en vez de perderse.
+      "H6",
+      "H6",
+    ]);
+    expect(destino.querySelector("h4")?.textContent).toBe("Dos");
+  });
+
+  it("el markdown dentro de un encabezado también se renderiza", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "### Plazos de **envío**");
+
+    expect(destino.querySelector("h5 strong")?.textContent).toBe("envío");
+  });
+
+  it("una regla horizontal es un <hr>, no tres guiones a la vista", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "Antes\n\n---\n\nDespués");
+
+    expect(destino.querySelectorAll("hr")).toHaveLength(1);
+    expect(destino.textContent).not.toContain("---");
+  });
+
+  it("un ítem de lista no se confunde con una regla", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "- Uno\n- Dos");
+
+    expect(destino.querySelector("hr")).toBeNull();
+    expect(destino.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  it("una tabla queda como tabla, con encabezado y filas", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "| Pedido | Estado |\n|--------|--------|\n| A-1 | En preparación |\n| A-2 | Enviado |");
+
+    expect(destino.querySelectorAll("thead th")).toHaveLength(2);
+    expect(destino.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(destino.querySelectorAll("tbody tr")[0].children[1].textContent).toBe("En preparación");
+    expect(destino.textContent).not.toContain("|");
+  });
+
+  it("la tabla va en una caja que scrollea: la burbuja del chat es angosta", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "| a |\n|---|\n| b |");
+
+    expect(destino.querySelector(".cc-tabla > table")).not.toBeNull();
+  });
+
+  it("la alineación del separador se respeta", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "| Izq | Centro | Der |\n|:---|:---:|---:|\n| a | b | c |");
+    const fila = destino.querySelectorAll("tbody td");
+
+    expect((fila[0] as HTMLElement).style.textAlign).toBe("");
+    expect((fila[1] as HTMLElement).style.textAlign).toBe("center");
+    expect((fila[2] as HTMLElement).style.textAlign).toBe("right");
+  });
+
+  it("un texto con barras verticales SIN separador no es una tabla", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "Usá | para separar los campos del archivo.");
+
+    expect(destino.querySelector("table")).toBeNull();
+    expect(destino.textContent).toContain("|");
+  });
+
+  it("una cita queda como blockquote y conserva su markdown", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "> Ojo: el plazo corre desde que **recibís** el pedido.\n> No desde la compra.");
+
+    expect(destino.querySelectorAll("blockquote")).toHaveLength(1);
+    expect(destino.querySelector("blockquote strong")?.textContent).toBe("recibís");
+    expect(destino.textContent).not.toContain(">");
+  });
+
+  it("un bloque de código no interpreta el markdown de adentro", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "Ejemplo:\n\n```\nA-1042  -- **no** es negrita\n```");
+
+    expect(destino.querySelector("pre code")?.textContent).toBe(
+      "A-1042  -- **no** es negrita",
+    );
+    expect(destino.querySelector("pre strong")).toBeNull();
+  });
+
+  it("un bloque de código sin cerrar no se traga el resto en silencio", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "```\nquedó abierto");
+
+    expect(destino.querySelector("pre code")?.textContent).toBe("quedó abierto");
+  });
+});
+
+// Antes, un ítem indentado no matcheaba el patrón de ítem y `lista()` lo
+// descartaba con un `continue`: el sub-ítem DESAPARECÍA de la respuesta.
+describe("renderMarkdown: listas anidadas", () => {
+  it("un sub-ítem indentado no se pierde", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "- Envíos\n  - A domicilio\n  - Retiro en el local\n- Devoluciones");
+
+    expect(destino.textContent).toContain("A domicilio");
+    expect(destino.querySelectorAll("li")).toHaveLength(4);
+    expect(destino.querySelectorAll("ul > li > ul > li")).toHaveLength(2);
+  });
+
+  it("una sublista numerada dentro de una con guiones", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "- Pasos:\n  1. Abrir\n  2. Guardar");
+
+    expect(destino.querySelectorAll("ul > li > ol > li")).toHaveLength(2);
+  });
+
+  it("un párrafo pegado a la lista no genera uno vacío", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "Destinos:\n- Ciudad\n- Interior");
+
+    expect([...destino.querySelectorAll("p")].filter((p) => p.textContent === "")).toHaveLength(0);
+    expect(destino.querySelector("p")?.textContent).toBe("Destinos:");
+  });
+});
+
+// Los bloques nuevos también arman nodos: ninguno construye HTML con la salida
+// del modelo. Este test es el pin de esa propiedad sobre las construcciones que
+// no existían cuando se escribió el de más arriba.
+describe("renderMarkdown: los bloques nuevos tampoco interpretan HTML", () => {
+  const VECTORES = [
+    "# <img src=x onerror=alert(1)>",
+    "> <script>alert(1)</script>",
+    "| <script>alert(1)</script> |\n|---|\n| <b>x</b> |",
+    "```\n<script>alert(1)</script>\n```",
+    "- <script>alert(1)</script>",
+  ];
+
+  it("ninguna construcción produce una etiqueta que no cree este módulo", () => {
+    for (const md of VECTORES) {
+      const salida = html(md);
+      expect(salida, md).not.toContain("<script");
+      expect(salida, md).not.toContain("<img");
+      expect(salida, md).toContain("&lt;");
+    }
+  });
+
+  it("un link javascript: dentro de una celda tampoco pasa", () => {
+    const destino = document.createElement("div");
+    renderMarkdown(destino, "| x |\n|---|\n| [click](javascript:alert(1)) |");
+
+    expect(destino.querySelector("a")).toBeNull();
+    expect(destino.textContent).toContain("click");
+  });
+});

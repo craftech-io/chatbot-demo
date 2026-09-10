@@ -65,6 +65,36 @@ const TEXTO_ESCALAMIENTO_CREADO =
   "ESC-2043. Te van a contactar en el próximo día hábil (atención al cliente: " +
   "lunes a viernes de 9 a 18).";
 
+// Modo local del formato: una respuesta que usa TODO el markdown que el agente
+// real emite, para poder mirar el render sin desplegar. Cada bloque de acá
+// existe porque apareció en respuestas reales de un agente en producción.
+const TEXTO_FORMATO = [
+  "## Cambios y devoluciones",
+  "",
+  "Tenés **30 días corridos** desde que recibís el pedido, con el producto *sin uso*.",
+  "",
+  "---",
+  "",
+  "### Estado de tus pedidos",
+  "",
+  "| Pedido | Estado | Total |",
+  "|--------|--------|------:|",
+  "| A-1042 | En camino | 45.000 |",
+  "| A-1043 | Entregado | 12.000 |",
+  "",
+  "#### Cómo iniciar el cambio",
+  "",
+  "1. Escribinos con el número de pedido.",
+  "2. Prepará el paquete:",
+  "   - En su embalaje original.",
+  "   - Con los accesorios y las etiquetas.",
+  "3. Confirmá con el código `A-####`.",
+  "",
+  "> El plazo corre desde que recibís el pedido, no desde la compra.",
+  "",
+  "Referencia: [Política de devoluciones](https://ejemplo.invalid/devoluciones)",
+].join("\n");
+
 // Palabras con las que el usuario acepta ser derivado. Acá el matching es por
 // PALABRA, no por inclusión como el resto de las keywords: "sí" es substring de
 // "así" y "si" de "necesito", así que por inclusión un "no, dejemos así"
@@ -166,6 +196,13 @@ export function planificarRespuesta(mensaje, sub, contexto = { turnos: 0, histor
   // explícito ("error" dentro de "error500", ver server.mjs); "pedido" y
   // "catalogo" no son substring de ninguna otra ni la contienen, así que acá
   // el orden no importa.
+  if (minusculas.includes("formato")) {
+    return {
+      demoraMs,
+      frames: [{ type: "done", text: TEXTO_FORMATO }],
+    };
+  }
+
   if (minusculas.includes("pedido")) {
     return {
       demoraMs,

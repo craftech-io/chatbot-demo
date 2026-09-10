@@ -496,3 +496,22 @@ describe("contrato /mensajes (server real, puerto efímero)", () => {
     });
   });
 });
+
+describe("escenario de formato", () => {
+  it("ejercita los bloques de markdown que el agente real emite", () => {
+    const { frames } = planificarRespuesta("mostrame el formato", "4821");
+    const texto = frames.at(-1).text;
+
+    // Uno por bloque: si el mock deja de cubrir alguno, el modo local deja de
+    // servir para mirar el render de esa capacidad.
+    expect(texto).toMatch(/^## /m); // encabezado
+    expect(texto).toMatch(/^---$/m); // regla
+    expect(texto).toMatch(/^\|.+\|$/m); // tabla
+    expect(texto).toMatch(/^> /m); // cita
+    expect(texto).toMatch(/^\s+- /m); // lista anidada
+    expect(texto).toMatch(/^\d+\. /m); // lista numerada
+    expect(texto).toContain("**"); // negrita
+    expect(texto).toContain("`"); // código inline
+    expect(texto).toMatch(/\[.+\]\(https:/); // link
+  });
+});
