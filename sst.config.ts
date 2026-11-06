@@ -37,8 +37,13 @@ export default $config({
     // Todo rol de la app nace con la boundary de infra/bootstrap/ci-role.yaml: el
     // rol de CI solo puede crear/editar roles que la tengan. Tiene que ir antes
     // de cualquier import de infra. Ver docs/seguridad-ci.md.
-    $transform(aws.iam.Role, (args) => {
+    // Y vive bajo el path /<slug>/: el rol de CI pasa roles a los servicios solo
+    // desde ese path. El path es inmutable: un rol con nombre fijo (el de la KB) se
+    // borra antes de recrearse, porque el nombre es único en la cuenta.
+    $transform(aws.iam.Role, (args, opts) => {
       args.permissionsBoundary = $interpolate`arn:aws:iam::${aws.getCallerIdentityOutput().accountId}:policy/${$app.name}-ci-boundary`;
+      args.path = `/${$app.name}/`;
+      if (args.name) opts.deleteBeforeReplace = true;
     });
     const { runtime, repo } = await import("./infra/sst/runtime");
     await import("./infra/sst/bff");
