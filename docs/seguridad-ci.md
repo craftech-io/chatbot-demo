@@ -43,6 +43,15 @@ CloudFormation aparte, que se aplica con un admin) y queda así:
 - **Lectura amplia sin nivel de recurso**: `ecr:DescribeRepositories`,
   `logs:DescribeLogGroups`, `bedrock:List*`. Son metadatos, no datos.
 
+- **`iam:PassRole` por prefijo de nombre**: `<slug>-<stage>-*`, `RuntimeRole-*`, `GatewayRole-*`, `IngestaSchedulerRole-*`, `AmazonBedrockExecutionRoleForKnowledgeBase_*`, cada prefijo con su
+  `iam:PassedToService`. No se acota por tag del rol porque AWS advierte que
+  `aws:ResourceTag` con `iam:PassRole` no da resultados confiables
+  ([AWS IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_tags.html)); fue la
+  causa del segundo `AccessDenied` del primer deploy. Algunos prefijos son genéricos:
+  si otra app de la cuenta crea un rol que coincida, este CI podría pasárselo a ese
+  servicio. Hoy no hay ninguno. La solución de fondo es un path IAM por app
+  (`/<slug>/`), que obliga a recrear los roles.
+
 ## Cómo se validó
 
 Antes de cambiar nada en la cuenta:

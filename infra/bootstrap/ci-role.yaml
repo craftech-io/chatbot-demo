@@ -266,18 +266,42 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
-          - Sid: PassAppRolesToItsServices
+          # PassRole por prefijo de nombre: AWS advierte que acotarlo por tag del rol
+          # (aws:ResourceTag) no da resultados confiables. Riesgo residual de los
+          # prefijos genéricos en docs/seguridad-ci.md.
+          - Sid: PassLambdaRoles
             Effect: Allow
             Action: iam:PassRole
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}-${DeployStage}-*"
             Condition:
               StringEquals:
-                aws:ResourceTag/sst:app: !Ref AppName
-                iam:PassedToService:
-                  - lambda.amazonaws.com
-                  - bedrock.amazonaws.com
-                  - bedrock-agentcore.amazonaws.com
-                  - scheduler.amazonaws.com
+                iam:PassedToService: lambda.amazonaws.com
+          - Sid: PassAgentCoreRoles
+            Effect: Allow
+            Action: iam:PassRole
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/RuntimeRole-*"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GatewayRole-*"
+            Condition:
+              StringEquals:
+                iam:PassedToService: bedrock-agentcore.amazonaws.com
+          - Sid: PassKnowledgeBaseRole
+            Effect: Allow
+            Action: iam:PassRole
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AmazonBedrockExecutionRoleForKnowledgeBase_*"
+            Condition:
+              StringEquals:
+                iam:PassedToService: bedrock.amazonaws.com
+          - Sid: PassSchedulerRole
+            Effect: Allow
+            Action: iam:PassRole
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/IngestaSchedulerRole-*"
+            Condition:
+              StringEquals:
+                iam:PassedToService: scheduler.amazonaws.com
           - Sid: DenyIdentityAndBoundaryTampering
             Effect: Deny
             Action:
