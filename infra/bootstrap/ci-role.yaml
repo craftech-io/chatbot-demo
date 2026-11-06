@@ -224,14 +224,14 @@ Resources:
               - iam:ListAttachedRolePolicies
               - iam:ListInstanceProfilesForRole
               - iam:ListRoleTags
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}/*"
             Condition:
               StringEquals:
                 aws:ResourceTag/sst:app: !Ref AppName
           - Sid: CreateAppRolesOnlyWithBoundary
             Effect: Allow
             Action: [iam:CreateRole, iam:TagRole]
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}/*"
             Condition:
               StringEquals:
                 iam:PermissionsBoundary: !Ref AppRoleBoundary
@@ -248,7 +248,7 @@ Resources:
               - iam:UntagRole
               - iam:TagRole
               - iam:PutRolePermissionsBoundary
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}/*"
             Condition:
               StringEquals:
                 iam:PermissionsBoundary: !Ref AppRoleBoundary
@@ -256,7 +256,7 @@ Resources:
           - Sid: AttachOnlyKnownAwsManagedPolicies
             Effect: Allow
             Action: [iam:AttachRolePolicy, iam:DetachRolePolicy]
-            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}/*"
             Condition:
               StringEquals:
                 iam:PermissionsBoundary: !Ref AppRoleBoundary
@@ -266,9 +266,6 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
                   - !Sub "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
-          # PassRole por prefijo de nombre: AWS advierte que acotarlo por tag del rol
-          # (aws:ResourceTag) no da resultados confiables. Riesgo residual de los
-          # prefijos genéricos en docs/seguridad-ci.md.
           - Sid: PassAppRolesByPath
             # Todos los roles de la app viven bajo /<app>/ (sst.config.ts) y llevan la boundary.
             Effect: Allow
@@ -281,39 +278,6 @@ Resources:
                   - bedrock.amazonaws.com
                   - bedrock-agentcore.amazonaws.com
                   - scheduler.amazonaws.com
-          - Sid: PassLambdaRoles
-            Effect: Allow
-            Action: iam:PassRole
-            Resource:
-              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}-${DeployStage}-*"
-            Condition:
-              StringEquals:
-                iam:PassedToService: lambda.amazonaws.com
-          - Sid: PassAgentCoreRoles
-            Effect: Allow
-            Action: iam:PassRole
-            Resource:
-              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/RuntimeRole-*"
-              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GatewayRole-*"
-            Condition:
-              StringEquals:
-                iam:PassedToService: bedrock-agentcore.amazonaws.com
-          - Sid: PassKnowledgeBaseRole
-            Effect: Allow
-            Action: iam:PassRole
-            Resource:
-              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AmazonBedrockExecutionRoleForKnowledgeBase_*"
-            Condition:
-              StringEquals:
-                iam:PassedToService: bedrock.amazonaws.com
-          - Sid: PassSchedulerRole
-            Effect: Allow
-            Action: iam:PassRole
-            Resource:
-              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/IngestaSchedulerRole-*"
-            Condition:
-              StringEquals:
-                iam:PassedToService: scheduler.amazonaws.com
           - Sid: DenyIdentityAndBoundaryTampering
             Effect: Deny
             Action:
