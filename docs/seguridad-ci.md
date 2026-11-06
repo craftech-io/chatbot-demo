@@ -69,6 +69,22 @@ Antes de cambiar nada en la cuenta:
 > de la desplegada). Después del deploy real hay que verificar que la función
 > siga existiendo.
 
+### Lección del primer deploy (2026-11-06)
+
+El primer deploy con el rol nuevo falló con `AccessDenied` en
+`UpdateAgentRuntime`, sin cambios en la app (el Runtime siguió `READY` con la
+versión anterior). La causa fue `bedrock-agentcore:PassCapacityProvider`: una
+autorización que AgentCore evalúa del lado del servicio, como `iam:PassRole`, y
+que **no aparece como evento propio en CloudTrail**, así que la simulación contra
+CloudTrail no la podía ver.
+
+Desde entonces, la validación incluye un paso más: para cada tipo que se crea
+por Cloud Control, los permisos de `handlers.{create,read,update,delete}.permissions`
+del schema (`aws cloudformation describe-type --type RESOURCE --type-name <tipo>`)
+se simulan contra las políticas. Los permisos que dependen de VPC o de claves KMS
+propias se omiten porque el stack no los usa. Esos permisos viven en la política
+`<slug>-ci-deploy-agentcore`.
+
 ## Orden de aplicación (sin cortar el deploy)
 
 1. Aplicar `infra/bootstrap/ci-role.yaml`: crea la boundary y el rol nuevo. No

@@ -404,6 +404,8 @@ Resources:
               - bedrock:StartIngestionJob
               - bedrock:GetIngestionJob
               - bedrock:ListTagsForResource
+              - bedrock:TagResource
+              - bedrock:UntagResource
             Resource: !Sub "arn:${AWS::Partition}:bedrock:${Region}:${AWS::AccountId}:knowledge-base/*"
           - Sid: S3PublicAccessGuard
             # El bucket de documentos no puede quedar público.
@@ -467,6 +469,64 @@ Resources:
               "Null":
                 aws:ResourceTag/sst:app: "false"
 
+  DeployAgentCorePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AppName}-ci-deploy-agentcore"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudControlServiceSideChecks
+            # Autorizaciones implícitas que AgentCore/Bedrock evalúan del lado del
+            # servicio (no aparecen como evento propio en CloudTrail). Salen de
+            # handlers.*.permissions de cada tipo: aws cloudformation describe-type.
+            Effect: Allow
+            Action:
+              - bedrock-agentcore:PassCapacityProvider
+              - bedrock-agentcore:SynchronizeGatewayTargets
+              - bedrock-mantle:GetModel
+              - bedrock-mantle:ListModels
+              - bedrock:CreateKnowledgeBase
+              - bedrock:AssociateThirdPartyKnowledgeBase
+              - bedrock:ListCustomModelDeployments
+              - bedrock:ListImportedModels
+              - bedrock:ListMarketplaceModelEndpoints
+              - bedrock:ListPromptRouters
+              - bedrock:ListProvisionedModelThroughputs
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref Region
+          - Sid: AgentCoreIdentityForGatewayTargets
+            Effect: Allow
+            Action:
+              - bedrock-agentcore:GetResourceOauth2Token
+              - bedrock-agentcore:GetResourceApiKey
+              - secretsmanager:GetSecretValue
+            Resource:
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:token-vault/default*"
+              - !Sub "arn:${AWS::Partition}:secretsmanager:${Region}:${AWS::AccountId}:secret:bedrock-agentcore-identity!*"
+          - Sid: KmsThroughAgentCoreAndBedrock
+            Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:ReEncryptFrom
+              - kms:ReEncryptTo
+              - kms:DescribeKey
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:RetireGrant
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                kms:ViaService:
+                  - !Sub "bedrock-agentcore.${Region}.amazonaws.com"
+                  - !Sub "bedrock.${Region}.amazonaws.com"
+
   DeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -494,6 +554,7 @@ Resources:
         - !Ref DeploySstHomePolicy
         - !Ref DeployIamPolicy
         - !Ref DeployAppPolicy
+        - !Ref DeployAgentCorePolicy
       Tags:
         - Key: managed-by
           Value: !Sub "cloudformation/${AWS::StackName}"
