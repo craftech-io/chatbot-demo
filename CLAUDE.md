@@ -198,7 +198,7 @@ Los tres primeros son bloqueantes y **ninguno lo hace el stack**. El detalle est
 |---|---|
 | Formulario de caso de uso de **Anthropic** | Un `converse` real. `list-foundation-models` da falso positivo, y una primera invocación puede pasar antes de que se exija el formulario |
 | **Transaction Search** de X-Ray | `aws xray get-trace-segment-destination` ⇒ `CloudWatchLogs`. Si falta, no hay trazas y no se recuperan retroactivamente |
-| **Rol de deploy con OIDC** | `aws iam get-role`. Con Bitbucket, la trust policy solo puede condicionar por `aud` y `sub` — ver las notas técnicas |
+| **Rol de deploy con OIDC** | Sale de `infra/bootstrap/ci-role.yaml` (stack `<slug>-ci-role`), **antes** del primer deploy: sin la boundary que crea, falla el primer rol. `aws cloudformation describe-stacks --stack-name <slug>-ci-role`. El trust del template es de GitHub; con Bitbucket hay que reescribirlo (solo condiciona por `aud` y `sub`, ver las notas técnicas) |
 | Región | Coincide con `region` de `client.config.ts` |
 
 **Si el cliente no tiene IdP**, creale un pool Cognito **fuera del IaC**: no hay

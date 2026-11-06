@@ -68,31 +68,36 @@ por eso `observabilidad.stageQueAdministraLaBusqueda` viene en `""`.
 ### 0.3 Rol de deploy con OIDC para GitHub Actions
 
 Los dos workflows (`deploy.yml`, `ingesta.yml`) asumen un rol vía OIDC: no hay
-claves de acceso en ningún lado. Hace falta el proveedor OIDC de GitHub en la
-cuenta (`token.actions.githubusercontent.com`) y un rol cuya trust policy acote
-`sub` al repo del cliente:
+claves de acceso en ningún lado. El rol, sus políticas y la permissions boundary
+de los roles de la app salen de **`infra/bootstrap/ci-role.yaml`**, que se aplica
+una vez por cuenta con un usuario administrador, **antes del primer deploy**:
 
-```json
-{
-  "Effect": "Allow",
-  "Principal": { "Federated": "arn:aws:iam::<cuenta>:oidc-provider/token.actions.githubusercontent.com" },
-  "Action": "sts:AssumeRoleWithWebIdentity",
-  "Condition": {
-    "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
-    "StringLike": { "token.actions.githubusercontent.com:sub": "repo:<org>/<repo>:*" }
-  }
-}
+```bash
+aws cloudformation deploy --stack-name <slug>-ci-role \
+  --template-file infra/bootstrap/ci-role.yaml \
+  --capabilities CAPABILITY_NAMED_IAM --region <region> \
+  --parameter-overrides AppName=<slug> DeployStage=<stage> \
+    AgentRuntimePrefix=<slugEnCamelCase> GitHubOrg=<org> GitHubRepo=<repo> \
+    GitHubOrgId=$(gh api orgs/<org> --jq .id) \
+    GitHubRepoId=$(gh api repos/<org>/<repo> --jq .id) \
+    CreateOidcProvider=<true si la cuenta no tiene el proveedor OIDC de GitHub>
 ```
 
-**Sobre los permisos del rol**: el stack toca ECR, Lambda, SQS, DynamoDB, IAM
-(crea roles), S3, S3 Vectors, Bedrock (`bedrock-agent` y `bedrock-agentcore`),
-CloudWatch Logs, X-Ray y SSM (donde SST guarda los secretos), más el bucket de
-state de SST. El template se desplegó con un rol amplio: **acotarlo a una policy
-mínima es trabajo del cliente y no está hecho acá.** Si el cliente exige menor
-privilegio, la lista de recursos de `infra/CONTRACT.md` es el inventario a
-cubrir; conviene derivarla de un deploy real con CloudTrail, no a mano.
+Tiene que ir antes del primer deploy porque `sst.config.ts` le pone a todo rol
+de la app la boundary `<slug>-ci-boundary`: si la política no existe, el deploy
+falla al crear el primer rol.
 
-El ARN del rol va en el repo del cliente como secret de GitHub
+Lo que garantiza el template, y por qué, está en `docs/seguridad-ci.md`. En
+resumen: el rol solo lo puede asumir la rama de deploy (no cualquier rama ni
+pull request), solo toca recursos de la app y no puede crear roles sin la
+boundary, que a su vez prohíbe IAM y `sts:AssumeRole`.
+
+Si el cliente cambia la rama de deploy o el stage, se vuelve a aplicar el
+template con los parámetros nuevos. Si agrega un servicio de AWS que el stack
+no usaba, el deploy falla con `AccessDenied` y hay que sumar el permiso al
+template: es deliberado.
+
+El ARN del rol (output `DeployRoleArn` del stack) va en el repo del cliente como secret de GitHub
 **`DEPLOY_ROLE_ARN`**. Es el único secret de GitHub que necesita el template.
 
 ### 0.4 Región
