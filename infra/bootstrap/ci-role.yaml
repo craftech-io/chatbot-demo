@@ -1,0 +1,507 @@
+# Rol de CI (GitHub Actions vía OIDC) con mínimo privilegio y la boundary de los
+# roles de la app. Se aplica una vez por cuenta, con un admin, antes del primer
+# deploy: docs/adopcion.md §0.3. Decisión y validación: docs/seguridad-ci.md.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Rol de CI con minimo privilegio y permissions boundary para la app SST del chatbot.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: craftech-ai-chat
+    Description: slug de client.config.ts (= nombre de la app SST, tag sst:app).
+  DeployStage:
+    Type: String
+    Default: staging
+  AgentRuntimePrefix:
+    Type: String
+    Default: craftechAiChat
+    Description: slug en camelCase; prefijo del nombre del AgentCore Runtime (infra/sst/runtime.ts).
+  GitHubOrg:
+    Type: String
+    Default: craftech-io
+  GitHubRepo:
+    Type: String
+    Default: chatbot-demo
+  GitHubOrgId:
+    Type: String
+    Default: "60447213"
+    AllowedPattern: ^[0-9]+$
+    Description: gh api orgs/<org> --jq .id
+  GitHubRepoId:
+    Type: String
+    Default: "1341159361"
+    AllowedPattern: ^[0-9]+$
+    Description: gh api repos/<org>/<repo> --jq .id
+  DeployBranch:
+    Type: String
+    Default: main
+  CreateOidcProvider:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "true solo si la cuenta todavia no tiene el proveedor OIDC de GitHub."
+  Region:
+    Type: String
+    Default: us-east-1
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  AppRoleBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AppName}-ci-boundary"
+      Description: Techo de los roles de la app. Solo recursos de la app, sin IAM, sin asumir roles.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TaggedAppResources
+            Effect: Allow
+            Action:
+              - bedrock:*
+              - lambda:InvokeFunction
+              - sqs:*
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:ResourceTag/sst:app: !Ref AppName
+          - Sid: NamedAppResources
+            Effect: Allow
+            Action:
+              - dynamodb:*
+              - s3:*
+              - sqs:*
+              - lambda:InvokeFunction
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+              - bedrock-agentcore:*
+            Resource:
+              - !Sub "arn:${AWS::Partition}:dynamodb:${Region}:${AWS::AccountId}:table/${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:s3:::${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:sqs:${Region}:${AWS::AccountId}:${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:lambda:${Region}:${AWS::AccountId}:function:${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:ecr:${Region}:${AWS::AccountId}:repository/${AppName}-*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:runtime/${AgentRuntimePrefix}*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:gateway/${AppName}-gw-*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:memory/${AgentRuntimePrefix}*"
+          - Sid: KnowledgeBaseAndModels
+            # La KB y los modelos no llevan tag (Cloud Control / catálogo de AWS).
+            Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+              - bedrock:InvokeModelWithResponseStream
+              - bedrock:Retrieve
+              - bedrock:RetrieveAndGenerate
+              - bedrock:StartIngestionJob
+              - bedrock:GetIngestionJob
+              - bedrock:Rerank
+              - bedrock:ApplyGuardrail
+            Resource:
+              - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+              - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+              - !Sub "arn:${AWS::Partition}:bedrock:${Region}:${AWS::AccountId}:knowledge-base/*"
+              - !Sub "arn:${AWS::Partition}:bedrock:${Region}:${AWS::AccountId}:guardrail/*"
+              - "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref Region
+          - Sid: AgentCoreNoResourceLevel
+            Effect: Allow
+            Action:
+              - bedrock-agentcore:AuthorizeAction
+              - bedrock-agentcore:PartiallyAuthorizeActions
+              - bedrock-agentcore:GetPolicyEngine
+              - bedrock-agentcore:GetWorkloadAccessToken*
+            Resource: "*"
+          - Sid: S3VectorsOfThisApp
+            Effect: Allow
+            Action: s3vectors:*
+            Resource: !Sub "arn:${AWS::Partition}:s3vectors:${Region}:${AWS::AccountId}:bucket/${AppName}-*"
+          - Sid: LogsAndTelemetry
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+              - xray:GetSamplingRules
+              - xray:GetSamplingTargets
+              - cloudwatch:PutMetricData
+              - ecr:GetAuthorizationToken
+              - pricing:GetProducts
+            Resource: "*"
+          - Sid: DenyPrivilegeEscalationAndAccountControl
+            Effect: Deny
+            Action:
+              - iam:*
+              - sts:AssumeRole
+              - organizations:*
+              - account:*
+              - sso:*
+            Resource: "*"
+
+  DeploySstHomePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AppName}-ci-deploy-sst-home"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SstBucketsList
+            Effect: Allow
+            Action: [s3:GetBucketLocation, s3:ListBucket]
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::sst-state-*"
+              - !Sub "arn:${AWS::Partition}:s3:::sst-asset-*"
+          - Sid: SstStateOfThisApp
+            Effect: Allow
+            Action: [s3:DeleteObject, s3:GetObject, s3:PutObject]
+            Resource: !Sub "arn:${AWS::Partition}:s3:::sst-state-*/*/${AppName}/*"
+          - Sid: SstAssetObjects
+            Effect: Allow
+            Action: [s3:DeleteObject, s3:GetObject, s3:GetObjectTagging, s3:PutObject, s3:PutObjectTagging]
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::sst-asset-*/assets/*"
+              - !Sub "arn:${AWS::Partition}:s3:::sst-asset-*/sourcemap/*"
+          - Sid: SstBootstrapMarker
+            Effect: Allow
+            Action: [ssm:GetParameter, ssm:GetParameters]
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${Region}:${AWS::AccountId}:parameter/sst/bootstrap"
+          - Sid: SstPassphraseOfThisApp
+            Effect: Allow
+            Action: [ssm:AddTagsToResource, ssm:GetParameter, ssm:GetParameters, ssm:PutParameter]
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${Region}:${AWS::AccountId}:parameter/sst/passphrase/${AppName}/*"
+          - Sid: KmsThroughSsmAndLambda
+            Effect: Allow
+            Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey, kms:CreateGrant]
+            Resource: "*"
+            Condition:
+              StringEquals:
+                kms:CallerAccount: !Ref AWS::AccountId
+                kms:ViaService:
+                  - !Sub "ssm.${Region}.amazonaws.com"
+                  - !Sub "lambda.${Region}.amazonaws.com"
+          - Sid: CloudControlTransport
+            # Cloud Control usa las credenciales del caller: los permisos reales
+            # son los del servicio de abajo.
+            Effect: Allow
+            Action:
+              - cloudformation:CreateResource
+              - cloudformation:GetResource
+              - cloudformation:UpdateResource
+              - cloudformation:DeleteResource
+              - cloudformation:GetResourceRequestStatus
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref Region
+
+  DeployIamPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AppName}-ci-deploy-iam"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadAppRoles
+            Effect: Allow
+            Action:
+              - iam:GetRole
+              - iam:GetRolePolicy
+              - iam:ListRolePolicies
+              - iam:ListAttachedRolePolicies
+              - iam:ListInstanceProfilesForRole
+              - iam:ListRoleTags
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Condition:
+              StringEquals:
+                aws:ResourceTag/sst:app: !Ref AppName
+          - Sid: CreateAppRolesOnlyWithBoundary
+            Effect: Allow
+            Action: [iam:CreateRole, iam:TagRole]
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref AppRoleBoundary
+                aws:RequestTag/sst:app: !Ref AppName
+          - Sid: EditAppRolesThatHaveTheBoundary
+            Effect: Allow
+            Action:
+              - iam:PutRolePolicy
+              - iam:DeleteRolePolicy
+              - iam:DeleteRole
+              - iam:UpdateRole
+              - iam:UpdateRoleDescription
+              - iam:UpdateAssumeRolePolicy
+              - iam:UntagRole
+              - iam:TagRole
+              - iam:PutRolePermissionsBoundary
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref AppRoleBoundary
+                aws:ResourceTag/sst:app: !Ref AppName
+          - Sid: AttachOnlyKnownAwsManagedPolicies
+            Effect: Allow
+            Action: [iam:AttachRolePolicy, iam:DetachRolePolicy]
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Condition:
+              StringEquals:
+                iam:PermissionsBoundary: !Ref AppRoleBoundary
+                aws:ResourceTag/sst:app: !Ref AppName
+              ArnLike:
+                iam:PolicyARN:
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+                  - !Sub "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
+          - Sid: PassAppRolesToItsServices
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*"
+            Condition:
+              StringEquals:
+                aws:ResourceTag/sst:app: !Ref AppName
+                iam:PassedToService:
+                  - lambda.amazonaws.com
+                  - bedrock.amazonaws.com
+                  - bedrock-agentcore.amazonaws.com
+                  - scheduler.amazonaws.com
+          - Sid: DenyIdentityAndBoundaryTampering
+            Effect: Deny
+            Action:
+              - iam:CreateUser
+              - iam:CreateAccessKey
+              - iam:CreateLoginProfile
+              - iam:UpdateLoginProfile
+              - iam:AttachUserPolicy
+              - iam:PutUserPolicy
+              - iam:DeleteRolePermissionsBoundary
+              - iam:CreatePolicyVersion
+              - iam:SetDefaultPolicyVersion
+              - iam:CreateOpenIDConnectProvider
+              - iam:DeleteOpenIDConnectProvider
+              - iam:UpdateOpenIDConnectProviderThumbprint
+            Resource: "*"
+          - Sid: DenyTouchingTheCiRoleItself
+            Effect: Deny
+            Action: iam:*
+            Resource:
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}-github-deploy"
+              - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${AppName}-ci-*"
+
+  DeployAppPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${AppName}-ci-deploy-app"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TaggedAppResources
+            Effect: Allow
+            Action:
+              - lambda:*
+              - logs:*
+              - sqs:*
+              - bedrock:*
+              - ecr:*
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:ResourceTag/sst:app: !Ref AppName
+                aws:RequestedRegion: !Ref Region
+          - Sid: CreateTaggedAsThisApp
+            Effect: Allow
+            Action:
+              - lambda:CreateFunction
+              - lambda:CreateEventSourceMapping
+              - lambda:TagResource
+              - logs:CreateLogGroup
+              - logs:TagResource
+              - logs:TagLogGroup
+              - sqs:CreateQueue
+              - sqs:TagQueue
+              - bedrock:CreateGuardrail
+              - bedrock:CreateKnowledgeBase
+              - bedrock:TagResource
+              - ecr:CreateRepository
+              - ecr:TagResource
+              - dynamodb:TagResource
+              - s3:PutBucketTagging
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestTag/sst:app: !Ref AppName
+                aws:RequestedRegion: !Ref Region
+          - Sid: NamedAppResources
+            Effect: Allow
+            Action:
+              - dynamodb:*
+              - s3:*
+              - sqs:*
+              - ecr:*
+              - s3vectors:*
+              - cloudwatch:GetDashboard
+              - cloudwatch:PutDashboard
+              - cloudwatch:DeleteDashboards
+              - scheduler:CreateSchedule
+              - scheduler:GetSchedule
+              - scheduler:UpdateSchedule
+              - scheduler:DeleteSchedule
+            Resource:
+              - !Sub "arn:${AWS::Partition}:dynamodb:${Region}:${AWS::AccountId}:table/${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:s3:::${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:sqs:${Region}:${AWS::AccountId}:${AppName}-${DeployStage}-*"
+              - !Sub "arn:${AWS::Partition}:ecr:${Region}:${AWS::AccountId}:repository/${AppName}-*"
+              - !Sub "arn:${AWS::Partition}:s3vectors:${Region}:${AWS::AccountId}:bucket/${AppName}-*"
+              - !Sub "arn:${AWS::Partition}:cloudwatch::${AWS::AccountId}:dashboard/${AppName}-*"
+              - !Sub "arn:${AWS::Partition}:scheduler:${Region}:${AWS::AccountId}:schedule/default/Ingesta*"
+          - Sid: AgentCoreOfThisApp
+            # AgentCore no hereda tags de SST: se acota por nombre.
+            Effect: Allow
+            Action: bedrock-agentcore:*
+            Resource:
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:runtime/${AgentRuntimePrefix}*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:gateway/${AppName}-gw-*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:memory/${AgentRuntimePrefix}*"
+              - !Sub "arn:${AWS::Partition}:bedrock-agentcore:${Region}:${AWS::AccountId}:workload-identity-directory/default*"
+          - Sid: AgentCoreCreates
+            Effect: Allow
+            Action:
+              - bedrock-agentcore:CreateAgentRuntime
+              - bedrock-agentcore:CreateGateway
+              - bedrock-agentcore:CreateMemory
+              - bedrock-agentcore:CreateWorkloadIdentity
+              - bedrock-agentcore:ListTagsForResource
+              - bedrock-agentcore:TagResource
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref Region
+          - Sid: KnowledgeBaseUntagged
+            # ARN con ID aleatorio y sin tag: riesgo residual en docs/seguridad-ci.md.
+            Effect: Allow
+            Action:
+              - bedrock:GetKnowledgeBase
+              - bedrock:UpdateKnowledgeBase
+              - bedrock:DeleteKnowledgeBase
+              - bedrock:CreateDataSource
+              - bedrock:GetDataSource
+              - bedrock:UpdateDataSource
+              - bedrock:DeleteDataSource
+              - bedrock:ListDataSources
+              - bedrock:StartIngestionJob
+              - bedrock:GetIngestionJob
+              - bedrock:ListTagsForResource
+            Resource: !Sub "arn:${AWS::Partition}:bedrock:${Region}:${AWS::AccountId}:knowledge-base/*"
+          - Sid: S3PublicAccessGuard
+            # El bucket de documentos no puede quedar público.
+            Effect: Deny
+            Action: s3:PutBucketPublicAccessBlock
+            Resource: "*"
+            Condition:
+              Bool:
+                s3:PublicAccessBlockConfiguration/BlockPublicPolicy: "false"
+          - Sid: TransactionSearch
+            Effect: Allow
+            Action:
+              - xray:GetTraceSegmentDestination
+              - xray:UpdateTraceSegmentDestination
+              - xray:GetIndexingRules
+              - xray:UpdateIndexingRule
+              - logs:DescribeResourcePolicies
+              - logs:PutResourcePolicy
+            Resource: "*"
+          - Sid: NoResourceLevelReads
+            Effect: Allow
+            Action:
+              - bedrock:ListKnowledgeBases
+              - bedrock:ListFoundationModels
+              - bedrock:ListInferenceProfiles
+              - bedrock:GetFoundationModel
+              - bedrock:GetInferenceProfile
+              - ecr:GetAuthorizationToken
+              - ecr:DescribeRepositories
+              - logs:DescribeLogGroups
+              - sts:GetCallerIdentity
+            Resource: "*"
+          - Sid: EventSourceMappingsOfAppFunctions
+            Effect: Allow
+            Action:
+              - lambda:CreateEventSourceMapping
+              - lambda:UpdateEventSourceMapping
+              - lambda:DeleteEventSourceMapping
+            Resource: "*"
+            Condition:
+              ArnLike:
+                lambda:FunctionArn: !Sub "arn:${AWS::Partition}:lambda:${Region}:${AWS::AccountId}:function:${AppName}-${DeployStage}-*"
+          - Sid: ReadEventSourceMappings
+            Effect: Allow
+            Action: lambda:GetEventSourceMapping
+            Resource: !Sub "arn:${AWS::Partition}:lambda:${Region}:${AWS::AccountId}:event-source-mapping:*"
+          - Sid: DenyRetaggingOtherApps
+            Effect: Deny
+            Action:
+              - lambda:TagResource
+              - logs:TagResource
+              - sqs:TagQueue
+              - bedrock:TagResource
+              - ecr:TagResource
+              - dynamodb:TagResource
+              - iam:TagRole
+            Resource: "*"
+            Condition:
+              StringNotEquals:
+                aws:ResourceTag/sst:app: !Ref AppName
+              "Null":
+                aws:ResourceTag/sst:app: "false"
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-github-deploy"
+      Description: !Sub "Deploy de ${GitHubOrg}/${GitHubRepo} (rama ${DeployBranch}) via GitHub Actions OIDC"
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOidcProvider
+                - !GetAtt GitHubOidcProvider.Arn
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # Formato clásico e inmutable: gh api repos/<repo>/actions/oidc/customization/sub
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}"
+                  - !Sub "repo:${GitHubOrg}@${GitHubOrgId}/${GitHubRepo}@${GitHubRepoId}:ref:refs/heads/${DeployBranch}"
+      ManagedPolicyArns:
+        - !Ref DeploySstHomePolicy
+        - !Ref DeployIamPolicy
+        - !Ref DeployAppPolicy
+      Tags:
+        - Key: managed-by
+          Value: !Sub "cloudformation/${AWS::StackName}"
+
+Outputs:
+  DeployRoleArn:
+    Description: Valor del secret DEPLOY_ROLE_ARN del repo.
+    Value: !GetAtt DeployRole.Arn
+  BoundaryPolicyArn:
+    Description: Boundary que sst.config.ts aplica a todos los aws.iam.Role de la app.
+    Value: !Ref AppRoleBoundary

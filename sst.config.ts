@@ -34,6 +34,12 @@ export default $config({
     };
   },
   async run() {
+    // Todo rol de la app nace con la boundary de infra/bootstrap/ci-role.yaml: el
+    // rol de CI solo puede crear/editar roles que la tengan. Tiene que ir antes
+    // de cualquier import de infra. Ver docs/seguridad-ci.md.
+    $transform(aws.iam.Role, (args) => {
+      args.permissionsBoundary = $interpolate`arn:aws:iam::${aws.getCallerIdentityOutput().accountId}:policy/${$app.name}-ci-boundary`;
+    });
     const { runtime, repo } = await import("./infra/sst/runtime");
     await import("./infra/sst/bff");
     // El worker linkea messagesTableLink/runtimeLink desde ./mensajeria y
