@@ -230,11 +230,20 @@ Resources:
                 aws:ResourceTag/sst:app: !Ref AppName
           - Sid: CreateAppRolesOnlyWithBoundary
             Effect: Allow
-            Action: [iam:CreateRole, iam:TagRole]
+            Action: iam:CreateRole
             Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}/*"
             Condition:
               StringEquals:
                 iam:PermissionsBoundary: !Ref AppRoleBoundary
+                aws:RequestTag/sst:app: !Ref AppName
+          - Sid: TagAppRolesOnCreate
+            # CreateRole con tags exige además iam:TagRole, y esa acción no lleva la
+            # clave iam:PermissionsBoundary en su contexto: se condiciona solo al tag.
+            Effect: Allow
+            Action: iam:TagRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppName}/*"
+            Condition:
+              StringEquals:
                 aws:RequestTag/sst:app: !Ref AppName
           - Sid: EditAppRolesThatHaveTheBoundary
             Effect: Allow
